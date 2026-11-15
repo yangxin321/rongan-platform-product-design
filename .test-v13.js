@@ -693,14 +693,21 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     openPerson(pair.aps[0].id);
     huSetTab('apply');
     const h1 = location.hash, a1 = HU.appId;
-    const others = [...document.querySelectorAll('.main .app-row')];
-    const goOther = others.find(el => /huGo\('apply'/.test(el.getAttribute('onclick') || ''));
-    if(!goOther) return { err: '投递跟进页没有「其他投递」入口', n, sameBadge, h1, a1 };
-    goOther.click();
+    /* 2026-11-15 第十一批：投递跟进页的「其他投递」块已去掉 ——
+       同一人多个需求在招聘人员列表各占一行，切另一单就从那一行的「投递跟进」进。
+       所以这里验的是同一条业务能力：多单一处不少、切过去还是同一单、地址跟着换。 */
+    go('persons');
+    setF('q', name);
+    const rows2 = [...document.querySelectorAll('.main .tbl-wrap tbody tr')]
+      .filter(tr => !tr.classList.contains('row-more'));
+    const btnOf = r => [...r.querySelectorAll('.acts .link')].find(l => l.innerText.trim() === '投递跟进');
+    const b1 = rows2[1] ? btnOf(rows2[1]) : null;
+    if(!b1) return { err: '同投的第二行没有「投递跟进」入口', n, n2: rows2.length, sameBadge, h1, a1 };
+    b1.click();
     return { n, want: pair.aps.length, sameBadge, h1, a1, h2: location.hash, a2: HU.appId,
       page2: S.page, pidNow: HU.pid, pid: pair.pid };
   });
-  ok('RG012-47 一人多单一条不少，且能在投递跟进页切到另一单（地址跟随）',
+  ok('RG012-47 一人多单一条不少，且能从列表切到另一单（地址跟随）',
      !multi.err && multi.n === multi.want && multi.want >= 2 && multi.sameBadge
      && /\/apply\/P\d+$/.test(multi.h1) && multi.a1
      && multi.h2 !== multi.h1 && multi.a2 && multi.a2 !== multi.a1

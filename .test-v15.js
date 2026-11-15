@@ -141,32 +141,37 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      && app.steps.rows.some(r => /还没到这一步/.test(r[3])),
      JSON.stringify(app.steps && app.steps.rows.map(r => r[0] + '|' + r[3]).slice(0, 6)));
 
-  /* 转交：只作用于这一条投递，并写进转交历史表 */
+  /* 转交：入口收在页头（原来占一整块「更多操作」），进入后仍只作用于这一条投递 */
   const tr0 = await ev(() => {
-    const b = Array.from(document.querySelectorAll('.main .btn')).find(x => /转交跟进/.test(x.innerText));
+    const b = Array.from(document.querySelectorAll('.main .btn')).find(x => x.innerText.trim() === '转交');
     if (!b) return { err: 'no-transfer-btn' };
     b.click();
     return { modal: !!document.querySelector('#modal.on'), fixed: (document.querySelector('#modal') || {}).innerText || '' };
   });
   await page.waitForTimeout(200);
-  ok('RG015-13 「更多操作」里的转交跟进锁定这一条投递',
+  ok('RG015-13 页头的「转交」只作用于这一条投递',
      tr0.modal && /只转这一条投递|只作用于这一条投递/.test(tr0.fixed), JSON.stringify(tr0).slice(0, 200));
 
   const tr1 = await ev(() => {
     const sel = document.querySelector('#trTo');
     if (sel) { sel.selectedIndex = 0; }
     Array.from(document.querySelectorAll('#modal .btn.pri')).pop().click();
-    const head = Array.from(document.querySelectorAll('.main .sec-t')).find(x => /转交历史/.test(x.innerText));
-    const sec = head ? head.closest('.sec') : null;
-    const trs = sec ? Array.from(sec.querySelectorAll('.tbl-wrap thead th')).map(x => x.innerText.trim()) : [];
-    const r0 = sec && sec.querySelector('.tbl-wrap tbody tr');
-    return { ths: trs, row: r0 ? r0.innerText.replace(/\n+/g, ' ') : '',
-      hash: location.hash };
+    const m = document.querySelector('.main');
+    return { hash: location.hash, t: m.innerText };
   });
   await page.waitForTimeout(250);
-  ok('RG015-14 转交历史是独立表格（时间/原/新/范围/原因），范围标明这一条投递',
-     JSON.stringify(tr1.ths) === JSON.stringify(['时间', '原跟进人', '新跟进人', '转交范围', '原因'])
-     && /只转这一条投递/.test(tr1.row), JSON.stringify(tr1).slice(0, 240));
+  /* 用户截图「先直接去掉」：这一页只留「跟进环节 + 这一单的联系记录」两段。
+     其他投递、更多操作、转交历史三块都不该再出现在投递跟进页 ——
+     转交流水没有丢，它在「沟通记录 → 转交历史」（RG015-22 验）。 */
+  const trT = tr1.t || '';
+  ok('RG015-14 投递跟进页不再有「其他投递 / 更多操作 / 转交历史」三块',
+     !!tr1.t && !/其他投递/.test(trT) && !/更多操作/.test(trT) && !/转交历史/.test(trT),
+     JSON.stringify({ hash: tr1.hash, t: trT.slice(0, 120), err: tr1.err }));
+
+  const trSecs = await ev(() => Array.from(document.querySelectorAll('.main .sec-t')).map(x => x.innerText.trim()));
+  ok('RG015-14b 投递跟进页只剩「跟进环节」与「这一单的联系记录」两段',
+     A(trSecs).length === 2 && /^跟进环节/.test(A(trSecs)[0]) && /^这一单的联系记录/.test(A(trSecs)[1]),
+     JSON.stringify(trSecs));
 
   /* ===================== V3-04 资料核实 ===================== */
   await ev(() => huGo('verify', 'P1', 'D1'));

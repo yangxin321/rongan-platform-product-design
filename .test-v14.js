@@ -137,17 +137,27 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   ok('RG014-14 投递跟进页仍是原流程（联系/补全/面试/入职/建档可找到）',
      ['记录联系', '补全', '面试', '入职', '建档'].every(k => app.t.includes(k)), '');
 
+  /* 第十一批（2026-11-15）：投递跟进页去掉了「这个人的其他投递」块，
+     多单切换改在招聘人员列表（一人多单各占一行）。这里改验两件事：
+     这一页不再挂切换入口，且每条投递仍各自可寻址（刷新 / 分享落到同一单）。 */
   const other = await ev(() => {
     const l = Array.from(document.querySelectorAll('.main .link')).find(x => x.innerText.trim() === '看这一单');
-    if (!l) return { none: true };
-    l.click();
-    return { none: false };
+    const hasBlock = /其他投递\s*（/.test(document.querySelector('.main').innerText);
+    return { noLink: !l, hasBlock };
   });
-  await page.waitForTimeout(250);
-  const otherHash = await hash();
-  ok('RG014-15 页面里能切到「其他投递」，且地址跟着换',
-     other.none || (/^#person\/PE001\/apply\/P\d+$/.test(otherHash) && otherHash !== '#person/PE001/apply/P1'),
-     otherHash);
+  ok('RG014-15 投递跟进页不再挂「其他投递」切换块（多单在列表各占一行）',
+     other.noLink && !other.hasBlock, JSON.stringify(other));
+
+  const app2 = await ev(() => { const x = PERSONS.find(p => p.personId === 'PE001' && p.id !== 'P1'); return x ? { id: x.id } : null; });
+  if (app2) {
+    await ev(id => { location.hash = '#person/PE001/apply/' + id; applyHash(); }, app2.id);
+    await page.waitForTimeout(250);
+    const h2 = await ev(() => ({ hash: location.hash, app: HU.appId, node: (document.querySelector('.main') || {}).innerText.slice(0, 40) }));
+    ok('RG014-15b 直接改地址能落到另一条投递（每条投递各自可寻址）',
+       h2.hash === '#person/PE001/apply/' + app2.id && h2.app === app2.id, JSON.stringify(h2));
+  } else {
+    ok('RG014-15b 直接改地址能落到另一条投递（每条投递各自可寻址）', false, 'PE001 只有一条投递');
+  }
 
   /* ---------- 6. 沟通记录：跨投递合并 + 档案记录 ---------- */
   await ev(() => huGo('logs', 'P1', 'D1'));

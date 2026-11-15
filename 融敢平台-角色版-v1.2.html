@@ -6414,7 +6414,10 @@ function huHtml(){
     ? `<button class="btn pri" onclick="openModal(followModal('${esc(pid)}','archive'),'md-lg')">＋ 新增沟通记录</button>`
     : view === 'verify'
     ? `<button class="btn" onclick="openModal(followModal('${esc(pid)}','archive'),'md-lg')">记录联系 · 补材料</button>`
-    : `<button class="btn" onclick="openDemand('${esc((P(HU.appId)||{}).demandId||'')}')">看这条需求</button>`;
+    /* 投递跟进页：转交收成页头一个按钮（原来占一整块「更多操作」）。
+       仍然带着当前投递 id 进去，弹窗里锁定「只转这一条投递」，不会顺手把别的单也转走。 */
+    : `<button class="btn" onclick="openModal(transferModal('${esc(pid)}','${esc(HU.appId||'')}'))">转交</button>
+       <button class="btn" onclick="openDemand('${esc((P(HU.appId)||{}).demandId||'')}')">看这条需求</button>`;
 
   let body;
   if(view === 'profile') body = huPortrait(p);
@@ -6616,9 +6619,7 @@ function huApply(p){
   const idx = NODES.indexOf(a.node);
   const nx = HU_NODE_NEXT[a.node] || {todo:'按流程推进', act:'推进'};
   const fl = FOLLOWS.filter(f=>f.personId===a.id).sort((x,y)=>y.time.localeCompare(x.time));
-  const others = all.filter(x=>x.id!==a.id);
   const cnt = fl.length;
-  const lastF = fl[0];
 
   /* 沿用既有六段环节，改成表格：环节 / 当前情况 / 已有记录或结果 / 操作。
      每段只在自己该处理的时候给按钮，点进去才处理 —— 不点一下就自动判完成。 */
@@ -6668,15 +6669,14 @@ function huApply(p){
     {label:'操作', r:s=>s.opsHtml},
   ], rows);
 
-  const trs = transfersOf(pid);
-  const trTbl = trs.length ? table([
-    {label:'时间', r:t=>`<span class="sm mono">${esc(t.at)}</span>`},
-    {label:'原跟进人', r:t=>`<span class="sm">${esc(t.from)}</span>`},
-    {label:'新跟进人', r:t=>`<span class="sm">${esc(t.to)}</span>`},
-    {label:'转交范围', r:t=>`<span class="sm">${esc(t.scope||'这个人全部投递')}</span>`},
-    {label:'原因', r:t=>`<span class="sm mut">${esc(t.why)}</span>`},
-  ], trs) : '<div class="mut sm">这个人的投递还没有转交记录</div>';
-
+  /* 2026-11-15 第十一批（用户截图「先直接去掉」）：
+     这一页只回答「这一单现在要做哪一步」。所以去掉了两段与推进无关的内容 ——
+       ①「这个人的其他投递」：同一份档案的其他单，在招聘人员列表里各占一行（姓名旁标「同投 N」），
+         从这里再列一遍，等于把「这一单」和「这个人的全部」混在一页；
+       ②「更多操作 / 转交跟进 / 转交历史」：整块占掉一屏，而转交是低频动作、转交流水也不是
+         每天要看的东西。转交入口收成页头一个按钮「转交」（仍只作用于这一条投递），
+         转交流水保留在「沟通记录 → 转交历史」，随时可查，不删记录。
+     转交流水本身一条都没删，只是不在这页展开。 */
   return `
     <div class="arc-top" style="margin-bottom:12px">
       <span class="sm"><b>人员</b> ${esc(p.name)} <span class="xs mut">${esc(p.gender)} · ${p.age}岁 · ${esc(p.phone)}</span></span>
@@ -6701,23 +6701,6 @@ function huApply(p){
         <div class="tl-t">${esc(f.note)}</div></div>`).join('')}</div>`
       : '<div class="mut sm">这一单还没有联系记录</div>'}
       <div class="xs mut" style="margin-top:6px">只列这一单的联系；跨需求的合并记录在「沟通记录」。</div>
-    </div>
-
-    ${others.length?`<div class="sec"><div class="sec-t">这个人的其他投递（${others.length}）<span class="perm">各走各的，互不影响</span></div>
-      ${others.map(x=>{const dd=D(x.demandId); return `<div class="app-row" onclick="huGo('apply','${x.id}')">
-        <div style="flex:1"><div class="sm"><b>${esc(dd.post)}</b> <span class="xs mut">· ${esc(dd.client)}</span></div>
-          <div class="xs mut mono">${x.batchId?esc(B(x.batchId).code):'人才池捞入'} · ${esc(x.owner)}</div></div>
-        ${tierChip(x.tier)} ${nodeB(x.node)}<span class="link xs">看这一单</span></div>`;}).join('')}
-      <div class="xs mut" style="margin-top:6px">某一次面试没过，不代表这个人在别的需求上也失败。</div>
-    </div>`:''}
-
-    <div class="sec"><div class="sec-t">更多操作</div>
-      <div class="acts" style="margin-bottom:10px">
-        <button class="btn sm" onclick="openModal(transferModal('${esc(pid)}','${a.id}'))">转交跟进（只作用于这一条投递）</button>
-      </div>
-      <div class="sec-t" style="margin-top:6px">转交历史（${trs.length}）</div>
-      ${trTbl}
-      <div class="xs mut" style="margin-top:6px">转交历史不可删除；转回自己也算一条。档案级转交的范围在「转交范围」列标明，不与单条投递的转交混为一事。</div>
     </div>`;
 }
 function huApplyEmpty(p){
