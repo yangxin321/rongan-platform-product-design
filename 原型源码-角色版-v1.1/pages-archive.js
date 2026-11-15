@@ -215,11 +215,11 @@ function huResume(p){
         <div><dt>现居地</dt><dd class="sm">${esc((verifyOf(p.id).city||{}).live || p.city || '—')}
           <span class="xs mut">${esc((verifyOf(p.id).city||{}).liveState||'')}</span>
           <span class="xs mut">（不作为匹配依据）</span></dd></div>
-        <div><dt>愿意工作城市</dt><dd class="sm">${(()=>{ const c=verifyOf(p.id).city||{};
-          /* 只看状态，不看数组是否有值：待确认时即便填了城市也不得显示符合 */
-          const st = c.wantState==='已确认' ? 'ok' : 'pend';
-          const txt = (c.want||[]).length ? esc(c.want.join('、')) : '<span class="mut">未确认</span>';
-          return txt+' '+tri(st); })()}</dd></div>
+        <div><dt>愿意工作城市</dt><dd class="sm">${(()=>{ const k=cityStateOf(p);
+          /* 只看状态，不看数组是否有值：待确认时即便填了城市也不得显示符合；
+             意愿已确认但明确不含岗位城市时，必须显示不符合（同核实依据页口径） */
+          const txt = k.want.length ? esc(k.want.join('、')) : '<span class="mut">未确认</span>';
+          return txt+' '+tri(k.st); })()}</dd></div>
         <div><dt>可到岗</dt><dd class="sm">${(()=>{ const v=verifyOf(p.id).arrive||{};
           /* 同理：有日期但状态未确认，仍显示待确认 */
           const st = (v.state==='已确认' && v.date) ? 'ok' : 'pend';
@@ -269,13 +269,35 @@ const VER_CONFLICT = {
   '陈志强':[{need:'低压电工证证件信息是否可辨',
           a:'简历附件上传了证书照片', b:'照片模糊，证件号与发证日期看不清'}],
 };
+/* 愿意工作城市的三态（R5 / RG-004 · 第三项）
+   「意愿已确认」只说明问过了，**不等于**「符合本岗位地点」：必须与当前查看的这次投递
+   对应需求的**生效版本**地点比对，与 assessPerson 第 3 项同一口径。
+   否则同一人会在匹配页判不符合、在核实依据页判符合，两处结论相反。 */
+function cityStateOf(p){
+  const pid = p.personId || p.id;
+  const c = (verifyOf(pid) || {}).city || {};
+  /* 优先用当前查看的这次投递；HU.appId 属于别人时退回本档案的第一条投递，
+     避免直接在函数里渲染他人档案时拿错需求地点 */
+  const huApp = (HU.appId && P(HU.appId)) ? P(HU.appId) : null;
+  const curApp = (huApp && huApp.personId === pid) ? huApp : (appsOf(pid)[0] || null);
+  const dm = (curApp && curApp.demandId) ? D(curApp.demandId) : null;
+  const need = (dm && (gateOf(dm) || {}).city) || '';
+  const want = c.want || [];
+  let st = 'pend';
+  if(c.wantState === '已确认' && want.length && need){
+    st = want.some(x => need.includes(x)) ? 'ok' : 'no';
+  }
+  return { c, want, need, dm, st };
+}
+
 function huVerify(p){
   const v = verifyOf(p.id);
   const certs = v.certs || [], c = v.city || {}, a = v.arrive || {}, n = v.night || {};
+  const cs = cityStateOf(p);
   const certState = certs.some(x=>x.state==='ok') ? 'ok' : certs.some(x=>x.state==='no') ? 'no'
     : certs.length ? 'pend' : 'pend';
   const gaps = [];
-  if(c.wantState !== '已确认') gaps.push('愿意工作城市');
+  if(cs.st === 'pend') gaps.push('愿意工作城市');
   if(!(a.date && a.state==='已确认')) gaps.push('可到岗时间');
   if(n.state !== '已确认愿意' && n.state !== '已确认不愿') gaps.push('夜班意愿');
   if(!certs.some(x=>x.state==='ok')) gaps.push('已核验的证书');
@@ -305,9 +327,19 @@ function huVerify(p){
 
   <div class="sec"><div class="sec-t">工作城市<span class="perm">现居 ≠ 愿意去</span></div>
     ${row('现居地', c.liveState==='已核实'?'ok':'pend', '—', c.live||'—', c.src, '', c.at, '现居地本身不做匹配依据')}
-    ${row('愿意工作城市', c.wantState==='已确认'?'ok':'pend', '客户岗位所在城市',
-        (c.want||[]).length ? c.want.join('、') : '未确认',
-        c.src, '', c.at, c.wantState==='已确认'?'':'意愿缺失时一律待确认，不按现居地推断')}
+    ${(()=>{
+      /* 与当前投递对应需求生效版本的地点比对（同 assessPerson 第三项），
+         不能只看「意愿已确认」——那会把「问了，说只在深圳、惠州」显示成符合东莞。 */
+      const neeNeed = cs.dm ? `客户岗位所在城市 ${cs.need}（需求 ${cs.dm.post}）` : '客户岗位所在城市';
+      const got = cs.want.length ? cs.want.join('、') : '未确认';
+      const note = cs.st === 'no'
+        ? `客户岗位地点为 ${cs.need}，候选人明确不愿去该地，按依据判为已确认不符合`
+        : cs.st === 'ok' ? ''
+        : (cs.c.wantState === '已确认'
+            ? '意愿已确认，但缺少对应需求的地点条件，暂不可判定'
+            : '意愿缺失时一律待确认，不按现居地推断');
+      return row('愿意工作城市', cs.st, neeNeed, got, cs.c.src, '', cs.c.at, note);
+    })()}
   </div>
 
   <div class="sec"><div class="sec-t">可到岗时间<span class="perm">须候选人确认</span></div>

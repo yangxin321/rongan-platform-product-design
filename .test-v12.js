@@ -349,6 +349,41 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      rsCheck.goodOk && rsCheck.badNoOk && rsCheck.badPend, JSON.stringify(rsCheck));
   await ev(() => closeAll());
 
+  /* 回归第九轮 BLOCKER：赵鹏意愿「已确认」但明确只去深圳、惠州，D1 在东莞。
+     核实依据页原先只看 wantState==='已确认' 就显示绿色「已核实符合」，
+     与 assessPerson 判 no 直接冲突（同一人两页结论相反，违反 R5）。
+     现按当前投递对应需求**生效版本**的地点比对，与匹配口径统一。 */
+  await ev(() => { enter('R04'); openPerson(PERSONS.find(x=>x.name==='赵鹏').id); huSetTab('verify'); });
+  await page.waitForTimeout(350);
+  const zCity = await ev(() => {
+    const row = Array.from(document.querySelectorAll('.tri-row')).find(r=>r.innerText.includes('愿意工作城市'));
+    return { row: row ? row.innerText.replace(/\n+/g, ' ') : '',
+             assess: assessPerson(PERSONS.find(x=>x.name==='赵鹏'), D('D1')).find(x=>x.key==='city').state };
+  });
+  ok('RG004-11 核实依据页城市按需求生效地点判不符合',
+     zCity.row.includes('已确认不符合') && !zCity.row.includes('已核实符合')
+     && zCity.row.includes('东莞') && zCity.assess === 'no', JSON.stringify(zCity));
+
+  await ev(() => huSetTab('resume'));
+  await page.waitForTimeout(250);
+  const zCityRs = await ev(() => {
+    const dd = Array.from(document.querySelectorAll('.kv > div')).find(x=>x.innerText.includes('愿意工作城市'));
+    return dd ? dd.innerText.replace(/\n+/g, ' ') : '';
+  });
+  ok('RG004-12 简历页城市同样按需求地点判（两页口径一致）',
+     zCityRs.includes('已确认不符合') && !zCityRs.includes('已核实符合'), zCityRs);
+  await ev(() => closeAll());
+
+  /* 反向保护：意愿确实包含岗位城市时不得被改成不符合（避免过度修正成「全员不符合」） */
+  await ev(() => { openPerson(PERSONS.find(x=>x.name==='李海涛').id); huSetTab('verify'); });
+  await page.waitForTimeout(300);
+  const lCity = await ev(() => {
+    const row = Array.from(document.querySelectorAll('.tri-row')).find(r=>r.innerText.includes('愿意工作城市'));
+    return row ? row.innerText.replace(/\n+/g, ' ') : '';
+  });
+  ok('RG004-13 意愿含岗位城市时仍判已核实符合', lCity.includes('已核实符合'), lCity);
+  await ev(() => closeAll());
+
   /* ---- RG-003 ---- */
   await ev(() => runMatch('B1','demand')); await page.waitForTimeout(400);
   const mm = await txt('.modal');
