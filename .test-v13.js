@@ -94,15 +94,19 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     const m = document.querySelector('.main');
     return { hash: location.hash, text: m.innerText.slice(0, 400),
              onTab: (m.querySelector('.arc-tab.on') || {}).innerText || '',
-             hasScope: /我的 \d+|全部 \d+/.test(m.innerText) };
+             hasSearch: !!m.querySelector('#lf-q'),
+             hasNode: [...m.querySelectorAll('.toolbar select')].some(x => /全部阶段/.test(x.innerText)),
+             hasSt: [...m.querySelectorAll('.toolbar select')].some(x => /全部结果/.test(x.innerText)) };
   });
   ok('RG012-07 切到简历明细，地址同步', /tab=resume$/.test(tabResume.hash) && tabResume.onTab.includes('简历明细'), tabResume.hash);
-  ok('RG012-08 简历明细内容与列表列一致', tabResume.hasScope && /技能|来源 \/ 批次/.test(tabResume.text), tabResume.text.slice(0, 120));
+  ok('RG012-08 简历明细是完整列表：有搜索与阶段/结果筛选，列含技能与来源批次',
+     tabResume.hasSearch && tabResume.hasNode && tabResume.hasSt && /技能/.test(tabResume.text) && /来源 \/ 批次/.test(tabResume.text),
+     tabResume.text.slice(0, 120));
 
   const tabProg = await ev(() => { dmSetTab('progress'); return { hash: location.hash }; });
   await page.waitForTimeout(200);
   const progText = await txt('.main');
-  ok('RG012-09 切到招聘进度，地址同步', /tab=progress$/.test(tabProg.hash) && progText.includes('人员漏斗'), tabProg.hash);
+  ok('RG012-09 切到招聘进度，地址同步', /tab=progress$/.test(tabProg.hash) && progText.includes('我的目标') && progText.includes('我的批次'), tabProg.hash);
 
   /* ---------- AC-6：返回还原筛选 / 搜索 / 滚动 ---------- */
   const back = await ev(() => {
@@ -140,11 +144,12 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     if(typeof DM === 'undefined' || !DM) return { noFn:true };
     return { page: S.page, id: DM.id, tab: DM.tab,
              hasFunnel: m.innerText.includes('人员漏斗'),
+             hasMine: m.innerText.includes('我的目标'),
              title: (m.querySelector('.page-head h2') || {}).innerText || '' };
   });
   ok('RG012-11 带地址刷新仍落在原记录页签',
      freshState.page === 'demandDetail' && freshState.id === 'D3' && freshState.tab === 'progress'
-     && freshState.hasFunnel && freshState.title.length > 0, JSON.stringify(freshState));
+     && freshState.hasMine && freshState.title.length > 0, JSON.stringify(freshState));
 
   /* 浏览器后退：从详情页回到列表 */
   let popState = {};
@@ -334,22 +339,29 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   await page.waitForTimeout(200);
   ok('RG012-34 档案页返回回到人员列表', archBack.page === 'persons' && archBack.rows > 0, JSON.stringify(archBack));
 
-  /* 弹窗里点人名：先关弹窗再进页，不许弹窗上叠一层 */
-  const fromModal = await ev(() => {
+  /* 批次人员是整页：点批次名进 #batch/<id>/persons，页内点人名进档案，抽屉与弹窗都不出现 */
+  const fromBatch = await ev(() => {
     enter('R04'); go('batches');
     const bid = BATCHES[0].id;
-    openBatch(bid);                                  /* 抽屉里列本批人员 */
-    const row = document.querySelector('#drawer [onclick*="openPerson"]');
-    if(!row) return { skip:true, why:'drawer 里没有人员行' };
+    openBatch(bid);
+    const inPage = { page: S.page, hash: location.hash,
+      drawer: !!document.querySelector('#drawer.on'),
+      rows: document.querySelectorAll('.main .tbl-wrap tbody tr').length,
+      hasSearch: !!document.querySelector('.main #lf-q') };
+    const row = document.querySelector('.main .tbl-wrap tbody tr [onclick*="openPerson"]');
+    if(!row) return { skip:true, why:'批次人员页没有人员行', inPage };
     row.click();
-    return { skip:false, page: S.page, hash: location.hash,
+    return { skip:false, inPage, page: S.page, hash: location.hash,
       drawer: !!document.querySelector('#drawer.on'),
       modal: !!document.querySelector('#modal.on') };
   });
   await page.waitForTimeout(250);
-  ok('RG012-35 名单/抽屉里点人名：抽屉关掉再进页，不叠加',
-     !fromModal.skip && fromModal.page === 'personDetail' && !fromModal.drawer && !fromModal.modal,
-     JSON.stringify(fromModal));
+  ok('RG012-35 批次人员是整页不是抽屉：页内点人名进档案，抽屉/弹窗都不出现',
+     !fromBatch.skip && fromBatch.inPage.page === 'batchPersons'
+     && /^#batch\/[^/]+\/persons$/.test(fromBatch.inPage.hash)
+     && fromBatch.inPage.rows > 0 && fromBatch.inPage.hasSearch && !fromBatch.inPage.drawer
+     && fromBatch.page === 'personDetail' && !fromBatch.drawer && !fromBatch.modal,
+     JSON.stringify(fromBatch));
 
   /* R1-3：已生效且没有待处理版本时，不再给「代登记」入口 */
   const r13 = await ev(() => {
@@ -579,8 +591,13 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   });
   await page.waitForTimeout(200);
   const h45c = await ev2(pid1 => {
+    /* 简历明细里点的是投递（P..），档案是 PE..：按投递反查 personId 再排除同一个人 */
     const cand = [...document.querySelectorAll('.main .tbl-wrap tbody tr [onclick*="openHuman"], .main .tbl-wrap tbody tr [onclick*="openPerson"]')];
-    const pick = cand.find(el => !new RegExp("'" + pid1 + "'").test(el.getAttribute('onclick') || ''));
+    const pick = cand.find(el => {
+      const m = (el.getAttribute('onclick') || '').match(/open(Person|Human)\('([^']+)'/);
+      const app = m ? P(m[2]) : null;
+      return app && app.personId !== pid1;
+    });
     if(!pick) return { err:'简历明细里没有第二个人可点' };
     pick.click();
     return { page: S.page, pid: HU.pid, hash: location.hash, back: HU.back ? HU.back.page : null };
@@ -650,6 +667,7 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
       .map(id => ({ pid: id, aps: appsOf(id) })).filter(x => x.aps.length > 1)[0];
     if(!pair) return { err: '没有多条投递的人' };
     enter('R01');
+    HU.open = null;                 /* 夹具：清掉上一条用例留下的展开状态 */
     openPerson(pair.aps[0].id);
     huSetTab('apply');
     const cards = () => [...document.querySelectorAll('.main .acc')];
@@ -788,33 +806,35 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
       n: rows.length, all: personsOf('D1').length, mine: dmMine('D1').length,
       followers: [...new Set(rows.map(t => t.children[fi].innerText.trim()))],
       tabBadge: (m.querySelector('.arc-tab.on .vis') || {}).innerText || '',
-      foot: m.innerText.includes('全单 ' + personsOf('D1').length + ' 人在投'),
+      /* 第七批：范围解释、列一致性说明、底部来源汇总、技术地址标签都从页面上拿掉 */
+      foot: /人从哪来|全单 \d+ 人在投|列与人员列表完全一致|「我的」= 我当前跟进的人/.test(m.innerText),
+      dupText: /人从哪来|#demand\//.test(m.innerText),
     };
   });
-  ok('RG012-53 R04 简历明细只列自己当前跟进的人：没有「全部」档，行内跟进人只有自己',
+  ok('RG012-53 R04 简历明细只列自己当前跟进的人：连「我的/全部」切换都不给，也没有重复说明',
      !rr.err && rr.n === rr.mine && rr.mine > 0 && rr.mine < rr.all
      && rr.followers.length === 1 && rr.followers[0] === rr.me
-     && !rr.chips.some(c => /^全部/.test(c))
-     && rr.chips.some(c => new RegExp('^我的 ' + rr.mine + '$').test(c))
-     && rr.tabBadge === rr.mine + '/' + rr.all && rr.foot,
-     JSON.stringify(rr));
+     && rr.chips.length === 0
+     && rr.tabBadge === String(rr.mine)
+     && !rr.dupText && !rr.foot, JSON.stringify(rr));
 
   const r01r = await ev2(() => {
     enter('R01');
     openDemand('D1', 'resume');
     const m = () => document.querySelector('.main');
     const chips = [...m().querySelectorAll('.chip')].map(c => c.innerText.trim());
-    const n1 = m().querySelectorAll('.tbl-wrap tbody tr').length;
-    dmSetScope('all');
-    const n2 = m().querySelectorAll('.tbl-wrap tbody tr').length;
-    const all = personsOf('D1').length;
+    const nAll = m().querySelectorAll('.tbl-wrap tbody tr').length;   /* 管理层默认看全单 */
     dmSetScope('mine');
-    return { chips, n1, n2, all };
+    const nMine = m().querySelectorAll('.tbl-wrap tbody tr').length;  /* 总经理不跟人，我的 = 0 */
+    dmSetScope('all');
+    const back = m().querySelectorAll('.tbl-wrap tbody tr').length;
+    const all = personsOf('D1').length;
+    return { chips, nAll, nMine, back, all };
   });
-  ok('RG012-54 管理层（R01）仍保留「我的 / 全部」两档，切「全部」能看到全单（能力没有因为收紧专员视角而丢失）',
+  ok('RG012-54 管理层（R01）保留「我的 / 全部」两档，默认全单，切到「我的」只剩自己跟的人',
      !r01r.err && r01r.chips.length === 2
-     && r01r.chips.some(c => /^全部 \d+$/.test(c))
-     && r01r.n1 < r01r.n2 && r01r.n2 === r01r.all,
+     && r01r.chips.some(c => /^全部 \d+$/.test(c)) && r01r.chips.some(c => /^我的 \d+$/.test(c))
+     && r01r.nAll === r01r.all && r01r.nMine < r01r.nAll && r01r.back === r01r.all,
      JSON.stringify(r01r));
 
   const sameRoster = await ev2(() => {
@@ -838,6 +858,253 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      !sameRoster.err && sameRoster.othersN > 0 && sameRoster.leaked.length === 0
      && sameRoster.missing.length === 0 && sameRoster.inPersonList === sameRoster.mineN,
      JSON.stringify(sameRoster));
+
+
+  /* =====================================================================
+     第七批（2026-11-15）· 融敢招聘平台原型修改需求（6 项）
+     ---------------------------------------------------------------------
+     01 需求列表突出本人任务 · 02 简历明细只留本人 + 真分页 · 03 招聘进度只留本人
+     04 批次列表跟进/收集状态 · 05 批次人员整页 · 06 公共操作统一
+     断言只读用户能看见的 DOM：列头、单元格文字、按钮顺序、地址、页码。
+     ===================================================================== */
+
+  /* ---------- 01 需求列表：只讲我自己的目标与简历 ---------- */
+  const myDemand = await ev2(() => {
+    enter('R04'); go('demands');
+    const m = document.querySelector('.main');
+    const th = [...m.querySelectorAll('.tbl-wrap thead th')].map(x => x.innerText.trim());
+    const row = [...m.querySelectorAll('.tbl-wrap tbody tr')].find(tr => /售后运维/.test(tr.innerText));
+    const t = row ? row.innerText : '';
+    const a = allocOf('D1').find(x => x.staff === S.who);
+    return { th, text: t, mine: dmMine('D1').length,
+      qty: a.qty, hired: a.hired, left: a.qty - a.hired,
+      head: D('D1').head,
+      hasWhole: /整单|分摊|未分配/.test(t), hasAlloc: /分配/.test(t) };
+  });
+  ok('RG012-56 R04 需求列表只列本人目标/已入职/缺口/简历，不出现整单与其他专员分配',
+     !myDemand.err
+     && myDemand.th.join(',') === '需求 / 岗位,项目,我的目标,我的简历,最迟到岗,客户确认,状态,操作'
+     && myDemand.text.includes(String(myDemand.qty) + ' 人')
+     && myDemand.text.includes('已入职 ' + myDemand.hired)
+     && myDemand.text.includes('缺口 ' + myDemand.left)
+     && myDemand.text.includes(myDemand.mine + ' 份')
+     && !myDemand.hasWhole && !myDemand.hasAlloc,
+     JSON.stringify(myDemand));
+
+  /* ---------- 06 公共操作三件套：顺序固定 ---------- */
+  const acts = await ev2(() => {
+    enter('R04'); go('demands');
+    const row = [...document.querySelectorAll('.tbl-wrap tbody tr')].find(tr => /售后运维/.test(tr.innerText));
+    const links = [...row.querySelectorAll('.acts .link')].map(x => x.innerText.trim());
+    const view = [...row.querySelectorAll('.acts .link')].find(x => x.innerText.trim() === '查看简历');
+    view.click();
+    return { links, page: S.page, hash: location.hash };
+  });
+  ok('RG012-57 需求列表公共操作固定为「查看简历 / 传简历 / 人才库找人」，查看简历直达本人简历明细',
+     !acts.err && acts.links.length === 3
+     && acts.links[0] === '查看简历' && acts.links[1] === '传简历' && acts.links[2] === '人才库找人'
+     && acts.page === 'demandDetail' && /tab=resume$/.test(acts.hash),
+     JSON.stringify(acts));
+
+  /* ---------- 06 人才库找人：带需求与岗位条件进完整筛选页 ---------- */
+  const poolFor = await ev2(() => {
+    enter('R04'); go('demands');
+    const row = [...document.querySelectorAll('.tbl-wrap tbody tr')].find(tr => /售后运维/.test(tr.innerText));
+    [...row.querySelectorAll('.acts .link')].find(x => x.innerText.trim() === '人才库找人').click();
+    const m = document.querySelector('.main');
+    const t = m.innerText;
+    const stSel = [...m.querySelectorAll('.toolbar select')].map(x => x.value);
+    openModal(poolPickBatch('PE001', S.f.for));
+    const sel = (document.querySelector('#modal select') || {}).innerText || '';
+    closeAll();
+    return { page: S.page, hash: location.hash, forD: S.f.for,
+      banner: /正在为「售后运维工程师」找人/.test(t) && /岗位条件/.test(t),
+      hasCond: t.includes('能接受客户现场驻场'),
+      freeOnly: stSel.includes('free'),
+      pickFirst: /立讯售后-1113/.test(sel) };
+  });
+  ok('RG012-58 人才库找人进完整筛选页：带入需求与岗位条件，捞入默认选这一单的批次',
+     !poolFor.err && poolFor.page === 'pool' && poolFor.hash === '#pool'
+     && poolFor.forD === 'D1' && poolFor.banner && poolFor.hasCond
+     && poolFor.freeOnly && poolFor.pickFirst,
+     JSON.stringify(poolFor));
+
+  /* ---------- 02 简历明细：没有范围切换、没有技术地址、有真分页 ---------- */
+  const resumeUi = await ev2(() => {
+    enter('R04'); openDemand('D1', 'resume');
+    const m = document.querySelector('.main');
+    const t = m.innerText;
+    const pg = m.querySelector('.pager');
+    return { chips: [...m.querySelectorAll('.chip')].map(c => c.innerText.trim()),
+      tech: /#demand\//.test(t),
+      pager: pg ? pg.innerText.replace(/\s+/g, ' ') : '',
+      hasPrev: /上一页/.test(pg ? pg.innerText : ''),
+      hasNext: /下一页/.test(pg ? pg.innerText : ''),
+      per: pg ? (pg.querySelector('select') || {}).value : '',
+      rows: m.querySelectorAll('.tbl-wrap tbody tr').length,
+      mine: dmMine('D1').length };
+  });
+  ok('RG012-59 简历明细没有「我的/全部」切换与技术地址，默认 50 条一页且有上一页/下一页',
+     !resumeUi.err && resumeUi.chips.length === 0 && !resumeUi.tech
+     && /\u5171 \d+ 人/.test(resumeUi.pager) && resumeUi.hasPrev && resumeUi.hasNext
+     && resumeUi.per === '50' && resumeUi.rows === resumeUi.mine,
+     JSON.stringify(resumeUi));
+
+  /* ---------- 真分页：不是画个「1」，而是真的切页 ---------- */
+  const paging = await ev2(() => {
+    enter('R01'); go('persons');          /* 管理层看全量，人够多才能切到第 2 页 */
+    const m = () => document.querySelector('.main');
+    const total = m().querySelectorAll('.tbl-wrap tbody tr').length;
+    const p1 = m().querySelector('.pager').innerText.replace(/\s+/g, ' ');
+    lfSet('persons', 'per', 20);
+    const n1 = m().querySelectorAll('.tbl-wrap tbody tr').length;
+    pgGo('persons', 2);
+    const n2 = m().querySelectorAll('.tbl-wrap tbody tr').length;
+    const on2 = (m().querySelector('.pg.on') || {}).innerText || '';
+    pgGo('persons', 99);                                  /* 越界要收敛到最后一页 */
+    const onLast = (m().querySelector('.pg.on') || {}).innerText || '';
+    const nLast = m().querySelectorAll('.tbl-wrap tbody tr').length;
+    const tp = Math.ceil(total / 20);
+    lfSet('persons', 'per', 50);
+    return { total, p1, n1, n2, nLast, on2, onLast, tp, back: m().querySelectorAll('.tbl-wrap tbody tr').length };
+  });
+  ok('RG012-60 分页是真的切页：20 条一页时第一页 20 行、下一页换成剩下的、越界收敛到末页',
+     !paging.err && paging.total > 20 && paging.n1 === 20 && paging.n2 === 20
+     && paging.nLast === paging.total - 40 && paging.on2 === '2'
+     && paging.onLast === String(paging.tp) && paging.back === paging.total
+     && /\u5171 \d+ 人/.test(paging.p1),
+     JSON.stringify(paging));
+
+  /* ---------- 03 招聘进度：只留本人目标与本人批次 ---------- */
+  const prog = await ev2(() => {
+    enter('R04'); openDemand('D1', 'progress');
+    const m = document.querySelector('.main'), t = m.innerText;
+    const mineB = BATCHES.filter(b => b.demandId === 'D1' && b.owner === S.who).map(b => b.code);
+    const shown = mineB.filter(c => t.includes(c));
+    return { t: t.slice(0, 600),
+      hasMineGoal: /我的目标/.test(t), hasMineBatch: /我的批次/.test(t),
+      hasFunnel: /人员漏斗/.test(t), hasAlloc: /分配情况/.test(t), hasSum: /合计/.test(t),
+      others: /陈曦|王浩/.test(t), mineN: mineB.length, shownN: shown.length,
+      nums: [String(dmMyTask(D('D1')).qty), String(dmMyTask(D('D1')).hired), String(dmMyTask(D('D1')).left)]
+        .every(x => t.includes(x + ' 人')) };
+  });
+  ok('RG012-61 招聘专员进度页只给本人目标与本人批次：没有分配表、跨专员合计、整单漏斗',
+     !prog.err && prog.hasMineGoal && prog.hasMineBatch && prog.nums
+     && !prog.hasFunnel && !prog.hasAlloc && !prog.hasSum && !prog.others
+     && prog.mineN > 0 && prog.shownN === prog.mineN,
+     JSON.stringify(prog));
+
+  /* ---------- 04 批次列表：跟进与收集状态说清楚 ---------- */
+  const batchList = await ev2(() => {
+    enter('R04'); go('batches');
+    const m = document.querySelector('.main');
+    const th = [...m.querySelectorAll('.tbl-wrap thead th')].map(x => x.innerText.trim());
+    const t = m.innerText;
+    const dates = [...m.querySelectorAll('.tbl-wrap tbody tr')]
+      .map(tr => (tr.innerText.match(/2026-\d\d-\d\d/) || [''])[0]);
+    const sorted = dates.every((d, i) => i === 0 || dates[i - 1] >= d);
+    const rowT = m.querySelector('.tbl-wrap tbody tr').innerText;
+    const b = BATCHES.find(x => rowT.includes(x.code));
+    return { th, sorted, hasTouched: /已联系 \d+ · 待联系 \d+/.test(t),
+      hasResult: /跟进结果/.test(t), oldWin: /战果/.test(t),
+      hasFiled: /已建档 \d+ 人/.test(t), dmFilter: [...m.querySelectorAll('.toolbar select')]
+        .some(x => /全部需求/.test(x.innerText)),
+      ownerCol: th.includes('负责人'),
+      cap: b ? batchUploaded(b) : 0, filed: b ? batchFiled(b) : 0,
+      rowT: rowT.replace(/\s+/g, ' ') };
+  });
+  ok('RG012-62 批次列表只列本人批次：无负责人列、有需求筛选、日期倒序、说清已联系/待联系与跟进结果',
+     !batchList.err && !batchList.ownerCol && batchList.dmFilter && batchList.sorted
+     && batchList.hasTouched && batchList.hasResult && !batchList.oldWin
+     && batchList.hasFiled && batchList.cap > 0,
+     JSON.stringify(batchList));
+
+  /* ---------- 05 批次人员：整页 + 三重收窄 ---------- */
+  const batchPage = await ev2(() => {
+    enter('R04'); go('batches');
+    openBatchPersons('B1');
+    const m = document.querySelector('.main'), t = m.innerText;
+    const names = [...m.querySelectorAll('.tbl-wrap tbody tr .arc-link')].map(x => x.innerText.trim());
+    const inB = PERSONS.filter(p => p.batchId === 'B1' && p.demandId === 'D1');
+    const others = inB.filter(p => dmWhoFollows(p) !== S.who).map(p => p.name);
+    return { page: S.page, hash: location.hash,
+      rows: names.length, mine: inB.filter(p => dmWhoFollows(p) === S.who).length,
+      leaked: others.filter(n => names.includes(n)),
+      drawer: !!document.querySelector('#drawer.on'),
+      explain: /新增 \d+ 份/.test(t) && /已建档 \d+ 人/.test(t) && /为什么/.test(t),
+      hasSearch: !!m.querySelector('#lf-q'),
+      hasNode: [...m.querySelectorAll('.toolbar select')].some(x => /全部阶段/.test(x.innerText)) };
+  });
+  ok('RG012-63 批次人员是整页 #batch/<id>/persons：只列本批 + 本需求 + 本人，并解释「份」与「人」的口径',
+     !batchPage.err && batchPage.page === 'batchPersons'
+     && /^#batch\/B1\/persons$/.test(batchPage.hash)
+     && batchPage.rows === batchPage.mine && batchPage.mine > 0
+     && batchPage.leaked.length === 0 && !batchPage.drawer
+     && batchPage.explain && batchPage.hasSearch && batchPage.hasNode,
+     JSON.stringify(batchPage));
+
+  /* ---------- 04 已关闭批次：不再收新简历，入口改成「新增到今日批次」 ---------- */
+  const closed = await ev2(() => {
+    enter('R04'); go('batches');
+    const row = [...document.querySelectorAll('.tbl-wrap tbody tr')]
+      .find(tr => tr.innerText.includes('立讯售后-1112'));   /* B4 已关闭 */
+    const links = [...row.querySelectorAll('.acts .link')].map(x => x.innerText.trim());
+    openBatchPersons('B4');
+    const page = document.querySelector('.main').innerText;
+    return { links, closedTag: /已关闭/.test(page),
+      noUpload: !links.includes('传简历') && /新增到今日批次/.test(links.join(',')),
+      pageHint: /不再收新简历/.test(page) };
+  });
+  ok('RG012-64 已关闭批次不给上传入口（改「新增到今日批次」），页面说明跟进不结束',
+     !closed.err && closed.closedTag && closed.noUpload && closed.pageHint,
+     JSON.stringify(closed));
+
+  /* ---------- 06 「AI 打分」统一为「AI 匹配」 ---------- */
+  const aiName = await ev2(() => {
+    enter('R04'); go('batches');
+    const t = document.querySelector('.main').innerText;
+    const row = [...document.querySelectorAll('.tbl-wrap tbody tr')].find(tr => /进行中/.test(tr.innerText));
+    const links = row ? [...row.querySelectorAll('.acts .link')].map(x => x.innerText.trim()) : [];
+    return { old: /AI 打分|AI打分/.test(t), now: links.includes('AI匹配'), links };
+  });
+  ok('RG012-65 批次入口统一叫「AI 匹配」，不再出现「AI 打分」',
+     !aiName.err && !aiName.old && aiName.now, JSON.stringify(aiName));
+
+  /* ---------- 补充：口径标注（第七批自测反馈修正） ---------- */
+  const srcLabel = await ev2(() => {
+    enter('R04'); go('batches');
+    const rows = [...document.querySelectorAll('.tbl-wrap tbody tr')];
+    const withFiled = rows.find(tr => /已建档 [1-9]/.test(tr.innerText));
+    const noFiled   = rows.find(tr => /已建档 0 人/.test(tr.innerText));
+    const all = rows.map(tr => tr.innerText).join('\n');
+    return {
+      old: /含去重/.test(all),
+      filedLabeled: !!withFiled && /已建档 \d+ 人：/.test(withFiled.innerText),
+      capLabeled: !!noFiled && /份来源：/.test(noFiled.innerText),
+    };
+  });
+  ok('RG012-66 来源构成说清在数「份」还是「人」，不再用「含去重」糊过去',
+     !srcLabel.err && !srcLabel.old && srcLabel.filedLabeled && srcLabel.capLabeled,
+     JSON.stringify(srcLabel));
+
+  const headMine = await ev2(() => {
+    enter('R04'); openDemand('D1', 'resume');
+    const t = document.querySelector('.arc-top').innerText;
+    const listTotal = (document.querySelector('.tbl-wrap') ? document.querySelector('.main').innerText : '');
+    return { top: t.replace(/\n/g, ' '), okTarget: /我的目标 \d+ 人/.test(t),
+      okHired: /已入职 \d+/.test(t), okWhole: /整单/.test(t) };
+  });
+  ok('RG012-67 需求详情头部把「我的目标／已入职／缺口」写全，不与简历条数混读',
+     !headMine.err && headMine.okTarget && headMine.okHired && headMine.okWhole,
+     JSON.stringify(headMine));
+
+  const batchHead = await ev2(() => {
+    enter('R04'); openBatchPersons('B1');
+    const t = document.querySelector('.arc-top').innerText.replace(/\n/g, ' ');
+    return { t, labeled: /已建档 \d+ 人的来源：|份来源：/.test(t), noOld: !/含去重/.test(t) };
+  });
+  ok('RG012-68 批次人员页头部同样标注来源口径',
+     !batchHead.err && batchHead.labeled && batchHead.noOld, JSON.stringify(batchHead));
 
   /* 全页渲染无错（详情页在路由里，需单独过一遍） */
   const pages = ['demands','batches','persons','pool','logs','custreq','confirms','clinks','dicts','factors','std','dash','conversion','perms','home'];

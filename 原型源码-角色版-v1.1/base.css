@@ -293,10 +293,14 @@ tbody td .mono,tbody td .acts,tbody td .link,tbody td .b,tbody td .tier,tbody td
 .tabbar{display:flex;gap:2px;padding:0 16px;background:#fff;border:1px solid var(--line);border-bottom:none;border-radius:var(--r2) var(--r2) 0 0}
 .tab{padding:12px 14px;font-size:15px;color:var(--ink3);border-bottom:2px solid transparent;cursor:pointer;margin-bottom:-1px}
 .tab.on{color:var(--accent2);border-bottom-color:var(--accent);font-weight:500}
-.pager{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;background:#fff;border:1px solid var(--line);border-top:none;border-radius:0 0 var(--r2) var(--r2);font-size:14px;color:var(--ink3)}
-.pager .pgs{display:flex;gap:4px}
+.pager{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:11px 16px;background:#fff;border:1px solid var(--line);border-top:none;border-radius:0 0 var(--r2) var(--r2);font-size:14px;color:var(--ink3)}
+.pager .pgs{display:flex;gap:4px;align-items:center}
+.pager .sp{flex:1}
 .pg{width:26px;height:26px;border-radius:6px;border:1px solid var(--line);display:grid;place-items:center;font-size:13.5px;background:#fff;cursor:pointer}
 .pg.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.pg.w{width:auto;padding:0 10px}                 /* 上一页 / 下一页：文字按钮，比数字宽 */
+.pg.dis{color:var(--ink4);border-color:var(--line2);cursor:not-allowed;background:var(--card2)}
+.pg.dot{border:none;background:transparent;cursor:default;color:var(--ink4)}
 
 /* worker phone */
 .phone-wrap{display:flex;justify-content:center;padding:34px 0}

@@ -1,5 +1,7 @@
 /* ===== 核心：角色、路由、通用组件 ===== */
 const S = { role:null, page:null, f:{}, drawer:null, modal:null };
+/* 批次人员整页的定位：#batch/<id>/persons（2026-11-15 第七批，替代右侧抽屉） */
+let BP = { id:null, back:null };
 
 const ROLES = {
   R01:{ code:'R01', who:'金诚', post:'总经理', title:'管理员', tone:'accent',
@@ -264,6 +266,7 @@ function exitRole(){
 function go(page){
   markScrollOut();                  /* 切页前先记住列表滚到哪了，render 之后滚到 0 就晚了 */
   if(page !== 'demandDetail') DM.id = null;
+  if(page !== 'batchPersons') BP.id = null;
   if(page !== 'personDetail'){ HU.pid = null; HU.appId = null; HU.back = null; }
   if(page !== 'custreqRaw'){ CR.cid = null; CR.item = ''; CR.back = null; }
   S.page = page; S.f = {}; closeAll(); render();
@@ -316,6 +319,8 @@ function routeHash(){
     const tab = (DM && dmTabOk(DM.tab)) ? DM.tab : 'detail';
     return `#demand/${encodeURIComponent(DM.id||'')}/detail?tab=${tab}`;
   }
+  /* 批次人员：整页不是抽屉，地址 #batch/<id>/persons（2026-11-15 第七批） */
+  if(S.page === 'batchPersons') return `#batch/${encodeURIComponent(BP.id||'')}/persons`;
   if(S.page === 'personDetail'){
     const tab = (HU && huTabOk(HU.tab)) ? HU.tab : 'resume';
     /* 同一人可能有多条投递（例如 P1 与 P42 同人、分别投 D1 与 D7）。
@@ -370,6 +375,14 @@ function applyHash(){
     S.page = 'demandDetail';
     return true;
   }
+  /* 批次人员整页：#batch/<id>/persons（旧抽屉的地址化替代，刷新/分享都能落回同一批） */
+  if(seg[0] === 'batch' && seg[1] && (seg[2] || 'persons') === 'persons'){
+    if(!pageOkForRole('batchPersons')) return false;
+    if(!B(seg[1]).id) return false;                 /* 批次不存在就交给列表页，不硬造空页 */
+    BP.id = seg[1];
+    S.page = 'batchPersons';
+    return true;
+  }
   if(seg[0] === 'person' && seg[1]){
     if(!pageOkForRole('personDetail')) return false;
     const sp = new URLSearchParams(qs || '');
@@ -405,6 +418,8 @@ function snapshotHere(){
     snap.dm = { id: DM.id, tab: DM.tab, scope: DM.scope, sub: DM.sub, back: DM.back };
   if(S.page === 'personDetail' && HU.pid)
     snap.hu = { pid: HU.pid, tab: HU.tab, appId: HU.appId, navKey: HU.navKey, back: HU.back };
+  if(S.page === 'batchPersons' && BP.id)
+    snap.bp = { id: BP.id, back: BP.back };
   if(S.page === 'custreqRaw' && CR.cid)
     snap.cr = { cid: CR.cid, item: CR.item, back: CR.back };
   return snap;
@@ -417,12 +432,14 @@ function trimSnap(s, d){
   if(d <= 0) return o;
   if(s.dm) o.dm = { id: s.dm.id, tab: s.dm.tab, scope: s.dm.scope, sub: s.dm.sub, back: trimSnap(s.dm.back, d-1) };
   if(s.hu) o.hu = { pid: s.hu.pid, tab: s.hu.tab, appId: s.hu.appId, navKey: s.hu.navKey, back: trimSnap(s.hu.back, d-1) };
+  if(s.bp) o.bp = { id: s.bp.id, back: trimSnap(s.bp.back, d-1) };
   if(s.cr) o.cr = { cid: s.cr.cid, item: s.cr.item, back: trimSnap(s.cr.back, d-1) };
   return o;
 }
 function clearDetail(){
   DM.id = null; DM.tab = 'detail'; DM.back = null; DM.sub = null; DM.edit = false; DM.hist = {};
   HU.pid = null; HU.appId = null; HU.tab = 'resume'; HU.back = null;
+  BP.id = null; BP.back = null;
   CR.cid = null; CR.item = ''; CR.back = null;
 }
 /* 恢复快照；返回 false 表示这个快照不可用（没来源页 / 页面已不存在） */
@@ -430,6 +447,7 @@ function restoreSnap(snap){
   if(!snap || !snap.page || !PAGES[snap.page]) return false;
   if(snap.page === 'demandDetail' && !snap.dm) return false;   /* 没有记录的空详情页不还原 */
   if(snap.page === 'personDetail' && !snap.hu) return false;
+  if(snap.page === 'batchPersons' && !snap.bp) return false;
   if(snap.page === 'custreqRaw' && !snap.cr) return false;
   clearDetail();                    /* 先清干净：不能让较早的档案沿用最后打开的另一份档案的返回链 */
   if(snap.dm){ DM.id = snap.dm.id; DM.tab = snap.dm.tab || 'detail';
@@ -438,6 +456,7 @@ function restoreSnap(snap){
   if(snap.hu){ HU.pid = snap.hu.pid; HU.tab = snap.hu.tab || 'resume';
     HU.appId = snap.hu.appId || null; HU.navKey = snap.hu.navKey || 'persons';
     HU.back = snap.hu.back || null; }
+  if(snap.bp){ BP.id = snap.bp.id; BP.back = snap.bp.back || null; }
   if(snap.cr){ CR.cid = snap.cr.cid; CR.item = snap.cr.item || ''; CR.back = snap.cr.back || null; }
   S.page = snap.page;
   S.f = Object.assign({}, snap.f || {});
@@ -489,6 +508,7 @@ function render(){
   const r = ROLES[S.role];
   /* 详情页高亮所属列表：需求详情 → 需求列表；档案页 → 进来的那个列表（默认人员列表） */
   const navOn = S.page === 'demandDetail' ? 'demands'
+    : S.page === 'batchPersons' ? 'batches'
     : S.page === 'personDetail' ? (HU.navKey && PAGES[HU.navKey] && HU.navKey!=='personDetail' ? HU.navKey : 'persons')
     : S.page === 'custreqRaw' ? 'custreq'
     : S.page;
@@ -562,10 +582,68 @@ function table(cols, rows, empty){
   return `<div class="tbl-wrap"><table><thead><tr>${cols.map(c=>`<th>${c.label}</th>`).join('')}</tr></thead>
     <tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td>${c.r? c.r(r) : esc(r[c.k])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
-function pager(n){
-  return `<div class="pager"><span>共 ${n} 条 · 已选 0 条</span>
-    <div class="pgs"><span class="pg on">1</span></div></div>`;
+/* ---------- 真分页（v1.3 · 2026-11-15 第七批） ----------
+   以前的 pager(n) 只画一个「1」：列表把全部记录一次铺完，页码是装饰。
+   招聘专员一天要翻几十上百份简历，没有真分页就只能靠回车刷屏找。
+   现在：每个列表一套自己的筛选 + 页码（LF），按页切片，默认 50 条/页，
+   页码、上一页、下一页都可点，切换时只重画内容区，不重置列表筛选。
+   每页条数给 50 / 20 / 10 三档：默认 50 是按人眼一天能扫完的量定的，
+   调小只是为了演示与核对时能落到第 2 页，不改变默认口径。 */
+const LF = {};                          /* list key -> {q, node, st, per, page, total} */
+function lfState(key){
+  if(!LF[key]) LF[key] = { q:'', node:'', st:'', per:50, page:1, total:0 };
+  return LF[key];
 }
+function lfSet(key, k, v){
+  const s = lfState(key);
+  s[k] = v;
+  if(k !== 'page') s.page = 1;          /* 换筛选条件回到第一页，否则会停在空页 */
+  refreshTable(); commitState();
+}
+/* 按页切片：页码越界时自动收敛到最后一页（筛选后条数变少不会停在空白页） */
+function pageSlice(key, rows){
+  const s = lfState(key), per = s.per || 50, total = rows.length;
+  const tp = Math.max(1, Math.ceil(total / per));
+  const p = Math.min(Math.max(1, s.page || 1), tp);
+  s.page = p; s.total = total;
+  return { rows: rows.slice((p-1)*per, p*per), total, per, p, tp };
+}
+function pgGo(key, n){
+  const s = lfState(key);
+  const tp = Math.max(1, Math.ceil((s.total || 0) / (s.per || 50)));
+  s.page = Math.min(Math.max(1, n), tp);
+  refreshTable(); commitState();
+}
+/* 页码：总页数多时首尾常驻、中间用 … 收口，避免一百页铺满一行 */
+function pgNos(p, tp){
+  if(tp <= 7) return Array.from({length:tp}, (_,i)=>i+1);
+  const out = [1];
+  const from = Math.max(2, p-1), to = Math.min(tp-1, p+1);
+  if(from > 2) out.push('…');
+  for(let i=from;i<=to;i++) out.push(i);
+  if(to < tp-1) out.push('…');
+  out.push(tp);
+  return out;
+}
+function pagerBar(key, sl, unit){
+  const u = unit || '条';
+  return `<div class="pager">
+    <span>共 ${sl.total} ${u}${sl.total?` · 第 ${sl.p}/${sl.tp} 页`:''}</span>
+    <div class="sp"></div>
+    <select class="sel" style="height:28px" onchange="lfSet('${key}','per',+this.value)" title="每页条数（默认 50）">
+      ${[50,20,10].map(n=>`<option value="${n}" ${n===sl.per?'selected':''}>每页 ${n}</option>`).join('')}
+    </select>
+    <div class="pgs">
+      <span class="pg w ${sl.p<=1?'dis':''}" ${sl.p<=1?'':`onclick="pgGo('${key}',${sl.p-1})"`}>上一页</span>
+      ${pgNos(sl.p, sl.tp).map(n=> n==='…'
+        ? '<span class="pg dot">…</span>'
+        : `<span class="pg ${n===sl.p?'on':''}" onclick="pgGo('${key}',${n})">${n}</span>`).join('')}
+      <span class="pg w ${sl.p>=sl.tp?'dis':''}" ${sl.p>=sl.tp?'':`onclick="pgGo('${key}',${sl.p+1})"`}>下一页</span>
+    </div></div>`;
+}
+/* 兼容旧调用：没有行数据的页面（如日志）仍按总数画一条 */
+function pager(n){ return `<div class="pager"><span>共 ${n} 条</span><div class="sp"></div>
+  <div class="pgs"><span class="pg on">1</span></div></div>`; }
 /* 筛选也是「这一页长什么样」的一部分：改了筛选就把当前历史条目刷新一遍，
    否则浏览器后退回来时条目里还是进页面那会儿的空筛选。
    搜索框是逐字触发，逐次 replaceState 会被浏览器限频，改成稍后合并写一次。 */
