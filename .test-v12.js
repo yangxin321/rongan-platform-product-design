@@ -743,6 +743,38 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      && mixCert.none.state === 'pend' && mixCert.none.soft === false,
      JSON.stringify(mixCert));
 
+  /* 全是加分证时也不能凭空判符合：hard 为空曾让 anyNo/anyGap 恒 false → 缺记录也显示绿色「已核实符合」。
+     展示状态必须按真实证据给（无记录 pend / 明确不持证 no / 已核验 ok），只是整项 soft 不进 Pass。 */
+  const allOptCert = await ev(() => {
+    const p = PERSONS.find(x=>x.name==='张建国') || PERSONS[0];
+    const keep = VERIFY[p.personId];
+    const keepGate = DEMAND_GATE.D1;
+    DEMAND_GATE.D1 = Object.assign({}, keepGate, { cert:['低压电工证'], certMust:false, certOpt:[] });
+    const run = certs => {
+      VERIFY[p.personId] = Object.assign({}, keep, { certs });
+      const it = assessPerson(p, D('D1'));
+      const c = it.find(x=>x.key==='cert') || {};
+      return { state:c.state, soft:!!c.soft, note:c.note||'',
+               inHard:it.filter(x=>!x.soft).some(x=>x.key==='cert'), sum:triSum(it) };
+    };
+    const miss = run([]);
+    const pend = run([{ name:'低压电工证', state:'pend', src:'电话确认', ev:'待补原件', at:'2026-11-14 10:00' }]);
+    const no = run([{ name:'低压电工证', state:'no', src:'候选人确认', ev:'「没考」', at:'2026-11-14 10:00' }]);
+    const okc = run([{ name:'低压电工证', state:'ok', src:'原件核验', ev:'x', at:'2026-11-14 10:00' }]);
+    DEMAND_GATE.D1 = keepGate; VERIFY[p.personId] = keep;
+    return { miss, pend, no, okc };
+  });
+  ok('RG002-58 全加分证仍按真实证据给出核验状态',
+     allOptCert.miss.state === 'pend' && allOptCert.miss.soft === true
+     && allOptCert.pend.state === 'pend'
+     && allOptCert.no.state === 'no' && allOptCert.no.note.includes('不阻断')
+     && allOptCert.okc.state === 'ok'
+     && allOptCert.miss.inHard === false
+     /* 加分项不进汇总：证书证据好坏不得改变 triSum 结果 */
+     && allOptCert.miss.sum === allOptCert.okc.sum
+     && allOptCert.no.sum === allOptCert.okc.sum,
+     JSON.stringify(allOptCert));
+
   /* ---- 匹配模式切换 ---- */
   await ev(() => { enter('R04'); go('batches'); runMatch('B1','batch'); }); await page.waitForTimeout(300);
   const mb = await txt('.modal');

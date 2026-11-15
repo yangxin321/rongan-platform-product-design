@@ -1255,7 +1255,7 @@ function openMatchDetail(pid, did){
     <div class="sec"><div class="sec-t">硬条件逐项判断（${items.length} 项）</div>
       ${items.map(i=>`<div class="tri-row">
         <div class="tr-l"><b>${esc(i.label.split(' / ')[0])}</b>
-          <div class="xs mut">#${i.no} · ${esc(i.grade||'')}</div>
+          <div class="xs mut">#${i.no} · ${esc(i.grade||'')}${i.soft?' · 加分项（不计入 Pass）':''}</div>
           <div class="xs mut">要求：${esc(i.need||'—')}</div></div>
         <div class="tr-v">${tri(i.state)}<div class="sm" style="margin-top:3px">${esc(i.got||'—')}</div>
           <div class="tr-n">来源：${esc(i.src||'—')}${i.ev?' · 原文：'+esc(i.ev):''}${i.at&&i.at!=='—'?' · 确认于 '+esc(i.at):''}

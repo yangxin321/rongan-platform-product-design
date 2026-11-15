@@ -2957,29 +2957,39 @@ function assessPerson(p, d){
       const t = r => r.state === 'ok' ? '已核验' : r.state === 'no' ? '明确不满足' : '待核验';
       const got = rows.map(r => r.rec ? `${r.name}（${r.must?'必备':'优先'}·${t(r.rec)}）`
                                       : `${r.name}（${r.must?'必备':'优先'}·无记录）`).join('；');
-      /* 汇总只看**必备**那几张：任一明确不满足 → no；否则任一缺记录/待核验 → pend；全已核验 → ok */
+      /* 汇总只看**必备**那几张：任一明确不满足 → no；否则任一缺记录/待核验 → pend；全已核验 → ok。
+         但「所选证书全部是加分项」时 hard 为空，不能因此恒判 ok —— 缺记录 / 明确不持证也是真实证据，
+         展示状态必须照实给出（R5 对称：缺资料既不能当不符合，也不能当符合），
+         只是整项带 soft:true 不进 triSum / Pass（R6：加分项只影响排序）。 */
       const hard = rows.filter(r => r.must);
-      const anyNo = hard.some(r => r.rec && r.rec.state === 'no');
-      const anyGap = hard.some(r => !r.rec || r.rec.state !== 'ok');
+      const scope = hard.length ? hard : rows;
+      const anyNo = scope.some(r => r.rec && r.rec.state === 'no');
+      const anyGap = scope.some(r => !r.rec || r.rec.state !== 'ok');
       const st = anyNo ? 'no' : (anyGap ? 'pend' : 'ok');
       const soft = hard.length === 0;          /* 全是加分证 → 整项不进 Pass */
       const hit = rows.filter(r => r.rec);
       const src = hit.length ? Array.from(new Set(hit.map(r => r.rec.src || '—'))).join(' / ') : '—';
       const ev = hit.map(r => r.rec.ev).filter(Boolean).join('；');
       const at = hit.length ? (hit[hit.length-1].rec.at || '—') : '—';
-      const missName = hard.filter(r => !r.rec).map(r => r.name);
-      const noName = hard.filter(r => r.rec && r.rec.state === 'no').map(r => r.name);
-      const pendName = hard.filter(r => r.rec && r.rec.state === 'pend').map(r => r.name);
-      let note;
-      if(soft){
-        note = '所选证书客户均标注为优先/加分项，不参与 Pass 判定';
-      } else if(anyNo){
-        note = `候选人明确不满足：${noName.join('、')}（客户必备条件）`;
-      } else if(anyGap){
+      const missName = scope.filter(r => !r.rec).map(r => r.name);
+      const noName = scope.filter(r => r.rec && r.rec.state === 'no').map(r => r.name);
+      const pendName = scope.filter(r => r.rec && r.rec.state === 'pend').map(r => r.name);
+      const gapTxt = () => {
         const parts = [];
         if(missName.length) parts.push(`缺记录：${missName.join('、')}`);
         if(pendName.length) parts.push(`待核验：${pendName.join('、')}`);
-        note = `必备证书未齐（${parts.join('；')}），需补证或核验；不得因技能关键词推断持证`;
+        return parts.join('；');
+      };
+      let note;
+      if(soft){
+        /* 加分证：状态照实 + 明确说明不影响 Pass，避免看的人以为绿色=硬条件已过 */
+        if(anyNo) note = `候选人明确不满足：${noName.join('、')}（客户标注为优先/加分，仅影响排序，不阻断 Pass）`;
+        else if(anyGap) note = `加分证书证据未齐（${gapTxt()}），状态照实显示；不参与 Pass 判定，需补证可提升排序`;
+        else note = '加分证书已核验持证；不参与 Pass 判定';
+      } else if(anyNo){
+        note = `候选人明确不满足：${noName.join('、')}（客户必备条件）`;
+      } else if(anyGap){
+        note = `必备证书未齐（${gapTxt()}），需补证或核验；不得因技能关键词推断持证`;
       } else {
         note = '必备证书已逐项核验通过';
       }
@@ -5035,7 +5045,7 @@ function openMatchDetail(pid, did){
     <div class="sec"><div class="sec-t">硬条件逐项判断（${items.length} 项）</div>
       ${items.map(i=>`<div class="tri-row">
         <div class="tr-l"><b>${esc(i.label.split(' / ')[0])}</b>
-          <div class="xs mut">#${i.no} · ${esc(i.grade||'')}</div>
+          <div class="xs mut">#${i.no} · ${esc(i.grade||'')}${i.soft?' · 加分项（不计入 Pass）':''}</div>
           <div class="xs mut">要求：${esc(i.need||'—')}</div></div>
         <div class="tr-v">${tri(i.state)}<div class="sm" style="margin-top:3px">${esc(i.got||'—')}</div>
           <div class="tr-n">来源：${esc(i.src||'—')}${i.ev?' · 原文：'+esc(i.ev):''}${i.at&&i.at!=='—'?' · 确认于 '+esc(i.at):''}
