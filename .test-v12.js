@@ -461,12 +461,12 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   ok('RG003-12 档位标注演示', pl.includes('演示评分'));
   await ev(() => openDemand('D1', 'detail')); await page.waitForTimeout(350);
   const dd = await txt('#drawer');
-  ok('RG002-16 需求详情显示生效版本', dd.includes('生效 v1.1'));
-  ok('RG002-17 需求详情显示匹配依据版本', dd.includes('匹配依据') || dd.includes('匹配结果需更新'));
+  ok('RG002-49 需求详情显示生效版本', dd.includes('生效 v1.1'));
+  ok('RG002-50 需求详情显示匹配依据版本', dd.includes('匹配依据') || dd.includes('匹配结果需更新'));
   await ev(() => closeAll());
   await ev(() => openDemand('D8', 'detail')); await page.waitForTimeout(300);
   const dd8 = await txt('#drawer');
-  ok('RG002-18 未确认需求明确不生效', dd8.includes('未生效') && dd8.includes('不得作为匹配与推荐依据'));
+  ok('RG002-51 未确认需求明确不生效', dd8.includes('未生效') && dd8.includes('不得作为匹配与推荐依据'));
   await ev(() => closeAll());
 
   /* ---- 回归 #5：标准值里的否定表达与连接号不能把条件吃掉 ----
@@ -478,14 +478,14 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     const g = ndGate(st, s);
     return { age:g.age, ageRaw:g.ageRaw, cert:g.cert, certMust:g.certMust, trade:g.trade };
   });
-  ok('RG002-19 标准年龄区间的连接号可解析',
+  ok('RG002-44 标准年龄区间的连接号可解析',
      Array.isArray(iqcGate.age) && iqcGate.age[0] === 18 && iqcGate.age[1] === 45,
      JSON.stringify(iqcGate));
-  ok('RG002-20 无强制证归一为空证书要求',
+  ok('RG002-45 无强制证归一为空证书要求',
      Array.isArray(iqcGate.cert) && iqcGate.cert.length === 0 && iqcGate.certMust === false,
      JSON.stringify(iqcGate));
   /* 客户明示上限必须真的拦住人：46 岁在「18–45」这一单的年龄项不能判符合 */
-  ok('RG002-21 超出客户明示年龄上限判不符合', await ev(() => {
+  ok('RG002-46 超出客户明示年龄上限判不符合', await ev(() => {
       const bak = DEMAND_GATE.DT9;
       DEMANDS.unshift({ id:'DT9', code:'XQ-TEST-09', client:'测试客户', cs:'测试', ps:'品质',
         project:'年龄校验', post:'IQC · 熟手', head:1, hired:0, price:'35 元/时', city:'中山',
@@ -530,7 +530,7 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     CLINKS.splice(CLINKS.findIndex(l => l.tok === tok), 1);
     return out;
   });
-  ok('RG002-22 只读页第一节与第二节同源',
+  ok('RG002-47 只读页第一节与第二节同源',
      sameSrc.hasDoc && sameSrc.sec1.includes('2026-11-28') && !sameSrc.sec1.includes('2026-11-30')
      && sameSrc.sec2.includes('2026-11-28'), JSON.stringify(sameSrc));
 
@@ -558,7 +558,7 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     DEMANDS.shift(); delete DEMAND_GATE.DT6; delete DEMAND_VERS.DT6;
     return { n0, n1, n2, vNew, sameName };
   });
-  ok('RG002-23 已有未结版本不重复生成版本号',
+  ok('RG002-48 已有未结版本不重复生成版本号',
      dupVer.n1 === dupVer.n0 + 1 && dupVer.n2 === dupVer.n1 && dupVer.sameName === 1,
      JSON.stringify(dupVer));
 
