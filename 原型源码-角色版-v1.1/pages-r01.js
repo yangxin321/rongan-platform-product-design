@@ -71,7 +71,7 @@ function r01Dash(){
         </div></div>
       <div class="card"><div class="card-h"><h3>人才池</h3><span class="xs mut">全量</span></div>
         <div class="card-b">
-          <div class="mono" style="font-size:30px;font-weight:600">${POOL.length}</div>
+          <div class="mono" style="font-size:32px;font-weight:600">${POOL.length}</div>
           <div class="xs mut">池内可用人员</div>
           <div class="hr"></div>
           <div class="sm">资料完整度 ≥85%：<b>${POOL.filter(p=>p.complete>=85).length}</b> 人</div>
@@ -113,7 +113,7 @@ function r01Conversion(){
       <div class="card"><div class="card-h"><div><h3>转化漏斗</h3><div class="sub">每一步的留存与流失</div></div></div>
         <div class="card-b">
           ${steps.map((s,i)=>`<div style="margin-bottom:13px">
-            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+            <div style="display:flex;justify-content:space-between;font-size:14.5px;margin-bottom:4px">
               <span>${s.n}</span><span class="mono">${s.v} <span class="xs mut">${i?'· '+s.note:''}</span></span></div>
             <div class="bar" style="height:9px"><i style="width:${s.v/max*100}%;background:${i===6?'var(--good)':'var(--accent)'}"></i></div>
           </div>`).join('')}
@@ -133,57 +133,64 @@ function r01Conversion(){
   </div>`;
 }
 
-/* 客户确认 */
+/* 客户确认
+   v1.3 · RG-012 第二批：去掉顶部四张统计卡（确认单 / 已生效 / 待客户确认 / 待内部审核）。
+   四个数字原来占掉首屏第一行，却和下面表格的「状态」列重复；
+   现在它们变成工具栏里的一个状态筛选，筛出来的就是那批记录，条数由「共 N 份」给。
+   顺手修掉一个老问题：工具栏的搜索框以前不生效（rows 直接拿 DEMANDS），现已接上。
+   不要在 head 和 toolbar 之间加回任何卡片 —— 要加先改 Issue #6 的 AC-1。 */
 function r01Confirms(){
-  const rows = DEMANDS.map(d=>{
+  const cf = S.f.cf || '', q = (S.f.q||'').trim();
+  const list = DEMANDS.filter(d=>{
+    if(cf==='effective' && !isEffective(d)) return false;
+    if(cf==='wait' && d.confirm!=='待客户确认') return false;
+    if(cf==='audit' && (openVer(d)||{}).status!=='待内部审核') return false;
+    if(q && !(d.client+d.project+d.post+d.code).includes(q)) return false;
+    return true;
+  });
+  const rows = list.map(d=>{
     const st = d.confirm==='已确认'?'g':d.confirm==='待客户确认'?'w':'r';
+    const av = activeVer(d), pv = pendingVer(d), lk = mainLink(d.id);
+    const rg = lastReg(d.id, av?av.v:(pv?pv.v:'v1.0'));
     return `<tr class="clk" onclick="openConfirm('${d.id}')">
-      <td><div class="t-name mono" style="font-size:13px">QR-${d.code.slice(3)}</div><div class="t-sub">v${d.confirm==='已确认'?'1.2':'1.0'}</div></td>
+      <td><div class="t-name mono" style="font-size:14.5px">QR-${d.code.slice(3)}</div>
+        <div class="t-sub">${av?av.v:'—'}${pv?' → '+pv.v:''}</div></td>
       <td><div class="sm">${esc(d.client)} · ${esc(d.project)}</div><div class="t-sub">${esc(d.post)}（${d.head} 人）</div></td>
-      <td><span class="b n">47 项因子</span></td>
-      <td class="sm">${d.confirm==='已确认'?'金诚 · 11-10 微信':'—'}</td>
+      <td><span class="b n">47 项</span></td>
+      <td class="sm">${rg?`<b>${esc(rg.regBy)}</b><div class="t-sub">登记 · 反馈人 ${esc(rg.fbPerson)}</div>
+          <div class="t-sub">反馈 ${esc(rg.fbAt)} / 登记 ${esc(rg.regAt)}</div>`
+        :'<span class="mut">未登记</span>'}</td>
+      <td>${lk?`<span class="b ${lk.state==='有效'?'g':'r'}">${esc(lk.state)}</span><div class="t-sub mono">${esc(lk.tok)}</div>`
+        :`<span class="b w">未生成</span>`}</td>
       <td><span class="mono sm">${esc(d.valid.split(' ~ ')[1])}</span></td>
-      <td><span class="b ${st}">${esc(d.confirm)}</span></td>
-      <td><span class="link">查看确认单</span></td>
+      <td><span class="b ${st}">${esc(d.confirm)}</span>
+        ${pv?`<div class="t-sub">${esc(pv.v)} ${esc(pv.audit||'未送审')}</div>`:''}
+        ${av?'':'<div class="t-sub" style="color:var(--bad)">不生效</div>'}</td>
+      <td><div class="acts"><span class="link">查看确认单</span>
+        <span class="link" onclick="event.stopPropagation();openVers('${d.id}')">版本</span></div></td>
     </tr>`;
   }).join('');
+  const needAudit = DEMANDS.filter(d=>{ const v=openVer(d); return v && v.status==='待内部审核'; }).length;
   return `<div class="page">
-    ${head('客户确认','一张确认单覆盖同一项目的多个岗位 · 客户线下确认后，由我方逐项登记', `<button class="btn pri" onclick="ndEnter()">＋ 新建确认单</button>`)}
-    ${stats([
-      {lab:'确认单', val:DEMANDS.length, unit:'份'},
-      {lab:'已确认', val:DEMANDS.filter(d=>d.confirm==='已确认').length, unit:'份'},
-      {lab:'待确认', val:DEMANDS.filter(d=>d.confirm==='待客户确认').length, unit:'份', accent:true},
-      {lab:'变更待重确认', val:DEMANDS.filter(d=>d.confirm==='变更待重确认').length, unit:'份'},
-    ])}
-    ${toolbar({q:'搜索客户 / 项目 / 岗位', right:`<span class="sm mut">${DEMANDS.length} 份</span>`})}
+    ${head('客户确认','客户线下确认 → 我方代登记 → 内部审核 → 生效；一张确认单覆盖同一项目的多个岗位', `<button class="btn" onclick="go('clinks')">确认链接</button><button class="btn pri" onclick="ndEnter()">＋ 新建确认单</button>`)}
+    ${toolbar({q:'搜索客户 / 项目 / 岗位', filters:[
+      {k:'cf',opts:[
+        {v:'',label:`全部确认单 · ${DEMANDS.length}`},
+        {v:'effective',label:`已生效 · ${DEMANDS.filter(d=>isEffective(d)).length}`},
+        {v:'wait',label:`待客户确认 · ${DEMANDS.filter(d=>d.confirm==='待客户确认').length}`},
+        {v:'audit',label:`待内部审核 · ${needAudit}`},
+      ]}
+    ], right:`<span class="sm mut">共 ${list.length} 份</span>`})}
     <div class="tbl-wrap"><table>
-      <thead><tr><th>确认单</th><th>项目 / 岗位</th><th>确认项</th><th>确认人 / 方式</th><th>有效期至</th><th>状态</th><th>操作</th></tr></thead>
-      <tbody>${rows}</tbody></table></div>
-    ${pager(DEMANDS.length)}
+      <thead><tr><th>确认单</th><th>项目 / 岗位</th><th>确认项</th><th>代登记（客户反馈人 / 我方登记人）</th><th>只读链接</th><th>有效期至</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="8" class="empty">当前筛选下没有确认单</td></tr>'}</tbody></table></div>
+    ${pager(list.length)}
+    <div class="note" style="margin-top:12px">「已确认」但无生效版本的按未生效处理；代登记后需<b>内部审核通过</b>才生效，退回的版本由我方补充客户依据后重新送审（见 REVIEW.md §2）。</div>
   </div>`;
 }
 function openConfirm(id){
-  const d = D(id);
-  const items = FACTOR_GROUPS.slice(0,2).flatMap(g=>g.items.slice(0,4).map((x,i)=>({n:x, rule:['PASS','加分','灵活','仅信息'][i%4]})));
-  openDrawer(`<div class="dr-h"><div><h3>需求确认单 · ${esc(d.post)}</h3>
-    <div class="sub">${esc(d.client)} · ${esc(d.project)} · 47 项因子逐项确认</div></div>
-    <button class="dr-x" onclick="closeAll()">×</button></div>
-    <div class="dr-b">
-      <div class="note">客户不登录系统，我方按客户线下反馈（微信 / 会议 / 电话）逐项登记确认结果。关键内容变更后需重新确认。</div>
-      <div class="sec" style="margin-top:16px"><div class="sec-t">确认项（节选）</div>
-        <div class="tbl-wrap" style="border-radius:9px"><table>
-          <thead><tr><th>因子</th><th>我方建议</th><th>客户确认</th></tr></thead>
-          <tbody>${items.map(i=>`<tr><td class="sm">${esc(i.n)}</td><td><span class="b n">${i.rule}</span></td>
-            <td><span class="b g">同意</span></td></tr>`).join('')}</tbody></table></div>
-      </div>
-      <div class="sec"><div class="sec-t">时效</div>
-        <dl class="kv"><div><dt>需求有效期</dt><dd class="mono">${esc(d.valid)}</dd></div>
-        <div><dt>最迟到岗</dt><dd class="mono">${esc(d.deadline)}</dd></div>
-        <div><dt>确认状态</dt><dd>${confirmB(d.confirm)}</dd></div>
-        <div><dt>确认方式</dt><dd>微信 · 金诚</dd></div></dl></div>
-    </div>
-    <div class="dr-f"><button class="btn" onclick="closeAll()">关闭</button>
-      <button class="btn pri" onclick="closeAll();toast('已登记客户确认，状态更新为已确认')">登记确认结果</button></div>`);
+  /* v1.2：改为「需求确认单 · 代登记」，实现见 pages-vers.js */
+  return demandConfirmDrawer(id);
 }
 
 /* ===== 人才画像因子库：两个 Tab —— 通用因子 / 工种技能因子 ===== */
@@ -276,7 +283,7 @@ function factorsTrade(bar){
     if(!x) return '<span class="mut sm">—</span>';
     const gap = isGapTier(x);
     return `<div class="sm" style="color:${gap?'var(--ink4)':'var(--ink)'}">${esc(x.label)}</div>
-      <div class="mono" style="font-size:11px;margin-top:2px;color:${hasMetric(x)?'var(--accent2)':'var(--ink4)'}">${esc(x.metric||'—')}</div>`;
+      <div class="mono" style="font-size:12.5px;margin-top:2px;color:${hasMetric(x)?'var(--accent2)':'var(--ink4)'}">${esc(x.metric||'—')}</div>`;
   };
 
   const cols=[
@@ -352,7 +359,7 @@ function openTradeFactor(fid){
 
   const usedIn = PORTRAITS_V2.filter(p=>p.pick.some(x=>x[0]===fid))
     .map(p=>{ const pr = p.pick.find(x=>x[0]===fid);
-      return `<span class="tg" style="padding:3px 8px;font-size:11.5px">${esc(p.name)} · 要 ${esc(pr[1])} · ${esc(pr[2])}</span>`; }).join('');
+      return `<span class="tg" style="padding:3px 8px;font-size:13px">${esc(p.name)} · 要 ${esc(pr[1])} · ${esc(pr[2])}</span>`; }).join('');
 
   openDrawer(`<div class="dr-h"><div><h3>${esc(f.id)} ${esc(f.name)}</h3>
       <div class="sub">${esc(t.name)} · ${esc(f.valueType)}型 · 算子 ${esc(f.operator)} · ${(f.tiers||[]).length-gapN}/3 档已写</div></div>
@@ -424,7 +431,7 @@ function r01Portraits(){
           const num = hasMetric(tr) ? tr.metric : null;
           const color = x[2]==='PASS'?'#A32D2D':x[2]==='加分'?'#3B6D11':'#185FA5';
           const bg = x[2]==='PASS'?'#FCEBEB':x[2]==='加分'?'#EAF3DE':'#E6F1FB';
-          return `<span class="tg" style="padding:4px 9px;font-size:11.5px;background:${gap?'var(--bg2)':bg};border-color:${gap?'var(--warn-line)':color};color:${gap?'var(--warn)':color}">${esc(f.name||x[0])} ≥${esc(x[1])} · ${esc(num||tr.label||'待补')}</span>`;
+          return `<span class="tg" style="padding:4px 9px;font-size:13px;background:${gap?'var(--bg2)':bg};border-color:${gap?'var(--warn-line)':color};color:${gap?'var(--warn)':color}">${esc(f.name||x[0])} ≥${esc(x[1])} · ${esc(num||tr.label||'待补')}</span>`;
         }).join('')}</div>
         <div class="t-sub" style="margin-top:8px">${metr===0
           ? `${p.pick.length} 条全部落在没有精度指标的档（多为 D1「会做」）—— 只能靠面试实操判定`
@@ -552,13 +559,13 @@ ${p.pick.map(x=>`    [<span class="s">"${x[0]}"</span>, <span class="s">"${x[1]}
       <div class="sec"><div class="sec-t">${xpl('完整度：三个数，不给百分比','完整度')}</div>
         <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px">
           <div class="card"><div class="card-b"><div class="sm mut">PASS · 硬门槛</div>
-            <div style="font-size:20px;font-weight:500;color:#A32D2D">${g('PASS').length} 条</div>
+            <div style="font-size:21.5px;font-weight:500;color:#A32D2D">${g('PASS').length} 条</div>
             <div class="t-sub">缺一项就不能发确认单</div></div></div>
           <div class="card"><div class="card-b"><div class="sm mut">必填</div>
-            <div style="font-size:20px;font-weight:500;color:#185FA5">${g('必填').length} 条</div>
+            <div style="font-size:21.5px;font-weight:500;color:#185FA5">${g('必填').length} 条</div>
             <div class="t-sub">缺了标黄，可后补</div></div></div>
           <div class="card"><div class="card-b"><div class="sm mut">加分</div>
-            <div style="font-size:20px;font-weight:500;color:#3B6D11">${g('加分').length} 条</div>
+            <div style="font-size:21.5px;font-weight:500;color:#3B6D11">${g('加分').length} 条</div>
             <div class="t-sub">只影响排序，不淘汰</div></div></div>
         </div>
         ${xpl(`<div class="t-sub" style="margin-top:8px">合计 ${p.pick.length} 条，不是 47 项 —— 47 项是通用采集口径，工种技能因子在这之外另算。候选人打分时这三个数变成 <b>已满足 / 要求</b>，永远不给百分比。</div>`, '')}
@@ -822,12 +829,12 @@ function r01Perms(){
       <div class="card"><div class="card-h"><h3>R04 招聘专员 · 权限明细</h3><span class="xs mut">勾选到二级页</span></div>
         <div class="card-b">
           <div class="sec-t">菜单权限</div>
-          ${['我的首页','需求列表','批次列表','人员列表','人才池列表','系统操作记录'].map(m=>`
-            <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px"><input type="checkbox" checked style="width:15px;height:15px">${m}</label>`).join('')}
+          ${['我的首页','需求列表','批次列表','招聘人员列表','人才池列表','系统操作记录'].map(m=>`
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14.5px"><input type="checkbox" checked style="width:15px;height:15px">${m}</label>`).join('')}
           <div class="sec-t" style="margin-top:14px">动作权限</div>
           <div class="tags">${['查看','新建','编辑','导出','记录联系','分配（否）','删除（否）'].map(t=>`<span class="tg">${t}</span>`).join('')}</div>
           <div class="sec-t" style="margin-top:14px">字段级权限</div>
-          <div style="font-size:13px;line-height:2">
+          <div style="font-size:14.5px;line-height:2">
             <div>合同价 <span class="b r" style="float:right">不可见</span></div>
             <div>提成 / 利润 <span class="b r" style="float:right">不可见</span></div>
             <div>人员手机号 <span class="b w" style="float:right">脱敏</span></div>
@@ -836,7 +843,7 @@ function r01Perms(){
         </div></div></div>`;
   } else if(tab==='data'){
     body = `<div class="grid g2"><div class="card"><div class="card-h"><h3>数据范围规则</h3></div><div class="card-b">
-      ${['本人负责（默认）','本组','指定客户','指定项目','全部'].map((r,i)=>`<label style="display:flex;align-items:center;gap:8px;padding:8px 0;font-size:13.5px">
+      ${['本人负责（默认）','本组','指定客户','指定项目','全部'].map((r,i)=>`<label style="display:flex;align-items:center;gap:8px;padding:8px 0;font-size:15px">
         <input type="radio" name="dr" ${i===0?'checked':''} style="width:15px;height:15px">${r}</label>`).join('')}
       </div></div>
       <div class="card"><div class="card-h"><h3>例外名单</h3><span class="xs mut">白名单 / 黑名单</span></div><div class="card-b">

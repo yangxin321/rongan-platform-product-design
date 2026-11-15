@@ -16,7 +16,7 @@ function r01Dicts(){
   const rows = list.map((d,i)=>`<tr class="clk" onclick="ddEdit('${d.code}')">
     <td class="sm mut mono">${DICT_ITEMS.indexOf(d)+1}</td>
     <td><div class="t-name">${esc(d.name)}</div><div class="t-sub mono">${esc(d.code)}</div></td>
-    <td><span class="tg" style="padding:2px 7px;font-size:11.5px">${esc(d.type)}</span></td>
+    <td><span class="tg" style="padding:2px 7px;font-size:13px">${esc(d.type)}</span></td>
     <td>${ddVals(d)}</td>
     <td><span class="b ${DD_SCOPE[d.scope].tone}">${esc(DD_SCOPE[d.scope].name)}</span></td>
     <td onclick="event.stopPropagation()"><div class="acts">
@@ -57,8 +57,8 @@ function ddVals(d){
       + (d.options.length>1?`<div class="t-sub">常用档：${esc(d.options.slice(1,4).join(' / '))}</div>`:'');
   }
   const show = d.options.slice(0,5);
-  return `<div class="tags">${show.map(v=>`<span class="tg" style="padding:2px 7px;font-size:11.5px">${esc(v)}</span>`).join('')}
-    ${d.options.length>5?`<span class="tg" style="padding:2px 7px;font-size:11.5px;color:var(--accent);border-color:var(--accent-line)">+${d.options.length-5}</span>`:''}</div>`;
+  return `<div class="tags">${show.map(v=>`<span class="tg" style="padding:2px 7px;font-size:13px">${esc(v)}</span>`).join('')}
+    ${d.options.length>5?`<span class="tg" style="padding:2px 7px;font-size:13px;color:var(--accent);border-color:var(--accent-line)">+${d.options.length-5}</span>`:''}</div>`;
 }
 
 /* ---------------- 编辑抽屉 ---------------- */
@@ -178,7 +178,7 @@ function ddSchema(){
       <div class="tbl-wrap"><table><thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
         <tbody>${fields.map(f=>`<tr><td class="mono sm">${f[0]}</td><td class="sm mut">${f[1]}</td><td class="sm">${esc(f[2])}</td></tr>`).join('')}</tbody>
       </table></div>
-      <div style="margin-top:12px;font-family:var(--mono);font-size:11.5px;white-space:pre;overflow:auto;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;padding:12px;line-height:1.75">${esc(sql)}</div>
+      <div style="margin-top:12px;font-family:var(--mono);font-size:13px;white-space:pre;overflow:auto;background:var(--bg2);border:1px solid var(--line2);border-radius:8px;padding:12px;line-height:1.75">${esc(sql)}</div>
       <div class="note i" style="margin-top:12px">
         <b>一个字段一行，值放 json。</b>选项少、改动少，不值得为值单开一张子表；
         真要拆就拆成 <span class="mono">dict_option(dict_id, value, sort)</span>，页面上其他都不变。

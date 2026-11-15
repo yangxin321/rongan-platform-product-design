@@ -107,6 +107,33 @@ PEOPLE.forEach((pe,i)=>{
     demandId: app?app.demandId:'', purpose:PURPOSES[i%7],
     concl:['问了下当前状态，还在看机会','说下周给答复','资料已发，等待回传'][i%3], next:'2026-11-14'});
 });
+/* 2026-11-15 第十四批：沟通记录页收成「一张表，一行 = 一次沟通」之后，
+   演示里必须真的能看到「多次沟通」——否则一行表看不出「多行即多次」，等于没演示。
+   给前三条投递各补两次更早的沟通。日期从 TODAY 往前推（演示时钟是 2026-11-13，
+   不能按真实日期写死，否则会跟 TODAY 撞在同一天）。 */
+const TALK_EXTRA = [
+  {back:2, h:15, mi:40, type:'微信', purpose:'约面试',
+   concl:'约周四下午到厂面谈，提醒带身份证与证件原件'},
+  {back:4, h:9,  mi:20, type:'电话', purpose:'首次触达',
+   concl:'电话打通，人在职，月底可离岗；先加微信发了岗位与薪资范围'},
+];
+const backDay = n => {
+  const d = new Date(TODAY + 'T00:00:00');
+  d.setDate(d.getDate() - n);
+  return [d.getMonth() + 1, d.getDate()];
+};
+[0,1,2].forEach(k=>{
+  const f = FOLLOWS[k];
+  if(!f) return;
+  const p = PERSONS.find(x=>x.id===f.personId) || {};
+  if(!p.personId) return;
+  TALK_EXTRA.forEach(e=>{
+    const [m, d] = backDay(e.back);
+    CONTACTS.push({personId:p.personId, appId:f.personId,
+      time:fmtDT(m, d, e.h, e.mi), type:e.type, staff:f.staff,
+      demandId:p.demandId, purpose:e.purpose, concl:e.concl, next:''});
+  });
+});
 CONTACTS.sort((a,b)=>b.time.localeCompare(a.time));
 
 /* 画像判断层：只写可验证行为 + 依据 + 来源 + 置信度 + 更新时间 */
@@ -155,3 +182,112 @@ const batchChannels = b => {
   if(b.pool) out.push(['人才池', b.pool]);
   return out;
 };
+
+/* =======================================================================
+   候选人基本信息：学历 / 院校 / 专业 / 意向岗位 / 总工作年限 / 微信 / 邮箱
+   -----------------------------------------------------------------------
+   这几项是简历头部候选人自己填的资料，不是我们的判断：
+     · 不参与硬条件，不进资料核实，不给「符合 / 不符合」；
+     · 缺就显示「未填」，不替他补，也不按年龄倒推学历。
+   真实简历里本来就参差：学历约七成、邮箱约一半、微信只是一部分人有 ——
+   演示数据照这个分布来，否则「未填」这个状态在页面上永远看不到。
+   ======================================================================= */
+function hrSeed(s){
+  let h = 2166136261;
+  const t = String(s || '');
+  for(let i=0;i<t.length;i++){ h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return Math.abs(h);
+}
+/* 学历与院校、专业成套出现 —— 简历里不会只有学历没有学校 */
+const HR_EDU = {
+  '中专':[
+    ['东莞市技师学院','机电一体化技术'],
+    ['广东省机械技师学院','机械设备装配与自动控制'],
+    ['惠州市工程技术学校','机电技术应用'],
+    ['深圳市第二高级技工学校','电气自动化设备安装与维修'],
+    ['东莞市轻工业学校','数控技术应用'],
+  ],
+  '大专':[
+    ['广东机电职业技术学院','机电一体化技术'],
+    ['东莞职业技术学院','数控技术'],
+    ['深圳信息职业技术学院','电子信息工程技术'],
+    ['广东工贸职业技术学院','工业机器人技术'],
+    ['广东交通职业技术学院','电气自动化技术'],
+  ],
+  '本科':[
+    ['广东工业大学','机械设计制造及其自动化'],
+    ['东莞理工学院','机械电子工程'],
+    ['华南理工大学广州学院','电气工程及其自动化'],
+    ['广东技术师范大学','机械设计制造及其自动化'],
+  ],
+};
+/* 学历门槛按岗位实际用人的常见情况估，不是评分：技工岗中专/大专为主，少量本科 */
+function hrEduLine(skills){
+  const s = (skills||[]).join(',');
+  if(/售后|客服|文员/.test(s)) return '大专';
+  if(/CNC|IQC|检验|激光|光路|PLC|调试|电子/.test(s)) return '大专';
+  return '中专';
+}
+/* 意向岗位：简历头部那句「求职意向」。按现有技能推，组内轮换，不新造岗位名 */
+const HR_JOBS = [
+  [/CNC|对刀|加工中心/, ['CNC 操作工','加工中心操作工','数控车工']],
+  [/钳工/,                ['装配钳工','机修钳工']],
+  [/电工|电气|PLC/,       ['维修电工','设备电气调试员']],
+  [/焊/,                  ['氩弧焊工','二保焊工']],
+  [/船舶|舾装|船厂/,      ['船舶电工','舾装工']],
+  [/激光|光路|光电/,      ['激光装配调试员','光路调试员']],
+  [/IQC|检验|品质/,       ['IQC 检验员','品质检验员']],
+  [/售后|客服/,           ['售后运维工程师','客户现场服务工程师']],
+  [/总装|装配|流水线|组装/,['装配工','总装操作工']],
+  [/电子/,                ['电子装配工']],
+  [/机修/,                ['机修工']],
+  [/文员/,                ['生产文员']],
+];
+function hrWantJob(skills, seed){
+  const pick = t => { for(const [re, list] of HR_JOBS) if(re.test(t)) return list[seed % list.length]; return null; };
+  /* 先按主技能定，再退回整串技能 —— 简历上的「求职意向」通常就是主技能那一行，
+     一味按整串匹配，会把「会一点 CNC 的电气调试工」写成数控车工。 */
+  for(const s of (skills||[])){ const hit = pick(s); if(hit) return hit; }
+  return pick((skills||[]).join(',')) || '普工 / 操作工';
+}
+function hrFill(pe){
+  const k = hrSeed(pe.id + pe.name + pe.phone);
+  const line = hrEduLine(pe.skills);
+  /* 约一成读到本科；另有一小撮简历只写经历不写学历 —— 留出「未填」样本，
+     这样「未填」是数据里真会出现的状态，不是只在代码里存在的分支。 */
+  const noEdu = (k % 23 === 0);
+  const edu = noEdu ? '' : ((k % 10 === 0 && line !== '本科') ? (line === '中专' ? '大专' : '本科') : line);
+  const pair = edu ? HR_EDU[edu][k % HR_EDU[edu].length] : null;
+  const start = {'中专':19,'大专':21,'本科':22}[edu] || 20;
+  const years = Math.max(1, Math.min(35, pe.age - start - (k % 2)));
+  const tail = String(pe.phone).replace(/\D/g,'').slice(-8);
+  pe.edu = edu;
+  pe.school = pair ? pair[0] : '';
+  pe.major = pair ? pair[1] : '';
+  pe.wantJob = hrWantJob(pe.skills, k);
+  pe.years = years;
+  /* 微信：招聘场景最常用，但简历里不是人人留；留的人多数就是手机号 */
+  pe.wechat = (k % 10 < 7) ? ({same:true, id:pe.phone}) : null;
+  if(k % 10 === 0) pe.wechat = {same:false, id:'wxid_' + (k % 9973).toString(36) + tail.slice(-3)};
+  /* 邮箱：约一半人有，QQ 邮箱号多为 8 位数字，跟手机尾号不重合也合理 */
+  pe.email = (k % 100 < 48) ? (tail + (k % 2 ? '@qq.com' : '@163.com')) : null;
+  return pe;
+}
+PEOPLE.forEach(hrFill);
+/* 学历层级：用于筛选与排序，不参与匹配 */
+const EDU_LV = {'高中':1,'中专':2,'大专':3,'本科':4};
+const hrOf = pid => { const p = appPerson(pid); return p && p.id !== '—' ? p : null; };
+
+/* ---------- 候选人基本信息的展示口径（2026-11-15） ----------
+   学历 / 院校 / 专业 / 意向岗位 / 总工作年限 / 微信 / 邮箱，都是「人」自己的基本信息：
+   简历上怎么写就怎么录。平台**不核实**、不进硬条件、不产生「符合 / 不符合」，
+   也不因为这个人投了某个岗位就改写成岗位名。
+   缺项一律写「未填」，不按年龄、技能或投递岗位倒推。 */
+const HR_NA = '<span class="mut">未填</span>';
+function hrV(v){ return (v===undefined || v===null || String(v).trim()==='') ? HR_NA : esc(String(v)); }
+/* 列表一行读完：年限 + 学历在上（筛选先看这两项），意向岗位在下 */
+function hrCell(p){
+  if(!p) return HR_NA;
+  return `<div class="sm">${p.years?`<b>${p.years}</b> 年`:'<span class="mut">年限未填</span>'}${p.edu?' · '+esc(p.edu):''}</div>
+    <div class="t-sub">${hrV(p.wantJob)}</div>`;
+}

@@ -80,14 +80,14 @@ function hdRow(m, i){
   const gapTone = m.gap > 0 ? 'var(--bad)' : 'var(--good)';
   return `<tr id="hdrow-${d.id}">
     <td style="min-width:210px">
-      <div class="t-name"><span class="link-post" title="点开看岗位详情" onclick="pmOpen('${d.id}')">${esc(d.post)}</span>
+      <div class="t-name"><span class="link-post" title="点开进入这条需求的独立详情页（三页签）" onclick="openDemand('${d.id}','detail')">${esc(d.post)}</span>
         ${d.pinned?'<span class="b a">置顶</span>':''}</div>
       <div class="t-sub">${esc(d.project)} · <span class="mono">${esc(d.code)}</span></div>
     </td>
     <td><div class="sm">${esc(d.client)}</div><div class="t-sub">${esc(d.city)}</div></td>
     <td class="num hd-ed" id="hdc-${d.id}-qty" onclick="hdEdit('${d.id}','qty')"><b>${m.mine}</b><span class="xs mut">/${d.head}</span></td>
     <td class="num">${m.mineHired}</td>
-    <td class="num" id="hdc-${d.id}-gap"><b style="color:${gapTone};font-size:15px">${m.gap}</b></td>
+    <td class="num" id="hdc-${d.id}-gap"><b style="color:${gapTone};font-size:16.5px">${m.gap}</b></td>
     <td class="num">${m.act}</td>
     <td class="num">${m.itv}</td>
     <td class="num">${m.onb}</td>
@@ -214,7 +214,7 @@ function r04Home(){
       <div class="hd-grp-h"><span class="b ${g.tone}">${g.n}</span><b class="sm">${g.list.length} 人</b>
         <div class="sp"></div><span class="xs mut">${g.act}</span></div>
       ${g.list.length? g.list.slice(0,6).map(p=>personRow(p,g.act)).join('') : '<div class="xs mut" style="padding:6px 2px">这类现在没有人</div>'}
-      ${g.list.length>6?`<div class="xs mut" style="padding:4px 2px">还有 ${g.list.length-6} 人 → <span class="link" onclick="event.stopPropagation();go('persons')">去人员列表</span></div>`:''}
+      ${g.list.length>6?`<div class="xs mut" style="padding:4px 2px">还有 ${g.list.length-6} 人 → <span class="link" onclick="event.stopPropagation();go('persons')">去招聘人员列表</span></div>`:''}
     </div>`).join('');
 
   const sysFocus = myFocus.length

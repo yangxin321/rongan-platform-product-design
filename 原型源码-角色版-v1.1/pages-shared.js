@@ -1,6 +1,14 @@
 /* ===== 共用列表页：需求 / 批次 / 人员 / 人才池 / 操作记录 ===== */
 
-/* ---------- 需求列表 ---------- */
+/* ---------- 需求列表 ----------
+   招聘专员看的是「我在这一单上的活」：我背几个人、已入职几个、还差几个、我手里几份简历。
+   整单人数 / 整单已入职 / 总缺口不是他的口径，留着只会让人以为自己要补 12 个人（2026-11-15 第七批）。
+   整单口径进需求详情顶部，这里一格都不出现。 */
+function dmMyTask(d){
+  const a = allocOf(d.id).find(x=>x.staff===S.who) || { qty:0, hired:0, target:'—' };
+  const mine = dmMine(d.id);
+  return { qty:a.qty, hired:a.hired, left:Math.max(0, a.qty - a.hired), resumes:mine.length, target:a.target };
+}
 function demandsPage(){
   const isR04 = S.role==='R04', isR02 = S.role==='R02';
   let rows = DEMANDS.slice();
@@ -10,151 +18,139 @@ function demandsPage(){
   if(q) rows = rows.filter(d => (d.post+d.client+d.project+d.code).includes(q));
   if(st) rows = rows.filter(d => d.status===st);
 
-  const totalHead = rows.reduce((a,d)=>a+d.head,0), totalHired = rows.reduce((a,d)=>a+d.hired,0);
   const actions = isR04
     ? `<button class="btn" onclick="toast('已按缺口排序')">按缺口排序</button><button class="btn" onclick="toast('已导出 4 条需求')">导出</button>`
     : `<button class="btn pri" onclick="ndEnter()">＋ 新建需求</button><button class="btn" onclick="toast('已导出需求清单')">导出</button>`;
 
-  const cols = [
-    {label:'需求 / 岗位', r:d=>`<div class="t-name"><span class="link-post" title="点开看岗位详情（用工标准 / 技能胜任 / 商务条件）" onclick="event.stopPropagation();pmOpen('${d.id}')">${esc(d.post)}</span></div><div class="t-sub"><span class="arc-link mono" onclick="event.stopPropagation();openDemand('${d.id}')">${esc(d.code)}</span> · ${esc(d.client)}</div>`},
+  /* 公共操作三件套顺序固定：查看简历 → 传简历 → 人才库找人（管理端再加「分配需求」） */
+  const acts = d => `<div class="acts">
+    <span class="link" onclick="event.stopPropagation();openDemand('${d.id}','resume')" title="进这一单的简历明细（只看我当前跟进的人）">查看简历</span>
+    <span class="link" onclick="event.stopPropagation();openModal(uploadNewBatchModal(),'md-lg')">传简历</span>
+    <span class="link" onclick="event.stopPropagation();findInPool('${d.id}')" title="进人才池完整筛选页，带入这一单的岗位条件">人才库找人</span>
+    ${isR04?'':`<span class="link" onclick="event.stopPropagation();openAlloc('${d.id}')">分配需求</span>`}
+  </div>`;
+
+  const cols = isR04 ? [
+    {label:'需求 / 岗位', r:d=>`<div class="t-name"><span class="link-post" title="点开进入这条需求的独立详情页（需求明细 / 简历明细 / 招聘进度）" onclick="openDemand('${d.id}','detail')">${esc(d.post)}</span></div><div class="t-sub"><span class="arc-link mono" onclick="openDemand('${d.id}','detail')">${esc(d.code)}</span> · ${esc(d.client)}</div>`},
     {label:'项目', r:d=>`<div class="sm">${esc(d.project)}</div><div class="t-sub">${esc(d.city)}</div>`},
-    {label:'人数 / 缺口', r:d=>`<div class="num"><b>${d.head}</b> 人</div><div class="t-sub">缺口 <b style="color:var(--bad)">${d.head-d.hired}</b> · 已入职 ${d.hired}</div><div class="t-sub" style="color:var(--ink2)">在投 <b>${personsOf(d.id).length}</b></div>`},
+    {label:'我的目标', r:d=>{ const t = dmMyTask(d);
+      return `<div class="num"><b>${t.qty}</b> 人</div><div class="t-sub">已入职 <b>${t.hired}</b> · 缺口 <b style="color:${t.left?'var(--bad)':'var(--good)'}">${t.left}</b></div>`;}},
+    {label:'我的简历', r:d=>{ const t = dmMyTask(d);
+      return `<div class="num"><b>${t.resumes}</b> 份</div><div class="t-sub">我当前跟进</div>`;}},
+    {label:'最迟到岗', r:d=>`<div class="mono sm">${esc(d.deadline)}</div><div class="t-sub">${d.deadline<'2026-11-25'?'<span style="color:var(--bad)">临期</span>':'时效正常'}</div>`},
+    {label:'客户确认', r:d=>`${confirmB(d.confirm)}<div class="t-sub">${d.confirm==='已确认'?'客户已认口径':'可先找简历'}</div>`},
+    {label:'状态', r:d=>demandB(d.status)},
+    {label:'操作', r:acts},
+  ] : [
+    {label:'需求 / 岗位', r:d=>`<div class="t-name"><span class="link-post" title="点开进入这条需求的独立详情页（需求明细 / 简历明细 / 招聘进度）" onclick="openDemand('${d.id}','detail')">${esc(d.post)}</span></div><div class="t-sub"><span class="arc-link mono" onclick="openDemand('${d.id}','detail')">${esc(d.code)}</span> · ${esc(d.client)}</div>`},
+    {label:'项目', r:d=>`<div class="sm">${esc(d.project)}</div><div class="t-sub">${esc(d.city)}</div>`},
+    {label:'整单人数 / 缺口', r:d=>`<div class="num"><b>${d.head}</b> 人</div><div class="t-sub">缺口 <b style="color:var(--bad)">${d.head-d.hired}</b> · 已入职 ${d.hired}</div><div class="t-sub" style="color:var(--ink2)">在投 <b>${personsOf(d.id).length}</b></div>`},
     {label:'分配', r:d=>{
-      const all = personsOf(d.id), mineApp = all.filter(p=>p.owner===S.who).length;
-      if(isR04){ const a = allocOf(d.id).find(x=>x.staff===S.who); return `<div class="sm">我 ${a?a.qty:0} 人</div><div class="t-sub">已入职 ${a?a.hired:0}</div><div class="t-sub" style="color:var(--ink2)">我投了 <b>${mineApp}</b></div>`;}
       const a = allocOf(d.id);
       return a.length? `<div class="sm">${a.length} 人分摊</div><div class="t-sub">${a.map(x=>x.staff).join(' / ')}</div>` : '<span class="b w">未分配</span>';
     }},
     {label:'最迟到岗', r:d=>`<div class="mono sm">${esc(d.deadline)}</div><div class="t-sub">${d.deadline<'2026-11-25'?'<span style="color:var(--bad)">临期</span>':'时效正常'}</div>`},
     {label:'客户确认', r:d=>`${confirmB(d.confirm)}<div class="t-sub">${d.confirm==='已确认'?'客户已认口径':'可先找简历'}</div>`},
     {label:'状态', r:d=>demandB(d.status)},
-    {label:'操作', r:d=>`<div class="acts">
-      ${isR04? `<span class="link" onclick="event.stopPropagation();openDemand('${d.id}')">详情</span>
-        <span class="link" onclick="event.stopPropagation();openModal(uploadNewBatchModal(),'md-lg')">传简历</span>`
-      : `<span class="link" onclick="event.stopPropagation();openDemand('${d.id}')">详情</span>
-        <span class="link" onclick="event.stopPropagation();openAlloc('${d.id}')">分配需求</span>`}
-    </div>`},
+    {label:'操作', r:acts},
   ];
 
+  const sl = pageSlice('demands', rows);
   return `<div class="page">
-    ${head('需求列表', isR04? '我参与招聘的需求 · 点岗位名看详情（标准 / 技能 / 商务），点编号进抽屉干活' : '客户确认后落下的可执行需求 · 一个需求一个岗位一个人数', actions)}
-    ${isR04 ? todoStrip() : ''}
-    ${stats([
-      {lab:'需求数', val:rows.length, unit:'个', foot:'我参与的需求'},
-      {lab:'需求总人数', val:totalHead, unit:'人'},
-      {lab:'已入职', val:totalHired, unit:'人', foot:`到岗率 ${pct(totalHired,totalHead)}%`},
-      {lab:'缺口', val:totalHead-totalHired, unit:'人', accent:true, foot:'含未分配人数'},
-    ])}
+    ${head('需求列表', isR04? '我参与招聘的需求 · 只算我自己的目标与简历 · 点岗位名或编号进入独立详情页' : '客户确认后落下的可执行需求 · 一个需求一个岗位一个人数', actions)}
     ${toolbar({q:'搜索岗位 / 客户 / 项目 / 编号', filters:[{k:'st',opts:[{v:'',label:'全部状态'},{v:'招聘中',label:'招聘中'},{v:'待分配',label:'待分配'},{v:'已完成',label:'已完成'}]}], right:`<span class="sm mut">共 ${rows.length} 条</span>`})}
-    ${table(cols, rows)}
-    ${pager(rows.length)}
+    ${table(cols, sl.rows)}
+    ${pagerBar('demands', sl, '条')}
   </div>`;
 }
 
-/* ---------- 需求列表顶部 · 我要干的事（P0-5） ---------- */
-const TODO_GRP = [
-  {k:'面', n:'待面试', tone:'w', act:'约面 / 登记结果', nodes:['待面试']},
-  {k:'入', n:'入职跟进', tone:'g', act:'推进到岗', nodes:['面试通过','待入职']},
-  {k:'意', n:'意向跟进', tone:'i', act:'记录联系', nodes:['已匹配','触达中','补全中','新入库']},
-];
-function todoList(k){
-  const g = TODO_GRP.find(x=>x.k===k) || TODO_GRP[0];
-  return PERSONS.filter(p=>p.owner===S.who && p.status==='跟进中' && g.nodes.includes(p.node));
-}
-function todoStrip(){
-  const me = S.who;
-  const mineP = PERSONS.filter(p=>p.owner===me && p.status==='跟进中');
-  const focus = FOCUS.filter(f=>f.staff===me);
-  const cards = TODO_GRP.map(g=>{
-    const n = mineP.filter(p=>g.nodes.includes(p.node)).length;
-    return `<div class="td-card ${n?'':'dim'}" onclick="openTodo('${g.k}')">
-      <div class="td-n"><b class="b ${g.tone}">${g.n}</b><span class="td-c">${n}</span></div>
-      <div class="td-a">${g.act} →</div>
-    </div>`;
-  }).join('');
-  const sys = focus.length
-    ? `<div class="td-sys">${focus.map(f=>`<span class="td-si ${f.level==='bad'?'r':f.level==='warn'?'w':''}" onclick="handleFocus('${f.target}')">${esc(f.title)}</span>`).join('')}</div>`
-    : '<span class="xs mut">今天没有系统提醒</span>';
-  return `<div class="td-strip">
-    <div class="td-h"><b>我要干的事</b><span class="xs mut">点卡片看名单 · 这些每天都要过一遍，别压在最后一页</span></div>
-    <div class="td-row">${cards}</div>
-    <div class="td-sysrow"><span class="xs mut">系统提醒</span>${sys}</div>
-  </div>`;
-}
-function openTodo(k){
-  const g = TODO_GRP.find(x=>x.k===k) || TODO_GRP[0];
-  const list = todoList(k);
-  const rows = list.map(p=>`<div class="td-pr" onclick="closeAll();openPerson('${p.id}')">
-    <div class="avatar">${esc(p.name.slice(0,1))}</div>
-    <div style="flex:1;min-width:0"><div class="sm"><b>${esc(p.name)}</b> <span class="xs mut">· ${esc(D(p.demandId).post)}</span></div>
-      <div class="xs mut">${esc(p.skills[0]||'')} · 上次 ${p.lastContact==='—'?'未联系':p.lastContact.slice(5)}</div></div>
-    ${nodeB(p.node)}
-    <span class="xs mut">${esc(g.act)}</span>
-  </div>`).join('');
-  openModal(`<div class="md-h"><div><h3>${g.n} · ${list.length} 人</h3>
-      <p>${esc(g.act)} · 点人名进详情，看简历或记沟通</p></div>
-    <button class="dr-x" onclick="closeAll()">×</button></div>
-  <div class="md-b">${rows || '<div class="empty">这一类现在没有人</div>'}</div>
-  <div class="md-f"><button class="btn" onclick="closeAll()">关闭</button>
-    <button class="btn pri" onclick="closeAll();go('persons')">去人员列表</button></div>`);
-}
+/* ---------- 列表顶部「我要干的事」已移除（v1.3 · RG-012）----------
+   原来的三张卡（待面试 / 入职跟进 / 意向跟进）+ 系统提醒放在需求列表最上面，
+   占掉首屏却只对 R04 有用，R01/R02 打开列表第一眼看不到需求。
+   现在：能力留在独立工作台「我的首页」的第二张卡「需要我跟的事」里（同一份分阶段名单，
+   点人名直接进人详情，数量与列表一致），列表本身只放记录。
+   不要在这里加回任何卡片 / 待办 / 汇总数字 —— 要加就先改 Issue #6 的 AC-1。 */
 
-/* ---------- 批次列表 ---------- */
+/* ---------- 批次列表 ----------
+   批次是招聘专员每天的工作单元。这一页回答两件事：这批收了没有、这批跟到哪了。
+   所以字段只说「已联系 / 待联系」「跟进结果」，不再用「战果」这种打鸡血又含糊的词。
+   已关闭 = 结束新增收集，不是结束跟进：关闭批次的人还在需求下继续走面试与入职，
+   所以关闭批次不给上传入口，只给「新增到今日批次」—— 新简历永远不会落到关闭的批次里。 */
 function sameDayCount(b){ return BATCHES.filter(x=>x.demandId===b.demandId && x.date===b.date).length; }
 function sameDaySeq(b){ return BATCHES.filter(x=>x.demandId===b.demandId && x.date===b.date).sort((p,q)=>p.code.localeCompare(q.code)).findIndex(x=>x.id===b.id)+1; }
+/* 一条批次有两个数，口径不同、都不能凑：
+     新增 N 份 = 上传/下载记录（b.boss+b.manual+pool），是「收了多少份文件」
+     已建档 M 人 = 真正落成投递的人（PERSONS 里 batchId 指向它），是「进来多少个人」
+   同一批里重复简历、格式不对被退回的，只算份不算人 —— 所以两个数允许不相等。 */
+function batchUploaded(b){ return b.boss+b.manual+b.pool; }
+function batchFiled(b){ return PERSONS.filter(p=>p.batchId===b.id).length; }
 function batchesPage(){
   const isR04 = S.role==='R04';
   let rows = BATCHES.slice();
   if(isR04) rows = rows.filter(b=>b.owner===S.who);
-  const q=(S.f.q||'').trim(), st=S.f.st||'', ow=S.f.ow||'';
+  const q=(S.f.q||'').trim(), st=S.f.st||'', ow=S.f.ow||'', day=S.f.day||'', dmF=S.f.dm||'';
+  const mine = rows.slice();                      /* 筛需求下拉只列这一页能看到的批次所属需求 */
   if(q) rows = rows.filter(b=>(b.code+D(b.demandId).post).includes(q));
   if(st) rows = rows.filter(b=>b.status===st);
   if(ow) rows = rows.filter(b=>b.owner===ow);
-  rows.sort((a,b)=>b.date.localeCompare(a.date));
+  if(dmF) rows = rows.filter(b=>b.demandId===dmF);
+  if(day==='today') rows = rows.filter(b=>b.date===TODAY);
+  if(day==='7d'){
+    const from = new Date(TODAY+'T00:00:00'); from.setDate(from.getDate()-6);
+    const key = from.toISOString().slice(0,10);
+    rows = rows.filter(b=>b.date>=key);
+  }
+  rows.sort((a,b)=>b.date.localeCompare(a.date) || a.code.localeCompare(b.code));
 
-  const today = rows.filter(b=>b.date===TODAY);
-  const actions = `<button class="btn" onclick="go('pool')">从人才池捞人</button>
-    <button class="btn pri" onclick="openModal(uploadNewBatchModal(),'md-lg')">↑ 传简历建批次</button>
-    <button class="btn" onclick="openModal(newBatchModal())">补建批次</button>`;
-  const todayPs = PERSONS.filter(p=>{const b=B(p.batchId); return b.date===TODAY;});
-  const totCh = chSummary(todayPs);
+  /* 这一页不再挂「从人才池捞人 / 传简历建批次 / 补建批次」三个按钮：
+     批次不是在这儿起头的 —— 简历从需求详情或人才池进来，系统自己按「需求+日期」建批。
+     顶部三个按钮既重复又把人往「先建批再找人」的错顺序上带。
+     能力都还在：传简历 / 新增到今日批次在行内，人才库找人在行内，捞人在人才池页，
+     补建批次在「我的首页 → 需要我跟的事」。 */
+  const actions = '';
 
   const cols = [
-    {label:'批次名称', r:b=>`<div class="t-name mono arc-link" style="font-size:13.5px" onclick="event.stopPropagation();openBatch('${b.id}')">${esc(b.code)}</div><div class="t-sub">${b.date}${b.date===TODAY?' · <span style="color:var(--accent)">今天</span>':''}${sameDayCount(b)>1?' · 同日第 '+sameDaySeq(b)+' 批':''}</div>`},
+    {label:'批次名称', r:b=>`<div class="t-name mono arc-link" style="font-size:15px" onclick="event.stopPropagation();openBatchPersons('${b.id}')">${esc(b.code)}</div><div class="t-sub">${b.date}${b.date===TODAY?' · <span style="color:var(--accent)">今天</span>':''}${sameDayCount(b)>1?' · 同日第 '+sameDaySeq(b)+' 批':''}</div>`},
     {label:'所属需求', r:b=>`<div class="sm">${esc(D(b.demandId).post)}</div><div class="t-sub">${esc(D(b.demandId).client)}</div>`},
-    {label:'负责人', r:b=>`<span class="sm">${esc(b.owner)}</span>`},
-    {label:'来源构成', r:b=>{const ch=batchChannels(b);
-      return `<div class="num"><b>${b.boss+b.manual+b.pool}</b> 份</div>
-        <div class="t-sub">${ch.slice(0,3).map(([n,c])=>esc(n)+' '+c).join(' · ')}${ch.length>3?' +'+(ch.length-3):''}</div>`;}},
-    {label:'触达进度', r:b=>`<div class="barline"><div class="bar ${b.touched/(b.boss+b.manual+b.pool)>.8?'g':''}"><i style="width:${pct(b.touched,b.boss+b.manual+b.pool)}%"></i></div><b>${b.touched}/${b.boss+b.manual+b.pool}</b></div>`},
-    {label:'战果', r:b=>`<div class="sm">有意向 <b>${b.intent}</b> · 面试 <b>${b.interview}</b></div><div class="t-sub">到面 ${b.arrived}</div>`},
+    ...(isR04?[]:[{label:'负责人', r:b=>`<span class="sm">${esc(b.owner)}</span>`}]),
+    {label:'来源构成', r:b=>{const ch=batchChannels(b), cap=batchUploaded(b), filed=batchFiled(b);
+      /* 渠道统计有两种口径，必须标清在数什么，不能混挂在一个数字下面：
+          有人建档 → batchChannels 数的是「已建档的人」按渠道，合计 = 已建档人数
+          没人建档 → 数的是「收进来的份」按来源，合计 = 新增份数
+         以前两种都挂在「N 份」下、出入再补一句「含去重」，读起来像 25 份里只有 6 份有来源（2026-11-15 第七批修正） */
+      const byPerson = PERSONS.some(p=>p.batchId===b.id);
+      const chStr = ch.slice(0,3).map(([n,c])=>esc(n)+' '+c).join(' · ') + (ch.length>3?' +'+(ch.length-3):'');
+      return `<div class="num"><b>${cap}</b> 份</div>
+        <div class="t-sub">${byPerson?`已建档 <b>${filed}</b> 人：${chStr||'—'}`:`份来源：${chStr||'—'}`}</div>
+        ${byPerson?'':`<div class="t-sub" style="color:var(--ink2)">已建档 <b>${filed}</b> 人</div>`}`;}},
+    {label:'触达进度', r:b=>{const cap=batchUploaded(b); const wait = Math.max(0, cap-b.touched);
+      return `<div class="barline"><div class="bar ${wait===0?'g':b.touched/cap>.8?'g':''}"><i style="width:${cap?pct(b.touched,cap):0}%"></i></div><b>${pct(b.touched,cap)}%</b></div>
+        <div class="t-sub">已联系 <b>${b.touched}</b> · 待联系 <b style="color:${wait?'var(--bad)':'var(--good)'}">${wait}</b></div>`;}},
+    {label:'跟进结果', r:b=>`<div class="sm">有意向 <b>${b.intent}</b> · 面试 <b>${b.interview}</b></div><div class="t-sub">到面 ${b.arrived}</div>`},
     {label:'状态', r:b=>b.status==='进行中'?'<span class="b i">进行中</span>':'<span class="b n">已关闭</span>'},
     {label:'操作', r:b=>`<div class="acts">
-      <span class="link" onclick="event.stopPropagation();openBatch('${b.id}')">人员</span>
-      <span class="link" onclick="event.stopPropagation();runMatch('${b.id}')">AI 打分</span>
-      <span class="link" onclick="event.stopPropagation();openModal(uploadModal('${b.id}'),'md-lg')">传简历</span>
+      <span class="link" onclick="event.stopPropagation();openBatchPersons('${b.id}')">查看简历</span>
+      ${b.status==='进行中'
+        ? `<span class="link" onclick="event.stopPropagation();openModal(uploadModal('${b.id}'),'md-lg')">传简历</span>`
+        : `<span class="link" title="这批已关闭，不再收新简历；新简历进今天的批次" onclick="event.stopPropagation();openModal(uploadNewBatchModal(),'md-lg')">新增到今日批次</span>`}
+      <span class="link" onclick="event.stopPropagation();findInPool('${b.demandId}')">人才库找人</span>
     </div>`},
   ];
 
+  const dmOpts = [...new Set(mine.map(b=>b.demandId))].map(id=>({v:id,label:D(id).post}));
+  const sl = pageSlice('batches', rows);
   return `<div class="page">
-    ${head('批次列表', '批次 = 招聘专员每天的工作单元：一个需求一天一个批次（同日同需求可建多个）；不用手工建批，传简历 / 捞人时系统自动建', actions)}
-    ${stats([
-      {lab:'今日批次', val:today.length, unit:'个', foot:`新增简历 ${today.reduce((a,b)=>a+b.boss+b.manual+b.pool,0)} 份`},
-      {lab:'今日已触达', val:today.reduce((a,b)=>a+b.touched,0), unit:'人', foot:'目标 100%'},
-      {lab:'今日有意向', val:today.reduce((a,b)=>a+b.intent,0), unit:'人', accent:true},
-      {lab:'进行中批次', val:rows.filter(b=>b.status==='进行中').length, unit:'个'},
-    ])}
-    <div class="ch-strip">
-      <span class="cs-t">今日来源合计</span>
-      ${totCh.length? totCh.map(([n,c])=>`<span class="cs-i"><b>${esc(n)}</b> <span class="mono">${c}</span></span>`).join('') : '<span class="mut sm">今天还没有简历进来</span>'}
-      <span class="cs-note">来源跟人走，不跟批次走 —— 一个批次里天然有多个渠道</span>
-    </div>
+    ${head('批次列表', isR04
+      ? '只列我自己的批次 · 一个需求一天一个批次（同日同需求可建多个）· 点批次名看这一批的完整简历列表'
+      : '批次 = 招聘专员每天的工作单元：一个需求一天一个批次（同日同需求可建多个）；不用手工建批，传简历 / 捞人时系统自动建', actions)}
     ${toolbar({q:'搜索批次号 / 岗位', filters:[
+      {k:'dm',opts:[{v:'',label:'全部需求'},...dmOpts]},
+      {k:'day',opts:[{v:'',label:'全部日期'},{v:'today',label:'今天'},{v:'7d',label:'近 7 天'}]},
       {k:'st',opts:[{v:'',label:'全部状态'},{v:'进行中',label:'进行中'},{v:'已关闭',label:'已关闭'}]},
       ...(isR04?[]:[{k:'ow',opts:[{v:'',label:'全部负责人'},...['李文静','陈曦','王浩'].map(n=>({v:n,label:n}))]}])
-    ], right:`<span class="sm mut">${rows.length} 个批次</span>`})}
-    ${table(cols, rows)}
-    ${pager(rows.length)}
+    ], right:`<span class="sm mut">共 ${rows.length} 个批次</span>`})}
+    ${table(cols, sl.rows)}
+    ${pagerBar('batches', sl, '个批次')}
   </div>`;
 }
 
@@ -162,24 +158,68 @@ function batchesPage(){
 function personsPage(){
   const isR04 = S.role==='R04';
   let rows = PERSONS.slice();
-  if(isR04) rows = rows.filter(p=>p.owner===S.who);
-  const q=(S.f.q||'').trim(), nd=S.f.nd||'', dm=S.f.dm||'', ow=S.f.ow||'', stt=S.f.st||'';
-  if(q) rows = rows.filter(p=>(p.name+p.phone+p.skills.join('')).includes(q));
+  /* 「我名下」= 这一单里我当前跟进的人，与需求详情的「简历明细」同一口径（dmWhoFollows）。
+     以前按 p.owner 筛，而演示数据里同一单的 owner 是常量，会把同事跟进的人一起算进来。 */
+  if(isR04) rows = rows.filter(p=>dmWhoFollows(p)===S.who);
+  const q=(S.f.q||'').trim(), nd=S.f.nd||'', dm=S.f.dm||'', ow=S.f.ow||'', stt=S.f.st||'', triF=S.f.tri||'';
+  const eduF=S.f.edu||'', yrF=S.f.yr||'';
+  if(q) rows = rows.filter(p=>(p.name+p.phone+p.skills.join('')+((hrOf(p.personId)||{}).wantJob||'')).includes(q));
   if(stt) rows = rows.filter(p=>p.status===stt);
   if(nd) rows = rows.filter(p=>p.node===nd);
   if(dm) rows = rows.filter(p=>p.demandId===dm);
   if(ow) rows = rows.filter(p=>p.owner===ow);
+  /* 学历 / 总工作年限：候选人自己的基本信息（不核实、不参与硬条件），
+     但技工岗定岗就看这两项，所以列表上给筛选入口，口径与列里显示同源。 */
+  if(eduF) rows = rows.filter(p=>((hrOf(p.personId)||{}).edu||'')===eduF);
+  if(yrF)  rows = rows.filter(p=>{ const y = (hrOf(p.personId)||{}).years; return !!y && y >= +yrF; });
+  /* 硬条件筛选：按「该人 × 该需求」的逐项判定汇总值过滤，
+     口径与「硬条件」列完全同源（assessPerson + triSum），避免下拉框形同虚设。 */
+  if(triF) rows = rows.filter(p=>triSum(assessPerson(p, D(p.demandId))) === triF);
 
-  const actions = `<button class="btn" onclick="toast('已导出当前筛选 '+${rows.length}+' 条')">导出</button>
-    <button class="btn pri" onclick="openModal(addPersonModal())">＋ 加人</button>`;
+  /* 三态统计卡（在跟 / 待面试 / 待入职 / 已入职）已挪进工具栏当筛选（v1.3 · RG-012 第三批）。
+     原来卡片上的数字含「面试通过」，点下去却只筛 node==='待面试'，数字和列表对不上；
+     现在按组筛：待面试 = 待面试 + 面试通过，与数字同源。计数在分组筛选之前算，避免自己把自己筛没。 */
+  const ng = S.f.ng || '';
+  const base = rows.slice();
+  const cnt = {
+    follow: base.filter(p=>p.status==='跟进中').length,
+    itv:    base.filter(p=>['待面试','面试通过'].includes(p.node)).length,
+    onb:    base.filter(p=>p.node==='待入职').length,
+    hired:  base.filter(p=>p.node==='已入职').length,
+  };
+  if(ng==='follow') rows = rows.filter(p=>p.status==='跟进中');
+  if(ng==='itv')    rows = rows.filter(p=>['待面试','面试通过'].includes(p.node));
+  if(ng==='onb')    rows = rows.filter(p=>p.node==='待入职');
+  if(ng==='hired')  rows = rows.filter(p=>p.node==='已入职');
+
+  /* 简单跟进筛选（2026-11-15 第八批）：今天待跟进 / 已逾期。
+     只算还在跟的人 —— 已入职、已结束（无意向 / 已淘汰）不进入待跟进范围，
+     否则每天都有一堆「早就结束的人」压在逾期里，真正的待办就被埋掉了。 */
+  const fu = S.f.fu || '';
+  if(fu) rows = rows.filter(p=>p.status==='跟进中' && p.nextFollow!=='—');
+  if(fu==='today') rows = rows.filter(p=>p.nextFollow===TODAY);
+  if(fu==='late')  rows = rows.filter(p=>p.nextFollow<TODAY);
+
+  /* 这一页不再挂「导出 / ＋加人」：人是从「传简历 / 人才库找人」进来的，
+     在人员列表里凭空加一个人，会绕开批次与需求，也不是这一页要干的事。 */
+  const actions = '';
 
   const cols = [
     {label:'姓名', r:p=>{const n=otherApps(p).length;
       return `<div class="t-name"><span class="arc-link" onclick="event.stopPropagation();openPerson('${p.id}')">${esc(p.name)}</span> <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span>${n?` <span class="b a" title="该人还有 ${n} 条投递">同投 ${n+1}</span>`:''}</div><div class="t-sub mono">${esc(p.phone)}</div>`;}},
     {label:'技能', r:p=>`<div class="tags">${p.skills.slice(0,2).map(s=>`<span class="tg">${esc(s)}</span>`).join('')}${p.skills.length>2?`<span class="tg">+${p.skills.length-2}</span>`:''}</div>`},
+    /* 年限与学历是技工岗定岗时先看的两项（中专 / 大专 / 本科差一档就换个岗），
+       所以摆在主行；意向岗位放副行 —— 它是候选人的话，不是这一单的岗位。 */
+    {label:'年限 / 学历', r:p=>hrCell(hrOf(p.personId))},
     {label:'所属需求 / 批次', r:p=>`<div class="sm">${esc(D(p.demandId).post)}</div><div class="t-sub mono">${p.batchId?B(p.batchId).code:'人才池捞入'}</div>`},
     {label:'当前节点', r:p=>nodeB(p.node)},
-    {label:'匹配档位', r:p=>`<div style="display:flex;align-items:center;gap:6px">${tierChip(p.tier)}<span class="mono sm">${p.score}</span></div>`},
+    {label:'硬条件', r:p=>{
+      const d = D(p.demandId), items = assessPerson(p, d), sum = triSum(items);
+      const bad = items.filter(i=>i.state!=='ok' && !i.soft);
+      return `<div style="cursor:pointer" onclick="event.stopPropagation();openMatchDetail('${p.id}','${d.id}')" title="点开看逐项依据">
+        ${triS(sum)}<div class="t-sub">${bad.length?bad.length+' 项待核 / 不符':'全部已核实'}</div></div>`;
+    }},
+    {label:'匹配档位 <span class="xs mut">演示评分</span>', r:p=>`<div style="display:flex;align-items:center;gap:6px">${tierChip(p.tier)}<span class="mono sm">${p.score}</span></div>`},
     {label:'上次联系', r:p=>`<div class="sm mono">${p.lastContact==='—'?'—':p.lastContact.slice(5)}</div><div class="t-sub">${p.lastType==='—'?'未联系':esc(p.lastType)}</div>`},
     {label:'下次跟进', r:p=>{
       if(p.nextFollow==='—') return '<span class="mut">—</span>';
@@ -188,48 +228,109 @@ function personsPage(){
     }},
     ...(isR04?[]:[{label:'负责人', r:p=>`<span class="sm">${esc(p.owner)}</span>`}]),
     {label:'状态', r:p=>statB(p.status)},
+    /* 三个入口对应三个业务页面：看简历 / 推进这一单 / 其余三页收进「更多」。
+       以前只有一个笼统的「详情」，点进去还得自己找页签。 */
     {label:'操作', r:p=>`<div class="acts">
-      <span class="link" onclick="event.stopPropagation();openPerson('${p.id}')">详情</span>
-      <span class="link" onclick="event.stopPropagation();openModal(followModal('${p.id}'))">记录联系</span>
+      <span class="link" onclick="event.stopPropagation();openPerson('${p.id}')">查看简历</span>
+      <span class="link" onclick="event.stopPropagation();huAppTo('${p.id}')">投递跟进</span>
+      <span class="link ${pmIsOpen('persons',p.id)?'on':''}" onclick="event.stopPropagation();pmMore('persons','${p.id}')">更多 ${pmIsOpen('persons',p.id)?'▴':'▾'}</span>
     </div>`},
   ];
 
+  const sl = pageSlice('persons', rows);
+  /* 「更多」展开行：一行里塞三个链接，点开才能进另外三页；再点一次收起 */
+  const deco = sl.rows.map(p=>{
+    if(!pmIsOpen('persons', p.id)) return p;
+    const q = Object.assign({}, p, { _more: `
+      <div class="more-row">
+        <span class="xs mut">同一份档案的其他页面：</span>
+        <span class="link" onclick="huGoTo('${p.personId||p.id}','profile','${p.id}','${p.demandId}')">人才画像</span>
+        <span class="hu-dot">·</span>
+        <span class="link" onclick="huGoTo('${p.personId||p.id}','logs','${p.id}','${p.demandId}')">沟通记录</span>
+        <span class="hu-dot">·</span>
+        <span class="link" onclick="huGoTo('${p.personId||p.id}','verify','${p.id}','${p.demandId}')">资料核实</span>
+        <span class="xs mut">（都打开独立页面，不在这行展开内容）</span>
+      </div>` });
+    return q;
+  });
+
   return `<div class="page">
-    ${head('人员列表', (isR04? '我名下的人员' : '全部在跟人员') + ' · 一行 = 一次投递（人 × 需求）；同一个人投多个需求会出现多行，姓名旁标「同投 N」', actions)}
-    ${stats([
-      {lab:'在跟人员', val:rows.filter(p=>p.status==='跟进中').length, unit:'人',
-        foot:'点一下只看跟进中', on:`statFilter('st','跟进中')`, hot:S.f.st==='跟进中'},
-      {lab:'待面试', val:rows.filter(p=>['待面试','面试通过'].includes(p.node)).length, unit:'人', foot:'含面试通过',
-        on:`statFilter('nd','待面试')`, hot:S.f.nd==='待面试'},
-      {lab:'待入职', val:rows.filter(p=>p.node==='待入职').length, unit:'人',
-        on:`statFilter('nd','待入职')`, hot:S.f.nd==='待入职'},
-      {lab:'已入职', val:rows.filter(p=>p.node==='已入职').length, unit:'人', accent:true,
-        on:`statFilter('nd','已入职')`, hot:S.f.nd==='已入职'},
-    ])}
-    ${toolbar({q:'搜索姓名 / 电话 / 技能', filters:[
+    ${head('招聘人员列表', (isR04? '我名下的投递' : '全部在跟投递') + ' · 一行 = 一次投递（人 × 需求）；同一人投多个需求会出现多行，各自独立跟进', actions)}
+    ${toolbar({q:'搜索姓名 / 电话 / 技能 / 意向岗位', filters:[
+      {k:'fu',opts:[{v:'',label:'全部跟进'},{v:'today',label:'今天待跟进'},{v:'late',label:'已逾期'}]},
+      {k:'edu',opts:[{v:'',label:'全部学历'},{v:'中专',label:'中专'},{v:'大专',label:'大专'},{v:'本科',label:'本科'}]},
+      {k:'yr',opts:[{v:'',label:'全部年限'},{v:'3',label:'3 年以上'},{v:'5',label:'5 年以上'},{v:'10',label:'10 年以上'}]},
       {k:'nd',opts:[{v:'',label:'全部节点'},...NODES.map(n=>({v:n,label:n}))]},
+      {k:'tri',opts:[{v:'',label:'全部硬条件'},{v:'ok',label:'已核实符合'},{v:'pend',label:'信息待确认'},{v:'no',label:'已确认不符合'}]},
       {k:'dm',opts:[{v:'',label:'全部需求'},...DEMANDS.map(d=>({v:d.id,label:d.post}))]},
       ...(isR04?[]:[{k:'ow',opts:[{v:'',label:'全部负责人'},...['李文静','陈曦','王浩'].map(n=>({v:n,label:n}))]}])
-    ], right:`<span class="sm mut">${rows.length} 人</span>`})}
-    ${table(cols, rows)}
-    ${pager(rows.length)}
+    ], chips:[
+      {k:'ng',v:'',label:'全部'},
+      {k:'ng',v:'follow',label:`在跟中 ${cnt.follow}`},
+      {k:'ng',v:'itv',label:`待面试 ${cnt.itv}`},
+      {k:'ng',v:'onb',label:`待入职 ${cnt.onb}`},
+      {k:'ng',v:'hired',label:`已入职 ${cnt.hired}`},
+    ], right:`<span class="sm mut">共 ${rows.length} 人</span>`})}
+    ${table(cols, deco)}
+    ${pagerBar('persons', sl, '人')}
   </div>`;
 }
+
+/* 「更多」菜单：只记哪一行展开，收起靠再点一次。
+   按列表分开记（人员列表 / 需求简历明细 / 批次人员各有自己的 key），
+   一处展开不会让另一个列表也跟着展开。 */
+let PM = {open:{}};
+function pmIsOpen(key, id){ return PM.open[key] === id; }
+function pmMore(key, id){
+  PM.open[key] = pmIsOpen(key, id) ? null : id;
+  refreshTable();
+}
+/* 从「更多」进另外三页：带上这一行的投递与需求，页面才知道是哪一单 */
+function huGoTo(pid, view, appId, demandId){
+  PM.open = {};
+  openHuman(pid, view, appId, demandId);
+}
+
+/* 人才库找人：从需求 / 批次带着岗位条件跳进完整筛选页，不新开弹窗。
+   条件留在顶部横条上（客户、岗位、地点、工价、需求原文），列表仍可自由改筛选。
+   捞入批次时默认选这一单的进行中批次，避免「点了半天不知道捞到哪」。 */
+function findInPool(did){
+  go('pool');
+  if(did){
+    S.f.for = did;
+    S.f.st = 'free';                 /* 默认只看空闲可捞：正在别人手上的人不该先出现在这里 */
+  }
+  refreshTable(); commitState();
+  if(did) toast('已带入「' + D(did).post + '」的岗位条件 · 默认只看空闲可捞');
+}
+function poolForBar(d){
+  const req = (d.req||[]).join(' · ');
+  return `<div class="note i" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px">
+    <div style="flex:1">
+      <div><b>正在为「${esc(d.post)}」找人</b> · ${esc(d.client)} · ${esc(d.project)}</div>
+      <div class="xs" style="margin-top:3px">岗位条件：${esc(req||'—')}</div>
+      <div class="xs mut" style="margin-top:3px">${esc(d.city)} · ${esc(d.price)} · 最迟到岗 ${esc(d.deadline)} · 需求编号 <span class="mono">${esc(d.code)}</span></div>
+    </div>
+    <button class="btn xs" onclick="clearPoolFor()">退出找人</button>
+  </div>`;
+}
+function clearPoolFor(){ S.f.for = ''; S.f.st = ''; refreshTable(); commitState(); }
 
 /* ---------- 人才池列表（人员档案视图） ---------- */
 function poolPage(){
   const ac = p => activeAppsOf(p.id).length;
   let rows = PEOPLE.slice();
-  const q=(S.f.q||'').trim(), src=S.f.src||'', st=S.f.st||'', rel=S.f.rel||'';
-  if(q) rows = rows.filter(p=>(p.name+p.skills.join('')+p.phone).includes(q));
+  const q=(S.f.q||'').trim(), src=S.f.src||'', st=S.f.st||'', rel=S.f.rel||'', forD=S.f.for||'';
+  if(q) rows = rows.filter(p=>(p.name+p.skills.join('')+p.phone+(p.wantJob||'')).includes(q));
   if(src) rows = rows.filter(p=>p.channel===src);
   if(st==='free') rows = rows.filter(p=>ac(p)===0);
   if(st==='busy') rows = rows.filter(p=>ac(p)>0);
+  if(st==='full') rows = rows.filter(p=>p.complete>=85);        /* 原「资料完整」统计卡的筛选口径 */
   if(rel==='by') rows = rows.filter(p=>p.createdBy===S.who);      /* 我提供的 */
   if(rel==='fl') rows = rows.filter(p=>p.follower===S.who);       /* 我在跟的 */
 
   const cols = [
-    {label:'姓名', r:p=>{const n=ac(p);return `<div class="t-name"><span class="arc-link" onclick="event.stopPropagation();openArchive('${p.id}')">${esc(p.name)}</span> <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span></div><div class="t-sub mono">${esc(p.phone)} · ${p.id}</div>`;}},
+    {label:'姓名', r:p=>{const n=ac(p);return `<div class="t-name"><span class="arc-link" onclick="event.stopPropagation();openArchive('${p.id}','resume')">${esc(p.name)}</span> <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span></div><div class="t-sub mono">${esc(p.phone)} · ${p.id}</div><div class="t-sub">${p.years?p.years+' 年':'<span class="mut">年限未填</span>'}${p.edu?' · '+esc(p.edu):''}${p.wantJob?' · 意向 '+esc(p.wantJob):''}</div>`;}},
     {label:'技能', r:p=>`<div class="tags">${p.skills.slice(0,3).map(s=>`<span class="tg">${esc(s)}</span>`).join('')}${p.skills.length>3?`<span class="tg">+${p.skills.length-3}</span>`:''}</div>`},
     {label:'来源 / 活跃', r:p=>`<div class="sm"><span class="b n">${esc(p.channel||p.source)}</span></div><div class="t-sub mono">${p.lastActive.slice(5)}</div>`},
     {label:'当前跟进人', r:p=>`<div class="sm">${esc(p.follower||p.createdBy||'—')}</div><div class="t-sub">${p.follower&&p.follower!==p.createdBy?'由 '+esc(p.createdBy)+' 转交':'建档人'}</div>`},
@@ -238,28 +339,32 @@ function poolPage(){
       return `<div class="sm"><b>${n}</b> 个需求</div><div class="t-sub" title="${esc(ds)}">${esc(ds.length>12?ds.slice(0,12)+'…':ds)}</div>`;}},
     {label:'资料完整度', r:p=>`<div class="barline"><div class="bar ${p.complete>=85?'g':p.complete<65?'w':''}"><i style="width:${p.complete}%"></i></div><b>${p.complete}%</b></div>`},
     {label:'操作', r:p=>{const first=appsOf(p.id)[0];
+      /* 人才池 = 一人一档；查看简历 / 沟通记录 / 资料核实都走那三个独立页面，
+         加入需求明确指向一个目标需求（不再只选批次），其他需求投递独立保留。 */
       return `<div class="acts">
-      <span class="link" onclick="event.stopPropagation();openArchive('${p.id}')">档案</span>
-      <span class="link" onclick="event.stopPropagation();openModal(poolPickBatch('${p.id}'))">捞入批次</span>
-      ${first?`<span class="link" onclick="event.stopPropagation();openPerson('${first.id}')">看投递</span>`:''}
+      <span class="link" onclick="event.stopPropagation();openArchive('${p.id}','resume')">查看简历</span>
+      <span class="link" onclick="event.stopPropagation();huGoTo('${p.id}','logs','${first?first.id:''}','${first?first.demandId:''}')">沟通记录</span>
+      <span class="link" onclick="event.stopPropagation();huGoTo('${p.id}','verify','${first?first.id:''}','${first?first.demandId:''}')">资料核实</span>
+      <span class="link" onclick="event.stopPropagation();openModal(poolPickBatch('${p.id}','${forD}'))">加入需求</span>
     </div>`;}},
   ];
 
+  const sl = pageSlice('pool', rows);
   return `<div class="page">
-    ${head('人才池列表','全量人员档案（按手机号去重）· 一个人只有一份档案，投几次需求就有几条投递；点姓名看同一个「人详情」（简历 / 画像 / 本次投递 / 沟通）', `<button class="btn" onclick="toast('已给 12 位资料待补全的候选人发送补全链接（短信/微信）')">发补全链接</button><button class="btn" onclick="openModal(uploadPoolModal(),'md-lg')">↑ 上传简历入库</button><button class="btn pri" onclick="openModal(aiFindModal(),'md-lg')">AI 找候选人</button>`)}
-    ${stats([
-      {lab:'档案总数', val:PEOPLE.length, unit:'人', foot:'按手机号去重'},
-      {lab:'空闲可捞', val:PEOPLE.filter(p=>ac(p)===0).length, unit:'人', foot:'没有任何进行中的投递'},
-      {lab:'投递中', val:PEOPLE.filter(p=>ac(p)>0).length, unit:'人', foot:'至少在一个需求里'},
-      {lab:'资料完整', val:PEOPLE.filter(p=>p.complete>=85).length, unit:'人', accent:true, foot:'完整度 ≥85%'},
-    ])}
+    ${head('人才池列表','一人一份档案（按手机号去重）· 投过几次需求就有几条投递；查看简历 / 沟通记录 / 资料核实与招聘人员列表用同一套页面', `<button class="btn" onclick="toast('已给 12 位资料待补全的候选人发送补全链接（短信/微信）')">发补全链接</button><button class="btn" onclick="openModal(uploadPoolModal(),'md-lg')">↑ 上传简历入库</button><button class="btn pri" onclick="openModal(aiFindModal(),'md-lg')">AI 找候选人</button>`)}
+    ${forD && D(forD).id ? poolForBar(D(forD)) : ''}
     ${toolbar({q:'搜索姓名 / 技能 / 手机号', filters:[
-      {k:'st',opts:[{v:'',label:'全部状态'},{v:'free',label:'空闲可捞'},{v:'busy',label:'投递中'}]},
+      {k:'st',opts:[
+        {v:'',label:'全部状态'},
+        {v:'free',label:`空闲可捞 · ${PEOPLE.filter(p=>ac(p)===0).length}`},
+        {v:'busy',label:`投递中 · ${PEOPLE.filter(p=>ac(p)>0).length}`},
+        {v:'full',label:`资料完整 ≥85% · ${PEOPLE.filter(p=>p.complete>=85).length}`},
+      ]},
       {k:'src',opts:[{v:'',label:'全部渠道'},...CHANNELS.map(c=>({v:c.name,label:c.name}))]},
       {k:'rel',opts:[{v:'',label:'全部人'},{v:'by',label:'我提供的'},{v:'fl',label:'我在跟的'}]}
-    ], right:`<span class="sm mut">${rows.length} 人</span>`})}
-    ${table(cols, rows)}
-    ${pager(rows.length)}
+    ], right:`<span class="sm mut">共 ${rows.length} 人（档案 ${PEOPLE.length}）</span>`})}
+    ${table(cols, sl.rows)}
+    ${pagerBar('pool', sl, '人')}
   </div>`;
 }
 
@@ -270,6 +375,7 @@ function logsPage(){
   if(isR04) rows = rows.filter(l=>l.staff===S.who);
   const q=(S.f.q||'').trim();
   if(q) rows = rows.filter(l=>(l.staff+l.act+l.obj).includes(q));
+  const sl = pageSlice('logs', rows);
   const cols=[
     {label:'时间', r:l=>`<span class="mono sm">${l.time}</span>`},
     {label:'操作人', r:l=>`<div class="sm">${esc(l.staff)}</div><div class="t-sub">${l.role}</div>`},
@@ -280,100 +386,142 @@ function logsPage(){
   return `<div class="page">
     ${head('系统操作记录','每一次写操作都留痕 · 按人、按动作、按对象可追溯', `<button class="btn" onclick="toast('已导出操作记录')">导出</button>`)}
     ${toolbar({q:'搜索操作人 / 动作 / 对象', right:`<span class="sm mut">${rows.length} 条</span>`})}
-    ${table(cols, rows)}
-    ${pager(rows.length)}
+    ${table(cols, sl.rows)}
+    ${pagerBar('logs', sl, '条')}
   </div>`;
 }
 
 /* ================= 抽屉 ================= */
 
 /* =============================================================
-   需求详情：一个抽屉，三个页签（2026-11-14 · P0-3）
+   需求详情：独立页面 + 三个页签（v1.3 · RG-012 / 2026-11-15）
    -------------------------------------------------------------
    [ 需求明细 ]（默认，可改） [ 简历明细 ]（列同人员列表） [ 招聘进度 ]
-   以前首屏是 8 个 KV 框（人数/工价/地点/有效期…），正好是他"不需要每天看着"的原始数据。
-   现在第一眼看到的是"这个岗位要求什么样的人"，进度挪到第三页签。
+   以前是右侧抽屉：遮罩压着列表、看不到系统导航、地址留不住，
+   刷新就丢、返回就回到第一页。现在整页占满主内容区，导航还在，
+   地址是 #demand/<id>/detail?tab=<detail|resume|progress>，刷新与返回都能落回原处。
+   页签键用语义名（detail/resume/progress），不用数字下标 —— 以后加页签不会错位。
    ============================================================= */
 const DM_TABS = [
   {k:'detail',   n:'需求明细', tip:'要求什么样的人'},
   {k:'resume',   n:'简历明细', tip:'像人员列表那样看人'},
   {k:'progress', n:'招聘进度', tip:'漏斗与批次'},
 ];
-let DM = {id:null, tab:'detail', scope:'mine'};
+/* back：进详情前记下的「从哪来」（页面 / 筛选 / 滚动），供页面内返回原样还原
+   sub：detail | history —— 同一条需求的两个视图，地址分别是 #demand/<id>/detail 与 /history
+   edit：需求明细是否处于编辑态（默认只看最新值） */
+let DM = {id:null, tab:'detail', scope:'mine', back:null, sub:null, edit:false, hist:{}};
+
+function dmTabOk(t){ return DM_TABS.some(x=>x.k===t); }
 
 function openDemand(id, tab){
-  if(DM.id!==id){ DM.scope = 'mine'; }
+  const from = S.page;
+  markScrollOut();                  /* 必须在 render 之前：之后列表已经滚到 0 */
+  /* 只要不是「在本详情页内切页签」，就要刷新返回上下文：
+     浏览器后退回列表时 DM.id 还留着，只比 ID 的话第二次进来会沿用第一次的筛选与滚动。 */
+  if(DM.id !== id || from !== 'demandDetail'){
+    /* 招聘专员进来默认看自己；管理层没有「自己跟的人」（总经理不背个人指标），默认看全单，
+       否则一进来是「我的 0」，还得先点一下「全部」才能干活。 */
+    DM.scope = S.role==='R04' ? 'mine' : 'all';
+    DM.back = snapshotHere();       /* 带来源页记录定位，详情页互跳也能原样返回 */
+  }
   DM.id = id;
-  DM.tab = tab || 'detail';
-  dmPaint();
+  DM.tab = dmTabOk(tab) ? tab : 'detail';
+  DM.sub = null; DM.edit = false; DM.hist = {};
+  S.page = 'demandDetail';
+  closeAll();
+  render();
+  setMainScroll(0);
+  navHash(routeHash(), 'push');
 }
-function dmSetTab(t){ DM.tab = t; dmPaint(); }
-function dmPaint(){ openDrawer(dmHtml()); }
+function dmSetTab(t){
+  if(!dmTabOk(t) || DM.tab === t) return;
+  DM.tab = t; DM.sub = null; DM.edit = false;   /* 切页签就退出「变更历史」与编辑态 */
+  dmRender(false);
+}
+function dmSetScope(s){ DM.scope = s; dmRender(false); }
+/* 只重画主内容区，不重建外壳，避免导航闪一下 */
+function dmRender(push){
+  const m = document.getElementById('main');
+  const sc = m ? m.scrollTop : 0;
+  S.page = 'demandDetail';
+  render();
+  setMainScroll(push === false ? sc : 0);
+  navHash(routeHash(), push ? 'push' : 'replace');
+}
+/* 页面内返回：优先回到进来时的那一页并还原记录、筛选与滚动，没有来源就去需求列表 */
+function dmBack(){
+  const b = DM.back;
+  DM.id = null; DM.tab = 'detail'; DM.back = null; DM.sub = null; DM.edit = false;
+  /* 来源页本身是需求详情（详情互跳）时不能返回自己，回落列表 */
+  if(b && b.page && b.page !== 'demandDetail' && restoreSnap(b)){
+    render();
+    setMainScroll(b.scroll || 0);
+    /* 来源可能是另一个详情页（如从档案页的「这一单」点进来），必须写完整记录地址；
+       只拼 '#'+page 会把 #person/PE001/detail?tab=apply&app=P42 退化成 #personDetail，刷新就找不到人 */
+    navHash(routeHash(), 'replace');
+    return;
+  }
+  go('demands');
+}
 
-/* ---------- 岗位详情弹窗（点岗位名 · P0-4） ----------
-   看标准用弹窗（宽、一屏看完），干活用抽屉（含简历明细） */
-function pmOpen(did){
-  DM.id = did;                       /* dmDetail 里的编辑器要读 DM.id */
-  openModal(pmHtml(did), 'md-xl');
-}
-function pmHtml(did){
-  const d = D(did);
-  const ps = personsOf(did), mine = ps.filter(p=>p.owner===S.who).length;
-  return `<div class="md-h"><div>
-      <h3>${esc(d.post)}</h3>
-      <p>${esc(d.code)} · ${esc(d.client)} · ${esc(d.project)} · ${esc(d.city)}</p>
-    </div><button class="dr-x" onclick="closeAll()">×</button></div>
-  <div class="md-b">
-    <div class="pm-top">
+/* 点岗位名的旧入口（R04 首页等）统一走同一个详情页，不再开弹窗 */
+function pmOpen(did){ openDemand(did, 'detail'); }
+
+function dmHtml(){
+  const d = D(DM.id);
+  if(!d || !d.id) return dmMissingHtml();
+  if(DM.sub === 'history') return dmHistoryHtml(d);
+  const ps = personsOf(d.id), al = allocOf(d.id);
+  const isR04 = S.role==='R04';
+  const mineN = dmMine(d.id).length;
+  const badge = {detail:'', resume:String(mineN), progress:'', };
+  const fromList = DM.back && DM.back.page === 'demands';
+  const acts = isR04
+    ? `<button class="btn" onclick="openModal(uploadNewBatchModal(),'md-lg')">↑ 传简历</button><button class="btn pri" onclick="findInPool('${d.id}')">人才库找人</button>`
+    : `<button class="btn" onclick="openAlloc('${d.id}')">分配需求</button><button class="btn pri" onclick="toast('已发起客户重确认')">发起重确认</button>`;
+  return `<div class="page dm-page">
+    <div class="pg-back" onclick="dmBack()">← 返回${fromList?'需求列表':'上一页'}</div>
+    ${head(esc(d.post), `${esc(d.code)} · ${esc(d.client)} · ${esc(d.project)} · ${esc(d.city)} · 最迟到岗 ${esc(d.deadline)}`, acts)}
+    <div class="arc-top">
       ${demandB(d.status)} ${confirmB(d.confirm)}
-      <span class="sm">需求 <b>${d.head}</b> 人 · 已入职 <b>${d.hired}</b> · 缺口 <b style="color:var(--bad)">${d.head-d.hired}</b> · 在投 <b>${ps.length}</b>${S.role==='R04'?` · 我投了 <b>${mine}</b>`:''}</span>
-      <div class="sp"></div>
-      <span class="sm mut">最迟到岗 <b class="mono">${esc(d.deadline)}</b></span>
+      <span class="sm"><b>整单</b> 需求 <b>${d.head}</b> 人 · 已入职 <b>${d.hired}</b> · 缺口 <b style="color:var(--bad)">${d.head-d.hired}</b> · 在投 <b>${ps.length}</b></span>
+      ${isR04?(()=>{const t=dmMyTask(d); return `<span class="sm" style="margin-left:6px">我的目标 <b>${t.qty}</b> 人 · 已入职 <b>${t.hired}</b> · 缺口 <b style="color:var(--bad)">${t.left}</b></span>`;})():''}
     </div>
-    <div class="note i" style="margin-bottom:14px">这一窗是<b>岗位详情</b>：用工标准 / 技能胜任 / 商务条件。要看简历明细、批次、分配，点下面「看简历明细」进抽屉。</div>
-    ${dmDetail(d)}
-  </div>
-  <div class="md-f">
-    <button class="btn" onclick="closeAll()">关闭</button>
-    <button class="btn" onclick="closeAll();openDemand('${did}','detail')">在抽屉里改</button>
-    <button class="btn pri" onclick="closeAll();openDemand('${did}','resume')">看简历明细（${ps.length}）</button>
+
+    <div class="arc-tabs">
+      ${DM_TABS.map(t=>`<span class="arc-tab ${DM.tab===t.k?'on':''}" title="${esc(t.tip)}" onclick="dmSetTab('${t.k}')">
+        ${t.n}${badge[t.k]?` <i class="vis n" title="我当前跟进的简历数">${badge[t.k]}</i>`:''}</span>`).join('')}
+    </div>
+
+    ${DM.tab==='detail' ? dmDetail(d) : DM.tab==='resume' ? dmResume(d) : dmProgress(d, al, ps)}
   </div>`;
 }
 
-function dmHtml(){
-  const d = D(DM.id), ps = personsOf(d.id), al = allocOf(d.id);
-  const isR04 = S.role==='R04';
-  const mineN = dmMine(d.id).length;
-  const badge = {detail:'', resume:`${mineN}/${ps.length}`, progress:'', };
-  return `
-    <div class="dr-h">
-      <div><h3>${esc(d.post)}</h3>
-        <div class="sub">${esc(d.code)} · ${esc(d.client)} · ${esc(d.project)}</div></div>
-      <button class="dr-x" onclick="closeAll()">×</button></div>
-    <div class="dr-b">
-      <div class="arc-top">
-        <span class="b i">${esc(d.status)}</span>
-        ${confirmB(d.confirm)}
-        <span class="sm">需求 <b>${d.head}</b> 人 · 已入职 <b>${d.hired}</b> · 缺口 <b style="color:var(--bad)">${d.head-d.hired}</b></span>
-        <div class="sp"></div>
-        <span class="sm mut">${esc(d.city)} · 最迟到岗 <b class="mono">${esc(d.deadline)}</b></span>
-      </div>
-
-      <div class="arc-tabs">
-        ${DM_TABS.map(t=>`<span class="arc-tab ${DM.tab===t.k?'on':''}" onclick="dmSetTab('${t.k}')">
-          ${t.n}${badge[t.k]?` <i class="vis n">${badge[t.k]}</i>`:''}</span>`).join('')}
-      </div>
-
-      ${DM.tab==='detail' ? dmDetail(d) : DM.tab==='resume' ? dmResume(d) : dmProgress(d, al, ps)}
+/* 地址里的需求不存在（刷新后内存演示数据已重置 / 编号写错）：说清原因，给返回入口，不静默跳别处 */
+function dmMissingHtml(){
+  return `<div class="page">
+    <div class="pg-back" onclick="go('demands')">← 返回需求列表</div>
+    ${head('找不到这条需求','地址指向的需求不在当前演示数据里')}
+    <div class="note w">
+      <div><b>需求编号</b> <span class="mono">${esc(DM.id || '—')}</span> 没有匹配到记录。</div>
+      <div style="margin-top:6px">常见原因：演示数据存在内存里，刷新页面后新增/改过的记录会回到初始状态；或者编号被改动过。</div>
+      <div style="margin-top:6px">这不是权限问题，系统也不会自动跳到别的需求上。</div>
     </div>
-    <div class="dr-f">
-      <button class="btn" onclick="closeAll()">关闭</button>
-      ${isR04? `<button class="btn pri" onclick="closeAll();go('batches')">建今日批次</button>`
-        : `<button class="btn" onclick="closeAll();openAlloc('${d.id}')">分配需求</button><button class="btn pri" onclick="toast('已发起客户重确认')">发起重确认</button>`}
-    </div>`;
+    <div style="margin-top:12px"><button class="btn pri" onclick="go('demands')">返回需求列表</button></div>
+  </div>`;
 }
 
-/* ---------- 页签 1 · 需求明细（可改） ---------- */
+/* ---------- 页签 1 · 需求明细（只展开最新一版的条件） ----------
+   原来这一页把三件事挤在一屏：标准岗位标准是什么、本单改过哪几项、47 项逐项对照表。
+   招聘专员打开只想看「这一单要什么样的人」，版本差异是另一件事，看完就走。
+   现在拆成：
+     · 一条版本线（生效 v1.1 / 待处理 / 匹配依据 / 只读链接 + 三个入口）
+     · 「要什么样的人」：只列当前值，与标准不同的打一个「改」标（hover 看标准值）
+     · 「人 / 时间 / 钱」：人数、工价、到岗、有效期、地点、跟进人
+   每个版本改了什么 → 独立页 #demand/<id>/history（右上的「变更历史」）。
+   「编辑这一单」把当前值切成输入框，改的仍是本单差异，标准本身不动。 */
+const DM_PRICE_NO = 32;                 /* 工价：在「人 / 时间 / 钱」里出现，要素清单不重复列 */
 function dmOvMap(d){ const m={}; (d.stdOverride||[]).forEach(o=>{ m[o.no]=o.to; }); return m; }
 function dmSetVal(no, v){
   const d = D(DM.id), s = stdOf(d.stdId)||{};
@@ -386,8 +534,7 @@ function dmSetVal(no, v){
 }
 function dmMark(no, base, v){
   const same = JSON.stringify(base)===JSON.stringify(v);
-  if(same) return '<span class="xs mut">同标准</span>';
-  return '<span class="b a">已改</span> <span class="xs mut">标准 ' + esc(stdVal(no, base)||'未定') + '</span>';
+  return same ? '<span class="xs mut">同标准</span>' : '<span class="b a">已改</span>';
 }
 function dmEditor(no, v){
   const f = f47Of(no);
@@ -407,134 +554,325 @@ function dmEditor(no, v){
   return `<input class="ed-in" value="${esc(v==null?'':v)}" placeholder="填这一单的值"
     onchange="dmSetVal(${no}, this.value)">`;
 }
+function dmFieldRow(f, base, v, edit){
+  const changed = JSON.stringify(base) !== JSON.stringify(v);
+  return `<div>
+    <dt>${esc(f.name)}</dt>
+    <dd>${edit ? dmEditor(f.no, v) : esc(stdVal(f.no, v) || '未定')}${changed
+      ? `<span class="b a" title="标准值 ${esc(stdVal(f.no, base)||'未定')}">改</span>` : ''}
+      ${edit ? `<div class="t-sub">标准 ${esc(stdVal(f.no, base)||'未定')} · <span id="dmm-${f.no}">${dmMark(f.no, base, v)}</span></div>` : ''}
+    </dd></div>`;
+}
+
 function dmDetail(d){
   const isR04 = S.role==='R04';
   const al = allocOf(d.id);
   const s = stdOf(d.stdId) || {};
   const ov = dmOvMap(d);
   const l = elListOf(d.stdList || s.list), picks = l.picks || [];
-  const byDom = F47_L1.map(dom=>{
-    const groups = dom.groups.map(g=>{
-      const items = picks.map(f47Of).filter(f=>f.l2===g);
-      if(!items.length) return '';
-      const rows = items.map(f=>{
-        const base = (s.vals||{})[f.no];
-        const v = (f.no in ov) ? ov[f.no] : base;
-        return `<tr>
-          <td><span class="fid">${f.no}</span> <b class="sm">${esc(f.name)}</b>
-            <div class="t-sub">${esc(f.type)} · ${esc(GATE_OF_LEVEL[f.level]||'')}</div></td>
-          <td class="sm mut mono">${esc(stdVal(f.no, base)||'未定')}</td>
-          <td>${dmEditor(f.no, v)}</td>
-          <td id="dmm-${f.no}" style="min-width:96px">${dmMark(f.no, base, v)}</td>
-        </tr>`;
-      }).join('');
-      return `<div class="el-grp"><div class="el-grp-h"><b>${esc(g)}</b><span class="sm mut">${items.length} 项</span></div>
-        <div class="tbl-wrap"><table class="sj-tbl"><tbody>${rows}</tbody></table></div></div>`;
-    }).join('');
-    if(!groups) return '';
-    return `<div class="el-dom"><div class="el-dom-h"><span class="el-dom-m">${esc(dom.mark)}</span><b>${esc(dom.name)}</b></div>${groups}</div>`;
+  const edit = !!DM.edit;
+  const av = activeVer(d);
+
+  /* 平台里还有两种历史数据：只挂岗位描述（jd）的、什么都没挂的 —— 保持原样，不硬套要素表 */
+  if(!d.stdId && d.jdId) return `${demandStateBar(d)}${jdSection(d)}`;
+  if(!d.stdId && !d.jdId) return `${demandStateBar(d)}
+    <div class="sec"><div class="sec-t">岗位口径</div>
+      <div class="note w">这一单既没挂标准岗位标准、也没挂岗位描述（历史数据）—— 没有口径就没法评分、没法出确认单。
+      ${isR04?'':'<button class="btn xs" style="margin-left:6px" onclick="closeAll();ndEnter()">新建一单</button>'}</div>
+    </div>`;
+
+  const ovN = (d.stdOverride||[]).filter(o=>picks.includes(o.no)).length;   /* 只数这一页真的看得见的差异 */
+  const stdStale = s.ver && d.stdVer && s.ver !== d.stdVer;
+
+  /* 要素清单：按一级域分组、两列铺开，只显示当前值；工价在「人 / 时间 / 钱」里，这里不重复列 */
+  const fields = picks.filter(no=>no!==DM_PRICE_NO);
+  const groups = F47_L1.map(dom=>{
+    const items = fields.map(f47Of).filter(f=>f.l1===dom.id);
+    if(!items.length) return '';
+    return `<div class="req-grp"><div class="req-grp-h">${esc(dom.mark)} ${esc(dom.name)}</div>
+      <dl class="req-dl">${items.map(f=>dmFieldRow(f, (s.vals||{})[f.no],
+        (f.no in ov) ? ov[f.no] : (s.vals||{})[f.no], edit)).join('')}</dl></div>`;
   }).join('');
 
-  const noStd = !d.stdId && !d.jdId;
+  const hasPrice = picks.includes(DM_PRICE_NO);
+  const priceBase = (s.vals||{})[DM_PRICE_NO];
+  const priceV = (DM_PRICE_NO in ov) ? ov[DM_PRICE_NO] : priceBase;
+  const priceChanged = JSON.stringify(priceBase) !== JSON.stringify(priceV);
 
-  return `
-    ${d.stdId
-      ? `<div class="sec"><div class="sec-t">① 标准岗位标准（本单快照 · ${esc(d.stdVer||'—')} / 清单 ${esc(d.stdList||'—')}）
-          <span class="xs mut" style="font-weight:400">口径：清单版本 +1 才触发重算，本单快照记 stdVer + listVer</span></div>${stdSection(d, true)}</div>`
-      : d.jdId ? jdSection(d)
-      : `<div class="sec"><div class="sec-t">① 岗位口径</div>
-        <div class="note w">这一单既没挂标准岗位标准、也没挂岗位描述（历史数据）—— 没有口径就没法评分、没法出确认单。
-        ${isR04?'':'<button class="btn xs" style="margin-left:6px" onclick="closeAll();ndEnter()">新建一单</button>'}</div>
-      </div>`}
+  const cell = (label, val, hint) => `<div><dt>${label}</dt>
+    <dd>${val}${hint?`<span class="xs mut" style="margin-left:6px">${hint}</span>`:''}</dd></div>`;
+  const money = [
+    cell('需求人数', edit ? `<input class="ed-in" type="number" value="${d.head}" onchange="dmSetD('head',+this.value)">` : `<b>${d.head}</b> 人`),
+    cell('已入职 / 缺口', `<b>${d.hired}</b> / <b style="color:var(--bad)">${d.head-d.hired}</b>`),
+    cell('工价', edit && hasPrice ? dmEditor(DM_PRICE_NO, priceV)
+        : esc(hasPrice ? (stdVal(DM_PRICE_NO, priceV)||'未定') : d.price),
+      hasPrice && priceChanged ? `标准 ${esc(stdVal(DM_PRICE_NO, priceBase)||'—')}` : ''),
+    cell('最迟到岗', edit ? `<input class="ed-in" type="date" value="${esc(d.deadline)}" onchange="dmSetD('deadline',this.value)">` : esc(d.deadline)),
+    cell('需求有效期', edit ? `<input class="ed-in" value="${esc(d.valid)}" onchange="dmSetD('valid',this.value)">` : esc(d.valid)),
+    cell('工作地点', edit ? `<input class="ed-in" value="${esc(d.city)}" onchange="dmSetD('city',this.value)">` : esc(d.city)),
+    cell('当前跟进', al.length ? esc(al.map(x=>x.staff).join(' / ')) : '<span class="b w">未分配</span>'),
+    cell('需求编号', `<span class="mono">${esc(d.code)}</span>`),
+  ].join('');
 
-    ${picks.length? `<div class="sec"><div class="sec-t">② 要素与标准值（${picks.length} 项）
-        <span class="xs mut" style="font-weight:400">左边是要问的，中间是标准，右边是这一单</span></div>
-      <div class="note" style="margin-bottom:10px">右边改的是<b>这一单</b>：只存差异，标准岗位标准不动、也不升版。</div>
-      ${byDom}
-    </div>`:''}
-
-    <div class="sec"><div class="sec-t">③ 人 / 时间 / 钱</div>
-      <div class="tbl-wrap" style="border-radius:9px"><table class="sj-tbl">
-        <thead><tr><th style="width:110px">项</th><th>值</th><th style="width:150px">说明</th></tr></thead>
-        <tbody>
-          ${dmRow('需求人数', `<input class="ed-in" type="number" value="${d.head}" onchange="dmSetD('head',+this.value)">`, '改这里会动缺口')}
-          ${dmRow('工价', `<input class="ed-in" value="${esc(d.price)}" onchange="dmSetD('price',this.value)">`, '支持区间，如 32-38')}
-          ${dmRow('最迟到岗', `<input class="ed-in" type="date" value="${esc(d.deadline)}" onchange="dmSetD('deadline',this.value)">`, '改期需重确认')}
-          ${dmRow('需求有效期', `<input class="ed-in" value="${esc(d.valid)}" onchange="dmSetD('valid',this.value)">`, '含起止')}
-          ${dmRow('工作地点', `<input class="ed-in" value="${esc(d.city)}" onchange="dmSetD('city',this.value)">`, '城市·园区')}
-        </tbody></table></div>
-      <div class="note w" style="margin-top:9px">改「需求人数」「最迟到岗」属于关键内容变更，<b>已发出的确认单需要客户重新确认</b>；本页改动都会写操作日志。</div>
+  return `${demandStateBar(d)}
+    ${stdStale?`<div class="note w" style="margin:-6px 0 12px">标准已升版到 <b>${esc(s.ver)}</b>，本单仍按 ${esc(d.stdVer)} 算 —— 历史评分不回溯。</div>`:''}
+    <div class="sec">
+      <div class="sec-t">要什么样的人
+        <span class="xs mut" style="font-weight:400">${picks.length} 项 · 当前版 ${esc(av?av.v:(d.stdVer||'—'))}${ovN?` · ${ovN} 项与标准不同`:''}</span></div>
+      <div class="req-grid">${groups || '<div class="mut sm">这一单还没有要素清单</div>'}</div>
+      ${edit?`<div class="note w" style="margin-top:10px">改的是<b>这一单</b>：只存差异，标准岗位标准不动、也不升版。</div>`:''}
     </div>
 
-    <div class="sec"><div class="sec-t">④ 客户与项目</div>
-      <dl class="kv">
-        <div><dt>客户</dt><dd>${esc(d.client)}</dd></div>
-        <div><dt>项目</dt><dd>${esc(d.project)}</dd></div>
-        <div><dt>需求编号</dt><dd class="mono">${esc(d.code)}</dd></div>
-        <div><dt>当前跟进</dt><dd>${al.length? esc(al.map(x=>x.staff).join(' / ')) : '<span class="b w">未分配</span>'}</dd></div>
-      </dl>
+    <div class="sec">
+      <div class="sec-t">人 / 时间 / 钱</div>
+      <dl class="req-money">${money}</dl>
+      ${edit?`<div class="note w" style="margin-top:10px">改「需求人数」「最迟到岗」属于关键内容变更，<b>已发出的确认单需要客户重新确认</b>；本页改动都会写操作日志。</div>`:''}
     </div>`;
-}
-function dmRow(k, input, hint){
-  return `<tr><td class="sm"><b>${k}</b></td><td>${input}</td><td class="xs mut">${hint||''}</td></tr>`;
 }
 function dmSetD(field, v){
   const d = D(DM.id);
   const old = d[field];
   d[field] = v;
-  const el = document.getElementById('dm-d-' + field);
-  if(el) el.textContent = v;
   toast(`已改 ${field}：${old} → ${v}${field==='head'||field==='deadline'?'（关键内容，需重确认）':''}`);
+  dmRender(false);
+}
+/* 「这一单里谁在跟这个人」—— 与表格「当前跟进人」列同源。
+   口径落在**投递**上（人 × 需求），不是落在档案上：同一个人可以这单归我、那单归同事，
+   档案层的跟进人是全局的，拿来筛某一单必然串人（以前出现过「我的 8 / 全部 8」但每行是陈曦）。
+   投递上有 follower（转交后才有）就用它，否则用这条投递的 owner。 */
+function dmWhoFollows(p){
+  return p.follower || p.owner;
 }
 function dmMine(did){
   const me = S.who;
-  return personsOf(did).filter(p=>p.owner===me || (appPerson(p.personId)||{}).follower===me);
+  return personsOf(did).filter(p => dmWhoFollows(p) === me);
 }
 
-/* ---------- 页签 2 · 简历明细（列与人员列表一致） ---------- */
-function dmResume(d){
-  const all = personsOf(d.id);
-  const mine = dmMine(d.id);
-  const rows = DM.scope==='mine' ? mine : all;
+/* ---------- 变更历史（独立页 #demand/<id>/history） ----------
+   需求明细页只放「最新一版要什么样的人」；每个版本改了什么，进这一页看。
+   一个版本一块折叠区：默认展开最新版与生效版，其余收起（点标题展开）。
+   这一页同时是原来「版本历史」抽屉的唯一去处 —— 抽屉停了，不再一处功能两个入口。 */
+function dmHistOpen(v){
+  const d = D(DM.id);
+  const vers = versOf(d) || [];
+  const newest = (vers[vers.length-1]||{}).v;
+  const act = (activeVer(d)||{}).v;
+  const m = DM.hist || {};
+  if(v in m) return m[v];
+  return v === newest || v === act;
+}
+function dmHistFold(v){
+  DM.hist = DM.hist || {};
+  DM.hist[v] = !dmHistOpen(v);
+  dmRender(false);
+}
+function dmHistoryHtml(d){
+  const vers = versOf(d).slice().reverse();
+  const av = activeVer(d);
+  const one = v => {
+    const open = dmHistOpen(v.v);
+    const ch = v.changes || [];
+    return `<div class="acc ${open?'open':''}" data-ver="${esc(v.v)}">
+      <div class="acc-hd" onclick="dmHistFold('${esc(v.v)}')" title="点标题${open?'收起':'展开'}这一版">
+        <span class="acc-arw">▶</span>
+        <b class="acc-post mono">${esc(v.v)}</b>
+        <span class="b ${VER_TONE[v.status]||'n'}">${esc(v.status)}</span>
+        ${av && v.v===av.v?'<span class="b a">当前匹配依据</span>':''}
+        <span class="xs mut">${esc(v.at||'')} · ${esc(v.by||'—')}${v.way?' · '+esc(v.way):''}</span>
+        <div class="sp"></div>
+        <span class="acc-tog">${ch.length?`变更 ${ch.length} 项`:'首版'} · ${open?'收起 ▴':'展开 ▾'}</span>
+      </div>
+      ${open?`<div class="acc-bd">
+        ${v.note?`<div class="sm" style="margin-bottom:10px">${esc(v.note)}</div>`:''}
+        ${ch.length?`<div class="tbl-wrap" style="border-radius:9px"><table>
+          <thead><tr><th style="width:180px">字段</th><th>旧值</th><th>新值</th></tr></thead>
+          <tbody>${ch.map(c=>`<tr><td class="sm"><b>${esc(c.f)}</b></td>
+            <td class="sm mut">${esc(c.from)}</td><td class="sm"><b style="color:var(--accent2)">${esc(c.to)}</b></td></tr>`).join('')}
+          </tbody></table></div>`
+          :`<div class="sm mut">首版：按当时选中的标准岗位标准整单建立，没有字段变更。</div>`}
+        <div class="xs mut" style="margin-top:10px">审核 ${esc(v.audit||'未送审')}${v.auditBy?` · ${esc(v.auditBy)} · ${esc(v.auditAt||'')}`:''} · 代登记记录 ${regsOfVer(d.id, v.v).length} 条</div>
+        ${v.auditNote?`<div class="note ${v.audit==='已退回'?'r':'i'}" style="margin-top:9px"><b>${v.audit==='已退回'?'退回意见':'审核意见'}</b>：${esc(v.auditNote)}</div>`:''}
+        ${auditHistHtml(v)}
+        ${v.status==='待重新确认'||v.status==='待内部审核'?`<div class="note r" style="margin-top:10px">旧版（生效中）的确认<b>不自动继承</b>到本版。本版未生效前，不作为匹配依据。</div>`:''}
+      </div>`:''}
+    </div>`;
+  };
+  return `<div class="page">
+    <div class="pg-back" onclick="dmHistoryBack()">← 返回需求明细</div>
+    ${head('变更历史 · ' + esc(d.post),
+      `${esc(d.code)} · ${esc(d.client)} · ${esc(d.project)} · 共 ${vers.length} 个版本`,
+      `<button class="btn" onclick="openConfirm('${d.id}')">需求确认单</button>`)}
+    ${demandStateBar(d, {noBtn:true})}
+    <div class="xs mut" style="margin:-4px 0 11px">每一版记的是<b>相对上一版改了什么</b>。旧版记录不删除、不覆盖；新版未生效前，匹配仍按旧版算。</div>
+    <div class="acc-list">${vers.map(one).join('') || '<div class="mut sm">这一单还没有版本记录</div>'}</div>
+  </div>`;
+}
+function openDmHistory(did){
+  const d = D(did);
+  if(!d || !d.id) return;
+  if(DM.id !== did){ DM.back = snapshotHere(); DM.tab = 'detail'; DM.hist = {}; }
+  DM.id = did; DM.sub = 'history'; DM.edit = false;
+  S.page = 'demandDetail';
+  closeAll();
+  render();
+  setMainScroll(0);
+  navHash(routeHash(), 'push');
+}
+/* 历史页 → 需求明细：replace，不往历史里再堆一条。
+   地址必须一起换回 /detail，否则返回后地址还停在 /history，刷新会又跳回历史页。 */
+function dmHistoryBack(){ DM.sub = null; dmRender(false); navHash(routeHash(), 'replace'); }
+function dmToggleEdit(){ DM.edit = !DM.edit; dmRender(false); }
+
+/* ---------- 一份「投递列表」= 需求简历明细 + 批次人员共用 ----------
+   第 02 项（需求下的简历明细）和第 05 项（批次人员）是同一个列表，只是范围不同：
+     · 需求 → 我在这条需求下的全部投递（跨批次）
+     · 批次 → 我在这条需求、这个批次下的投递
+   所以列、筛选、分页都只写一次，两页不会长歪。
+   列只留招聘专员真会看的：姓名与联系方式、技能、来源、当前节点、匹配结果、联系时间、下次跟进、结果。
+   搜索 / 阶段 / 结果三个筛选 + 50 条一页；key 隔离，两页各翻各的页。 */
+function lfSetQ(key, v){
+  const s = lfState(key);
+  s.q = v; s.page = 1;
+  refreshTable();
+  const el = document.getElementById('lf-q');
+  if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  commitStateSoon();
+}
+function appListHtml(o){
+  const key = o.key, st = lfState(key);
+  let rows = o.rows.slice();
+  const q = (st.q||'').trim();
+  if(q) rows = rows.filter(p=>(p.name+p.phone+(p.skills||[]).join('')+((hrOf(p.personId)||{}).wantJob||'')).includes(q));
+  if(st.node) rows = rows.filter(p=>p.node===st.node);
+  if(st.st) rows = rows.filter(p=>p.status===st.st);
+  /* 同一口径的学历 / 年限筛选：这一页看的是「这一单的人」，筛的也是人自己的信息 */
+  if(st.edu) rows = rows.filter(p=>((hrOf(p.personId)||{}).edu||'')===st.edu);
+  if(st.yr) rows = rows.filter(p=>{ const y = (hrOf(p.personId)||{}).years; return !!y && y >= +st.yr; });
+
   const cols = [
-    {label:'姓名', r:p=>`<div class="t-name"><span class="arc-link" onclick="openPerson('${p.id}')">${esc(p.name)}</span>
+    {label:'姓名', r:p=>`<div class="t-name"><span class="arc-link" onclick="openHuman('${p.personId}','resume','${p.id}','${p.demandId}')">${esc(p.name)}</span>
         <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span></div><div class="t-sub mono">${esc(p.phone)}</div>`},
     {label:'技能', r:p=>`<div class="tags">${p.skills.slice(0,2).map(s=>`<span class="tg">${esc(s)}</span>`).join('')}${p.skills.length>2?`<span class="tg">+${p.skills.length-2}</span>`:''}</div>`},
+    {label:'年限 / 学历', r:p=>hrCell(hrOf(p.personId))},
     {label:'来源 / 批次', r:p=>`<div class="sm">${esc(p.channel||'—')}</div><div class="t-sub mono">${p.batchId?esc(B(p.batchId).code):'人才池捞入'}</div>`},
     {label:'当前节点', r:p=>nodeB(p.node)},
-    {label:'匹配档位', r:p=>`<div style="display:flex;align-items:center;gap:6px">${tierChip(p.tier)}<span class="mono sm">${p.score}</span></div>`},
-    {label:'当前跟进人', r:p=>`<span class="sm">${esc((appPerson(p.personId)||{}).follower||p.owner)}</span>`},
+    {label:'匹配结果', r:p=>`<div style="display:flex;align-items:center;gap:6px">${tierChip(p.tier)}<span class="mono sm">${p.score}</span></div>`},
+    ...(o.showFollow?[{label:'当前跟进人', r:p=>`<span class="sm">${esc(dmWhoFollows(p))}</span>`}]:[]),
     {label:'上次联系', r:p=>`<div class="sm mono">${p.lastContact==='—'?'—':p.lastContact.slice(5)}</div><div class="t-sub">${p.lastType==='—'?'未联系':esc(p.lastType)}</div>`},
     {label:'下次跟进', r:p=>{ if(p.nextFollow==='—') return '<span class="mut">—</span>';
       const late = p.nextFollow < TODAY;
       return `<span class="mono sm" ${late?'style="color:var(--bad)"':''}>${p.nextFollow.slice(5)}${late?' · 逾期':''}</span>`;}},
     {label:'结果', r:p=>statB(p.status)},
+    /* 与人员列表同一组操作（查看简历 / 投递跟进 / 更多），
+       只是范围更窄：这里是「本人 + 当前需求」或「本人 + 当前批次」。
+       投递与需求随行带过去，进去不会变成别的单。 */
+    {label:'操作', r:p=>`<div class="acts">
+        <span class="link" onclick="openHuman('${p.personId}','resume','${p.id}','${p.demandId}')">查看简历</span>
+        <span class="link" onclick="huAppTo('${p.id}')">投递跟进</span>
+        <span class="link ${pmIsOpen(key,p.id)?'on':''}" onclick="pmMore('${key}','${p.id}')">更多 ${pmIsOpen(key,p.id)?'▴':'▾'}</span>
+      </div>`},
   ];
-  return `
-    <div class="sec"><div class="sec-t">这一单的简历
-        <span class="xs mut" style="font-weight:400">列与人员列表完全一致 · 不按批次切、不限时间</span></div>
-      <div class="seg" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+
+  const deco = sl0 => sl0.map(p=> pmIsOpen(key,p.id) ? Object.assign({}, p, { _more: `
+      <div class="more-row">
+        <span class="xs mut">同一份档案的其他页面：</span>
+        <span class="link" onclick="huGoTo('${p.personId}','profile','${p.id}','${p.demandId}')">人才画像</span>
+        <span class="hu-dot">·</span>
+        <span class="link" onclick="huGoTo('${p.personId}','logs','${p.id}','${p.demandId}')">沟通记录</span>
+        <span class="hu-dot">·</span>
+        <span class="link" onclick="huGoTo('${p.personId}','verify','${p.id}','${p.demandId}')">资料核实</span>
+      </div>` }) : p);
+
+  const sl = pageSlice(key, rows);
+  return `<div class="toolbar">
+    <div class="search"><span>⌕</span><input id="lf-q" placeholder="搜索姓名 / 电话 / 技能" value="${esc(st.q||'')}" oninput="lfSetQ('${key}',this.value)"></div>
+    <select class="sel" onchange="lfSet('${key}','node',this.value)">
+      <option value="">全部阶段</option>
+      ${NODES.map(n=>`<option value="${esc(n)}" ${st.node===n?'selected':''}>${esc(n)}</option>`).join('')}
+    </select>
+    <select class="sel" onchange="lfSet('${key}','st',this.value)">
+      <option value="">全部结果</option>
+      ${['跟进中','已入职','无意向'].map(v=>`<option value="${esc(v)}" ${st.st===v?'selected':''}>${esc(v)}</option>`).join('')}
+    </select>
+    <select class="sel" onchange="lfSet('${key}','edu',this.value)">
+      <option value="">全部学历</option>
+      ${['中专','大专','本科'].map(v=>`<option value="${esc(v)}" ${st.edu===v?'selected':''}>${esc(v)}</option>`).join('')}
+    </select>
+    <select class="sel" onchange="lfSet('${key}','yr',this.value)">
+      <option value="">全部年限</option>
+      ${[['3','3 年以上'],['5','5 年以上'],['10','10 年以上']].map(([v,l])=>`<option value="${v}" ${st.yr===v?'selected':''}>${l}</option>`).join('')}
+    </select>
+    <div class="sp"></div>
+    <span class="sm mut">共 ${rows.length} 人</span>
+  </div>
+  ${table(cols, deco(sl.rows), o.empty)}
+  ${pagerBar(key, sl, '人')}`;
+}
+
+/* ---------- 页签 2 · 简历明细（只列我当前跟进的人） ----------
+   招聘专员这一页不放「全部」：看同事的简历不是他的活，而且会把「我的」稀释掉。
+   所以连「我的 / 全部」这个切换都不给 —— 范围只有一个，上下左右没有第二种解释。
+   管理层（R01/R02）要审全量，保留「我的 / 全部」两档。 */
+function dmResume(d){
+  const all = personsOf(d.id);
+  const mine = dmMine(d.id);
+  const canSeeAll = S.role !== 'R04';
+  const rows = (canSeeAll && DM.scope==='all') ? all : mine;
+  const scopeBar = canSeeAll
+    ? `<div class="seg" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
         <span class="sm">范围</span>
-        <span class="chip ${DM.scope==='mine'?'on':''}" onclick="DM.scope='mine';dmPaint()">我的 ${mine.length}</span>
-        <span class="chip ${DM.scope==='all'?'on':''}" onclick="DM.scope='all';dmPaint()">全部 ${all.length}</span>
-        <div class="sp"></div>
-        <span class="xs mut">「我的」= 我负责或我当前跟进的人</span>
-      </div>
-      ${table(cols, rows, DM.scope==='mine'?'这个岗位下还没有你负责的人 —— 可切「全部」看同事拉进来的':'这个岗位还没有任何投递')}
-      <div class="xs mut" style="margin-top:8px">共 ${rows.length} 人，不分页。人从哪来：${esc([...new Set(rows.map(r=>r.channel||'—'))].join(' / ')||'—')}</div>
+        <span class="chip ${DM.scope!=='all'?'on':''}" onclick="dmSetScope('mine')">我的 ${mine.length}</span>
+        <span class="chip ${DM.scope==='all'?'on':''}" onclick="dmSetScope('all')">全部 ${all.length}</span>
+      </div>`
+    : '';
+  const empty = canSeeAll && DM.scope==='all'
+    ? '这个岗位还没有任何投递'
+    : '这个岗位下还没有你当前跟进的人 —— 你的份额可能还没分配，或人还在同事手上';
+  return `
+    <div class="sec">
+      ${scopeBar}
+      ${appListHtml({ key:'dm-resume:'+d.id, rows, showFollow:true, empty })}
     </div>`;
 }
 
-/* ---------- 页签 3 · 招聘进度 ---------- */
+/* ---------- 页签 3 · 招聘进度 ----------
+   招聘专员看自己的：我背几个人、已入职几个、还差几个、我这几批跟到哪。
+   其他专员的分配、跨专员合计、整单漏斗都是管理视角，放在这里只会让人误以为缺口要自己补。
+   管理层（R01/R02）保留整单漏斗与分配表 —— 那本来就是他们要看的东西。 */
 function dmProgress(d, al, ps){
-  const funnel = ['新入库','已匹配','触达中','补全中','待面试','面试通过','待入职','已入职'].map(n=>({n,c:ps.filter(p=>p.node===n).length}));
-  const bs = batchesOf(d.id);
   const isR04 = S.role==='R04';
+  const bsAll = batchesOf(d.id);
+  if(isR04){
+    const t = dmMyTask(d);
+    const bs = bsAll.filter(b=>b.owner===S.who).sort((a,b)=>b.date.localeCompare(a.date));
+    return `
+      <div class="sec"><div class="sec-t">我的目标
+          <span class="xs mut" style="font-weight:400">只算我在这一单上的分配，不含其他专员</span></div>
+        <div class="req-grid" style="grid-template-columns:repeat(4,1fr);gap:10px">
+          ${[['我的目标', t.qty+' 人'], ['已入职', t.hired+' 人'], ['剩余缺口', t.left+' 人'], ['目标日期', t.target.slice(5)]]
+            .map(([k,v],i)=>`<div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:12px 14px">
+              <div class="xs mut">${k}</div><div class="mono" style="font-size:21px;font-weight:600;${i===2&&t.left?'color:var(--bad)':''}">${v}</div></div>`).join('')}
+        </div>
+        <div class="barline" style="margin-top:12px"><div class="bar ${t.left?'':'g'}"><i style="width:${pct(t.hired,t.qty)}%"></i></div><b>${pct(t.hired,t.qty)}%</b></div>
+        <div class="xs mut" style="margin-top:6px">「已入职」只算真正到岗的人；面试通过、待入职都还在流程里，不提前计入。</div>
+      </div>
+
+      <div class="sec"><div class="sec-t">我的批次（${bs.length} 个）
+          <span class="xs mut" style="font-weight:400">点批次进这一批的完整简历列表</span></div>
+        ${bs.length? bs.map(b=>`<div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px 13px;margin-bottom:7px;display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer" onclick="openBatchPersons('${b.id}')">
+          <div><div class="sm mono">${esc(b.code)}</div><div class="xs mut">${b.date} · 新增 ${batchUploaded(b)} 份 · 已建档 ${batchFiled(b)} 人${b.status==='已关闭'?' · 已关闭（不再收新简历）':''}</div></div>
+          <div class="xs mut">已联系 ${b.touched} · 待联系 ${Math.max(0,batchUploaded(b)-b.touched)} · 有意向 ${b.intent}</div>
+        </div>`).join('') : '<div class="mut sm">我在这条需求下还没有批次 —— 传一份简历，系统自动建今天的批次</div>'}
+      </div>`;
+  }
+
+  const funnel = ['新入库','已匹配','触达中','补全中','待面试','面试通过','待入职','已入职'].map(n=>({n,c:ps.filter(p=>p.node===n).length}));
+  const bs = bsAll;
   return `
-    <div class="sec"><div class="sec-t">人员漏斗（${ps.length} 人）</div>
+    <div class="sec"><div class="sec-t">人员漏斗（${ps.length} 人 · 整单）</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         ${funnel.map(f=>`<div style="flex:1;min-width:76px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:9px 10px;text-align:center">
-          <div class="mono" style="font-size:18px;font-weight:600">${f.c}</div>
+          <div class="mono" style="font-size:19.5px;font-weight:600">${f.c}</div>
           <div class="xs mut" style="margin-top:1px">${f.n}</div></div>`).join('')}
       </div>
     </div>
@@ -550,14 +888,14 @@ function dmProgress(d, al, ps){
           <td class="num"><b>${al.reduce((x,a)=>x+a.hired,0)}</b></td>
           <td class="num"><b>${al.reduce((x,a)=>x+a.qty-a.hired,0)}</b></td><td colspan="2"></td></tr>
         </tbody></table></div>
-        ${isR04?'':'<div style="margin-top:9px"><button class="btn sm" onclick="closeAll();openAlloc(\''+d.id+'\')">调整分配</button></div>'}`
+        <div style="margin-top:9px"><button class="btn sm" onclick="closeAll();openAlloc('${d.id}')">调整分配</button></div>`
       : '<div class="note w">该需求尚未分配 —— 未分配时招聘专员看不到这一单、也无法建批次。</div>'}
     </div>
 
     <div class="sec"><div class="sec-t">批次汇总（${bs.length} 个）</div>
-      ${bs.length? bs.map(b=>`<div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px 13px;margin-bottom:7px;display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer" onclick="openBatch('${b.id}')">
-        <div><div class="sm mono">${esc(b.code)}</div><div class="xs mut">${b.date} · ${esc(b.owner)} · 新增 ${b.boss+b.manual+b.pool} 份</div></div>
-        <div class="xs mut">触达 ${b.touched} · 意向 ${b.intent} · 面试 ${b.interview}</div>
+      ${bs.length? bs.map(b=>`<div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px 13px;margin-bottom:7px;display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer" onclick="openBatchPersons('${b.id}')">
+        <div><div class="sm mono">${esc(b.code)}</div><div class="xs mut">${b.date} · ${esc(b.owner)} · 新增 ${batchUploaded(b)} 份 · 已建档 ${batchFiled(b)} 人</div></div>
+        <div class="xs mut">已联系 ${b.touched} · 待联系 ${Math.max(0,batchUploaded(b)-b.touched)} · 有意向 ${b.intent}</div>
       </div>`).join('') : '<div class="mut sm">暂无批次</div>'}
     </div>`;
 }
@@ -777,34 +1115,80 @@ function openAlloc(id){
 
 /* 人员详情已合并为统一「人详情」（四个页签），见 pages-archive.js 的 openHuman */
 
-/* 批次人员 */
-function openBatch(id){
-  const b = B(id), ps = PERSONS.filter(p=>p.batchId===id);
-  openDrawer(`
-    <div class="dr-h"><div><h3>${esc(b.code)}</h3>
-      <div class="sub">${esc(D(b.demandId).post)} · ${esc(b.owner)} · ${b.date} · 新增 ${b.boss+b.manual+b.pool} 份</div></div>
-      <button class="dr-x" onclick="closeAll()">×</button></div>
-    <div class="dr-b">
-      <div class="sec"><div class="sec-t">批次概况</div>
-        <dl class="kv">
-          <div><dt>简历来源</dt><dd class="sm">BOSS ${b.boss} · 上传 ${b.manual} · 人才池 ${b.pool}</dd></div>
-          <div><dt>触达</dt><dd>${b.touched} 已触达 / ${b.boss+b.manual+b.pool-b.touched} 未触达</dd></div>
-          <div><dt>有意向</dt><dd>${b.intent} 人</dd></div>
-          <div><dt>面试 / 到面</dt><dd>${b.interview} / ${b.arrived}</dd></div>
-        </dl>
-      </div>
-      <div class="sec"><div class="sec-t">本批人员（${ps.length}）</div>
-        ${ps.length? ps.map(p=>`<div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:7px;cursor:pointer" onclick="openPerson('${p.id}')">
-          <div class="avatar">${esc(p.name.slice(0,1))}</div>
-          <div style="flex:1"><div class="sm"><b>${esc(p.name)}</b> <span class="xs mut">${p.age}岁 · ${p.skills[0]}</span></div>
-            <div class="xs mut">${p.lastContact==='—'?'未联系':'上次联系 '+p.lastContact.slice(5)+' · '+p.lastType}</div></div>
-          ${tierChip(p.tier)} ${nodeB(p.node)}
-        </div>`).join('') : '<div class="mut sm">本批次暂无人员（可上传简历或从人才池捞人）</div>'}
-      </div>
+/* ---------- 批次人员：整页，不再是右侧抽屉 ----------
+   抽屉只能看十几个人、不能搜索、不能翻页、地址留不住，还挡着导航。
+   现在点批次名 / 「查看简历」进 #batch/<id>/persons：完整列表页，搜索、阶段、结果、50 条分页
+   都复用需求简历明细那一个列表组件（第 05 项 = 第 02 项换了个范围）。
+   范围三重收窄：本人 + 当前需求 + 当前批次 —— 不把同事的人、别的一单的人混进来。 */
+function openBatchPersons(id){
+  const b = B(id);
+  if(!b || !b.id) return;
+  markScrollOut();
+  if(BP.id !== id) BP.back = snapshotHere();
+  BP.id = id;
+  S.page = 'batchPersons';
+  closeAll();
+  render();
+  setMainScroll(0);
+  navHash(routeHash(), 'push');
+}
+function batchPersonsBack(){
+  const bk = BP.back;
+  BP.id = null; BP.back = null;
+  if(bk && bk.page && bk.page !== 'batchPersons' && restoreSnap(bk)){
+    render(); setMainScroll(bk.scroll || 0);
+    navHash(routeHash(), 'replace');
+    return;
+  }
+  go('batches');
+}
+/* 兼容旧入口（首页「进人员列表」等）：一律走整页 */
+function openBatch(id){ openBatchPersons(id); }
+function batchPersonsHtml(){
+  const b = B(BP.id);
+  if(!b || !b.id) return `<div class="page">
+    <div class="pg-back" onclick="go('batches')">← 返回批次列表</div>
+    ${head('找不到这个批次','地址指向的批次不在当前演示数据里')}
+    <div class="note w">批次编号 <span class="mono">${esc(BP.id||'—')}</span> 没有匹配到记录。演示数据存在内存里，刷新后新增/改过的批次会回到初始状态。</div>
+    <div style="margin-top:12px"><button class="btn pri" onclick="go(\'batches\')">返回批次列表</button></div>
+  </div>`;
+  const d = D(b.demandId);
+  const isR04 = S.role==='R04';
+  /* 三重收窄：本批次 → 本需求 → 本人当前跟进 */
+  const inBatch = PERSONS.filter(p=>p.batchId===b.id && p.demandId===b.demandId);
+  const rows = isR04 ? inBatch.filter(p=>dmWhoFollows(p)===S.who) : inBatch;
+  const cap = batchUploaded(b), filed = batchFiled(b);
+  const ch = batchChannels(b);
+  const closed = b.status !== '进行中';
+  const acts = `<button class="btn" onclick="openDemand('${d.id}','resume')">看这条需求的简历</button>
+    ${closed
+      ? `<button class="btn" onclick="openModal(uploadNewBatchModal(),'md-lg')" title="这批已关闭，不再收新简历">新增到今日批次</button>`
+      : `<button class="btn" onclick="openModal(uploadModal('${b.id}'),'md-lg')">↑ 传简历</button>`}
+    <button class="btn pri" onclick="findInPool('${d.id}')">人才库找人</button>`;
+  return `<div class="page">
+    <div class="pg-back" onclick="batchPersonsBack()">← 返回批次列表</div>
+    ${head('批次 ' + esc(b.code),
+      `${esc(d.post)} · ${esc(d.client)} · ${b.date}${b.date===TODAY?' · 今天':''} · 负责人 ${esc(b.owner)}${closed?' · 已关闭（不再收新简历，跟进继续）':''}`,
+      acts)}
+    <div class="arc-top">
+      <span class="sm">新增 <b>${cap}</b> 份</span>
+      <span class="sm">已建档 <b>${filed}</b> 人</span>
+      <span class="sm">已联系 <b>${b.touched}</b> · 待联系 <b style="color:${Math.max(0,cap-b.touched)?'var(--bad)':'var(--good)'}">${Math.max(0,cap-b.touched)}</b></span>
+      <span class="sm">有意向 <b>${b.intent}</b> · 面试 <b>${b.interview}</b> · 到面 <b>${b.arrived}</b></span>
+      <div class="sp"></div>
+      <span class="xs mut">${PERSONS.some(p=>p.batchId===b.id)
+        ? '已建档 '+filed+' 人的来源：'+(ch.map(([n,c])=>esc(n)+' '+c).join(' · ')||'—')
+        : '份来源：'+(ch.map(([n,c])=>esc(n)+' '+c).join(' · ')||'—')}</span>
     </div>
-    <div class="dr-f"><button class="btn" onclick="closeAll()">关闭</button>
-      <button class="btn" onclick="closeAll();runMatch('${id}')">对本批运行 AI 匹配</button>
-      <button class="btn pri" onclick="toast('已关闭批次，人员留在需求下继续跟进')">关闭批次</button></div>`);
+    <div class="note i" style="margin-bottom:12px">
+      <b>为什么「新增 ${cap} 份」和「已建档 ${filed} 人」不一样？</b>
+      新增 = 这一批收进来的文件数（BOSS 下载 ${b.boss} + 上传 ${b.manual} + 人才池 ${b.pool}）；
+      已建档 = 真正落成投递的人。同一人重复投、格式不对被退回、只留了联系方式没建档的，只算份不算人。
+      两个数都按记录算，没有为了对上而补人。
+    </div>
+    ${isR04? `<div class="xs mut" style="margin:-4px 0 10px">只列我当前跟进的人（本批 ${inBatch.length} 人中 ${rows.length} 人归我）；其他专员跟的人不在这里显示。</div>` : ''}
+    ${appListHtml({ key:'dm-batch:'+b.id, rows, showFollow:!isR04, empty:'这一批还没有建档的人 —— 传简历或从人才池捞人后会出现在这里' })}
+  </div>`;
 }
 
 /* ================= 弹窗 ================= */
@@ -995,7 +1379,7 @@ function uploadModal(bid, mode){
         </div>`
       : `<div style="display:flex;align-items:center;gap:8px;background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:9px;padding:9px 12px">
           <span class="b i">主批次</span>
-          <b class="mono" style="font-size:13px">${b?esc(b.code):'—'}</b>
+          <b class="mono" style="font-size:14.5px">${b?esc(b.code):'—'}</b>
           <span class="xs mut">${dem?esc(dem.post)+' · '+esc(dem.client):''}</span>
         </div>
         <div class="note" style="margin-top:9px;line-height:1.7">
@@ -1007,7 +1391,7 @@ function uploadModal(bid, mode){
     <button class="dr-x" onclick="closeAll()">×</button></div>
   <div class="md-b">
     <div class="up-drop">
-      <div style="font-size:24px;color:var(--ink4)">↑</div>
+      <div style="font-size:26px;color:var(--ink4)">↑</div>
       <div class="sm" style="margin-top:6px"><b>点击选择文件</b> 或拖拽到此处</div>
       <div class="xs mut" style="margin-top:4px">支持 .xlsx / .csv / .zip / .pdf / 图片 · 单次最多 200 份</div>
       <div class="sm mono" style="margin-top:10px;color:var(--accent)">已选择：BOSS导出_1113.xlsx（8 份）</div>
@@ -1015,7 +1399,7 @@ function uploadModal(bid, mode){
 
     <div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px 14px;margin-top:12px">
       <div class="sm" style="font-weight:600;margin-bottom:6px">查重结果（按手机号比对人才档案）</div>
-      <div style="display:flex;gap:14px;font-size:12.5px;flex-wrap:wrap">
+      <div style="display:flex;gap:14px;font-size:14px;flex-wrap:wrap">
         <span>本次 <b class="mono">8</b> 份</span>
         <span style="color:var(--good)">新建档案 <b class="mono">${nNew}</b></span>
         ${poolOnly
@@ -1131,40 +1515,155 @@ function uploadNewBatchModal(){ return uploadModal(null, 'build'); }
 
 /* 新建需求已改为四步向导，实现在 pages-nd.js（选标准岗位标准 → 看并改 → 人/时间/钱 → 生成） */
 
-/* AI 匹配 */
-function runMatch(bid){
-  const ps = PERSONS.filter(p=>p.batchId===bid);
-  const cnt = {S:0,A:0,B:0,C:0,D:0};
-  ps.forEach(p=>cnt[p.tier]++);
+/* AI 匹配（v1.2：硬条件三态 + 加分只排序 + 绑定需求版本） */
+function runMatch(bid, forceScope){
+  const b = B(bid) || {};
+  const d = D(b.demandId);
+  if(!d){ toast('该批次未关联需求'); return; }
+  const scope = forceScope || S.f.mScope || 'demand';
+  S.f.mScope = scope;
+  const pool = PERSONS.filter(p => scope==='batch' ? p.batchId===bid : p.demandId===d.id);
+  const rows = pool.map(p=>{
+    const items = assessPerson(p, d);
+    return {p, items, sum: triSum(items), bonus: bonusOf(p,d).filter(x=>x.hit).length, score:p.score};
+  }).sort((x,y)=> (TRI_RANK[x.sum]-TRI_RANK[y.sum]) || (y.score-x.score));
+
+  const av = activeVer(d);
+  /* 没有生效版本 = 条件未定，任何人都不能进「可推荐」；否则会出现「顶部说禁止推荐、底部提示推荐成功」 */
+  const canRec = !!av;
+  const okRows = rows.filter(r=>r.sum==='ok');
+  const okN = canRec ? okRows.length : 0;
+  const blockedN = canRec ? 0 : okRows.length;
+  const pendN = rows.filter(r=>r.sum==='pend').length;
+  const noN = rows.filter(r=>r.sum==='no').length;
+  const stale = matchNeedsUpdate(d);
+  const stamp = MATCH_STAMP[d.id] || {};
+
   openModal(`
-    <div class="md-h"><div><h3>AI 匹配结果</h3><p>${esc((B(bid)||{}).code||'当前批次')} · ${ps.length} 人 · 四步：硬门槛 → 一票否决 → 五项评分 → 价差核算</p></div>
+    <div class="md-h"><div><h3>AI 匹配结果 <span class="b n" style="font-size:12.5px;vertical-align:middle">演示逻辑</span></h3>
+      <p>${esc(pool.length?'':'')}依据需求 <span class="mono">${esc(d.code)}</span> · 生效版本 <span class="mono">${esc(av?av.v:'无')}</span> · 硬条件逐项判断</p></div>
       <button class="dr-x" onclick="closeAll()">×</button></div>
     <div class="md-b">
-      <div style="display:flex;gap:8px;margin-bottom:16px">
-        ${Object.entries(cnt).map(([k,v])=>`<div style="flex:1;text-align:center;background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px">
-          <div class="tier ${k}" style="margin:0 auto 6px">${k}</div><div class="mono" style="font-size:19px;font-weight:600">${v}</div>
-          <div class="xs mut">${TIERS[k].split(' · ')[1]}</div></div>`).join('')}
+
+      ${av? '' : `<div class="note r" style="margin-bottom:12px"><b>该需求没有生效版本</b>（${esc(d.confirm)}），本次结果仅作演示，<b>不得作为推荐依据</b>；下方「可推荐」已归零，推荐入口不可用。</div>`}
+      ${stale? `<div class="note w" style="margin-bottom:12px"><b>匹配结果需更新</b>：需求条件已变更（结果基于 ${esc(stamp.ver||'—')}，当前生效 ${esc(av?av.v:'无')}）。
+        <button class="btn xs" style="margin-left:8px" onclick="refreshMatch('${bid}')">按当前版本重算</button></div>`:''}
+
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        ${[['ok',okN,'可推荐'],['pend',pendN,'待补依据'],['no',noN,'不可推荐']].map(([k,v,lab])=>`
+          <div style="flex:1;text-align:center;background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px">
+            <div class="xs mut">${esc(lab)}</div>
+            <div class="mono" style="font-size:24px;font-weight:600;color:${k==='ok'?'var(--good)':k==='pend'?'var(--warn)':'var(--bad)'}">${v}</div>
+            <div class="xs">${tri(k)}</div>
+            ${k==='ok'&&!canRec&&blockedN?`<div class="xs mut">${blockedN} 人条件已符合，但需求未生效</div>`:''}</div>`).join('')}
       </div>
-      ${ps.slice(0,6).map(p=>`<div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer" onclick="closeAll();openPerson('${p.id}')">
-        ${tierChip(p.tier)}<div style="flex:1"><div class="sm"><b>${esc(p.name)}</b> <span class="xs mut">${p.skills[0]}</span></div>
-          <div class="xs mut">${p.score} 分 · ${p.score>=80?'硬门槛全过，技能与经验双达标':'硬门槛通过，经验略欠'}</div></div>
-        <span class="link">看依据</span></div>`).join('')}
-      <div class="note" style="margin-top:12px">匹配结果会写入评分留档，需求变更或画像因子版本升级后自动失效并提示重算。</div>
+
+      <div class="toolbar" style="border:1px solid var(--line);border-radius:9px;margin-bottom:10px">
+        <span class="chip ${scope==='demand'?'on':''}" onclick="runMatch('${bid}','demand')">本需求全部 ${PERSONS.filter(p=>p.demandId===d.id).length} 人</span>
+        <span class="chip ${scope==='batch'?'on':''}" onclick="runMatch('${bid}','batch')">只看本批次 ${PERSONS.filter(p=>p.batchId===bid).length} 人</span>
+        <div class="sp"></div>
+        <span class="xs mut">S/A/B/C/D 与分数为演示口径，不参与符合性判断</span>
+      </div>
+
+      ${rows.map(r=>{
+        const bad = r.items.filter(i=>i.state!=='ok' && !i.soft);
+        const why = bad.length
+          ? bad.map(i=>`${i.label.split(' / ')[0]}${i.state==='no'?'不符合':'待确认'}`).join(' · ')
+          : '全部硬条件已核实符合';
+        return `<div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer"
+            onclick="closeAll();openMatchDetail('${r.p.id}','${d.id}')">
+          ${triS(r.sum)}
+          <div style="flex:1"><div class="sm"><b>${esc(r.p.name)}</b> <span class="xs mut">${esc(r.p.skills[0]||'')} · ${r.p.age}岁 · ${esc(r.p.gender)}</span>
+            <span class="tier ${r.p.tier}" style="transform:scale(.85)">${r.p.tier}</span>
+            <span class="mono xs mut">${r.score} 分</span></div>
+            <div class="xs ${bad.length?'':'mut'}" style="color:${r.sum==='no'?'var(--bad)':r.sum==='pend'?'var(--warn)':''}">${esc(why)}</div></div>
+          <span class="link">看依据</span></div>`;
+      }).join('') || '<div class="empty">该范围内没有候选人</div>'}
+
+      <div class="note" style="margin-top:12px">判断口径：任一硬条件<b>已确认不符合</b> → 整体不可推荐；无明确不符合但存在<b>信息待确认</b> → 整体待确认；全部<b>已核实符合</b> → 才可推荐。
+        加分项只影响排序，<b>不得</b>覆盖 Pass 判断。资料缺失一律记「待确认」，不自动当作符合或不符合。</div>
     </div>
     <div class="md-f"><button class="btn" onclick="closeAll()">关闭</button>
-      <button class="btn pri" onclick="closeAll();toast('已把 S/A 档 '+${cnt.S+cnt.A}+' 人加入优先跟进')">加入优先跟进（${cnt.S+cnt.A} 人）</button></div>`);
+      ${stale?`<button class="btn" onclick="refreshMatch('${bid}')">按当前版本重算</button>`:''}
+      ${canRec
+        ? `<button class="btn pri" onclick="closeAll();toast('已把 ${okN} 位「已核实符合」的人加入优先跟进')">加入优先跟进（${okN} 人）</button>`
+        : `<button class="btn" title="需求没有生效版本，未审核不得推荐" onclick="recBlocked('${d.id}')">不可推荐（需求未生效）</button>`}
+    </div>`, 'md-xl');
+}
+/* 拦截原因必须点名：哪一步没过、为什么不能推荐，而不是一个灰按钮 */
+function recBlocked(did){
+  const d = D(did);
+  const ov = openVer(d);
+  const why = ov
+    ? `该需求当前是「${ov.status}」的 ${ov.v}，未经内部审核通过不生效`
+    : `该需求当前为「${d.confirm}」，还没有生效版本`;
+  toast(`不可推荐：${why}。请先完成代登记与内部审核，再用生效版本重算匹配`);
+}
+function refreshMatch(bid){
+  const b = B(bid)||{}; const d = D(b.demandId); if(!d) return;
+  const av = activeVer(d);
+  MATCH_STAMP[d.id] = {ver: av?av.v:'—', at:'2026-11-14 08:30', stale:false};
+  runMatch(bid, S.f.mScope||'demand');
+  toast('已按 '+(av?av.v:'当前版本')+' 重新判断');
+}
+/* 单人匹配详情：逐项三态 + 依据，与列表口径一致 */
+function openMatchDetail(pid, did){
+  const p = P(pid), d = D(did);
+  const items = assessPerson(p, d);
+  const sum = triSum(items);
+  const av = activeVer(d);
+  const bonus = bonusOf(p, d);
+  openDrawerW(`<div class="dr-h"><div><h3>匹配依据 · ${esc(p.name)}</h3>
+    <div class="sub">${esc(d.client)} · ${esc(d.post)} · 依据版本 <span class="mono">${esc(av?av.v:'无生效版本')}</span></div></div>
+    <button class="dr-x" onclick="closeAll()">×</button></div>
+  <div class="dr-b">
+    <div class="card" style="margin-bottom:14px"><div class="card-b">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        ${tri(sum)}<span class="sm">${esc(TRI_SUM_TXT[sum])}</span>
+        <div class="sp" style="flex:1"></div>
+        <span class="xs mut">演示评分 ${p.score} 分 · 档位 ${p.tier}（仅排序参考）</span>
+      </div>
+    </div></div>
+
+    <div class="sec"><div class="sec-t">硬条件逐项判断（${items.length} 项）</div>
+      ${items.map(i=>`<div class="tri-row">
+        <div class="tr-l"><b>${esc(i.label.split(' / ')[0])}</b>
+          <div class="xs mut">#${i.no} · ${esc(i.grade||'')}${i.soft?' · 加分项（不计入 Pass）':''}</div>
+          <div class="xs mut">要求：${esc(i.need||'—')}</div></div>
+        <div class="tr-v">${tri(i.state)}<div class="sm" style="margin-top:3px">${esc(i.got||'—')}</div>
+          <div class="tr-n">来源：${esc(i.src||'—')}${i.ev?' · 原文：'+esc(i.ev):''}${i.at&&i.at!=='—'?' · 确认于 '+esc(i.at):''}
+          ${i.note?'<br>'+esc(i.note):''}</div></div>
+      </div>`).join('')}
+    </div>
+
+    <div class="sec"><div class="sec-t">加分项（只影响排序）</div>
+      ${bonus.map(b=>`<div class="sm" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line2)">
+        <span>${esc(b.label)}</span><span>${b.hit?'<span class="b g">命中</span>':'<span class="b n">未命中</span>'}</span></div>`).join('')}
+      <div class="note" style="margin-top:9px">加分项不参与 Pass 判断：加分再高，只要有一项硬条件「已确认不符合」，整体仍不可推荐。</div>
+    </div>
+
+    <div class="sec"><div class="sec-t">需要补的信息</div>
+      ${items.filter(i=>i.state==='pend').length
+        ? items.filter(i=>i.state==='pend').map(i=>`<div class="sm" style="padding:5px 0;border-bottom:1px solid var(--line2)">
+            <span class="b w">待确认</span> ${esc(i.label.split(' / ')[0])} —— ${esc(i.note||'缺依据')}</div>`).join('')
+        : '<div class="sm mut">无缺口</div>'}
+    </div>
+  </div>
+  <div class="dr-f"><button class="btn" onclick="closeAll()">关闭</button>
+    <button class="btn" onclick="closeAll();openHuman('${p.personId}', 'verify')">看核实依据</button></div>`);
 }
 function matchOneModal(kid){
   const k = PEOPLE.find(x=>x.id===kid);
-  return `<div class="md-h"><div><h3>AI 匹配 · ${esc(k.name)}</h3><p>选择需求后计算档位、分值与逐维度依据</p></div>
+  return `<div class="md-h"><div><h3>AI 匹配 · ${esc(k.name)} <span class="b n" style="font-size:12.5px;vertical-align:middle">演示逻辑</span></h3>
+    <p>选择需求后给出档位与分值 —— 分数只用于排序，符合性以硬条件三态为准</p></div>
     <button class="dr-x" onclick="closeAll()">×</button></div>
   <div class="md-b">
     <div class="field"><label>匹配目标需求（非必填）</label>
       <select>${DEMANDS.map(d=>`<option>${d.post} · ${d.client}</option>`).join('')}</select>
-      <div class="hint">不选需求时按「核心技能 60 + 经验 20 + 证据 20」通用口径评分</div></div>
+      <div class="hint">不选需求时不产生 Pass 判断，仅给通用演示分</div></div>
     <div style="background:#fff;border:1px solid var(--line);border-radius:10px;padding:15px;margin-top:6px">
       <div style="display:flex;align-items:center;gap:12px">
-        <div style="text-align:center"><div class="mono" style="font-size:32px;font-weight:600;color:var(--good)">A</div><div class="xs mut">档位</div></div>
+        <div style="text-align:center"><div class="mono" style="font-size:34px;font-weight:600;color:var(--good)">A</div><div class="xs mut">演示档位</div></div>
         <div style="flex:1">
           <div class="barline"><span class="xs mut">综合</span><div class="bar g"><i style="width:84%"></i></div><b>84</b></div>
           <div class="barline" style="margin-top:6px"><span class="xs mut">技能</span><div class="bar"><i style="width:88%"></i></div><b>88</b></div>
@@ -1172,28 +1671,63 @@ function matchOneModal(kid){
         </div>
       </div>
       <div class="hr"></div>
-      <div class="sm"><b>匹配依据</b></div>
+      <div class="sm"><b>演示说明</b></div>
       <div class="xs mut" style="margin-top:5px;line-height:1.75">
-        · 核心技能命中 ${k.skills.join('、')}，与岗位要求一致<br>
-        · 设备品牌经验匹配（同类设备 3 年以上）<br>
-        · 期望薪资在需求区间内，价差 0<br>
-        · 可到岗时间满足最迟到岗要求
+        · 本页分值为演示口径，<b>尚未接入真实评分模型</b><br>
+        · 实际推荐以「已核实符合 / 信息待确认 / 已确认不符合」三态为准<br>
+        · 资料缺失时一律待确认，不按分数推断符合
       </div>
     </div>
   </div>
   <div class="md-f"><button class="btn" onclick="closeAll()">关闭</button>
-    <button class="btn pri" onclick="closeAll();toast('已保存评分留档')">保存评分</button></div>`;
+    <button class="btn pri" onclick="closeAll();toast('已保存演示评分留档')">保存演示评分</button></div>`;
 }
-function poolPickBatch(kid){
-  return `<div class="md-h"><div><h3>捞入批次</h3><p>把池内人员加入某个进行中的批次</p></div>
+/* 捞入批次：从「人才库找人」进来时带着需求（forD），下拉先给这一单的进行中批次，
+   省得在一堆批次号里找 —— 但不禁用别的批次，临时帮别的单捞人也是允许的。 */
+/* 加入需求：先选目标需求，再按「需求 + 日期」落批次。
+   以前只让选批次 —— 批次是结果不是目标，容易把人对到别的需求上。 */
+function pkBatchOpts(did){
+  const list = BATCHES.filter(b=>b.status==='进行中' && b.demandId===did);
+  return list.map(b=>`<option>${esc(b.code)}</option>`).join('')
+    || '<option>系统按「需求 + 日期」自动建今日批次</option>';
+}
+function pkDmChange(){
+  const sel = document.getElementById('pkDm'); if(!sel) return;
+  const v = sel.value, kid = (document.getElementById('pkKid')||{}).value;
+  const bs = document.getElementById('pkBatch');
+  if(bs) bs.innerHTML = pkBatchOpts(v);
+  const wn = document.getElementById('pkWarn');
+  if(!wn) return;
+  const mine = appsOf(kid).filter(a=>a.status==='跟进中' && a.demandId===v);
+  wn.innerHTML = mine.length
+    ? `<div class="note w">该人在这个需求下已有进行中的投递（跟进人 ${esc(mine[0].owner)}）。系统会拦下并提示「已在跟进中」，不重复建档，也不覆盖原跟进人。</div>`
+    : '';
+}
+function poolPickBatch(kid, forD){
+  const mine = appsOf(kid).filter(a=>a.status==='跟进中');
+  const mineIds = mine.map(a=>a.demandId);
+  const d0 = forD || (DEMANDS.filter(d=>d.status==='招聘中' && !mineIds.includes(d.id))[0] || DEMANDS[0]).id;
+  const busy = mine.length
+    ? `<div class="note" style="margin-bottom:12px">这个人在 ${mine.map(a=>esc(D(a.demandId).post)+'（'+esc(a.owner)+'）').join('、')} 已有进行中的投递。加入新需求会新建一条独立投递，不动原投递。</div>`
+    : '';
+  return `<div class="md-h"><div><h3>加入需求</h3><p>先明确目标需求，再落批次 · 批次沿用现有「需求 + 日期」规则</p></div>
     <button class="dr-x" onclick="closeAll()">×</button></div>
   <div class="md-b">
-    <div class="field"><label>选择批次</label>
-      <select>${BATCHES.filter(b=>b.status==='进行中').map(b=>`<option>${b.code} · ${D(b.demandId).post}</option>`).join('')}</select></div>
-    <div class="note">捞入后该人员会出现在批次人员列表与需求人员列表中，状态为「新入库」。</div>
+    <input type="hidden" id="pkKid" value="${esc(kid)}">
+    ${busy}
+    <div class="frow">
+      <div class="field"><label>目标需求<i>*</i></label>
+        <select id="pkDm" onchange="pkDmChange()">
+          ${DEMANDS.filter(x=>x.status==='招聘中').map(x=>`<option value="${x.id}" ${x.id===d0?'selected':''}>${esc(x.post)} · ${esc(x.client)}</option>`).join('')}
+        </select></div>
+      <div class="field"><label>进哪个批次</label>
+        <select id="pkBatch">${pkBatchOpts(d0)}</select></div>
+    </div>
+    <div id="pkWarn"></div>
+    <div class="note">加入后生成一条新投递，状态「新入库」，可在需求简历明细与招聘人员列表里找到；这个人的其他需求投递不受影响。</div>
   </div>
   <div class="md-f"><button class="btn" onclick="closeAll()">取消</button>
-    <button class="btn pri" onclick="closeAll();toast('已捞入批次')">确认捞入</button></div>`;
+    <button class="btn pri" onclick="closeAll();toast('已加入需求，生成一条新投递')">确认加入</button></div>`;
 }
 function addPersonModal(){
   const sample = [
@@ -1261,6 +1795,10 @@ function batchMatchAll(){
 /* 注册共用页 */
 ['demands','batches','persons','pool','logs'].forEach(k=>{ PAGES[k] = PAGES[k]||{}; });
 PAGES.demands = {R01:demandsPage, R02:demandsPage, R04:demandsPage};
+/* 需求详情独立页：#demand/<id>/detail?tab=<detail|resume|progress>（不在菜单里，由列表/首页/档案进入） */
+PAGES.demandDetail = {any: dmHtml};
+/* 批次人员独立页：#batch/<id>/persons（不在菜单里，由批次列表 / 招聘进度进入） */
+PAGES.batchPersons = {R01: batchPersonsHtml, R04: batchPersonsHtml};
 PAGES.batches = {R01:batchesPage, R04:batchesPage};
 PAGES.persons = {R01:personsPage, R04:personsPage};
 PAGES.pool    = {R01:poolPage, R04:poolPage};

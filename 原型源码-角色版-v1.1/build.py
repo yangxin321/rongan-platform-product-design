@@ -2,13 +2,13 @@ import pathlib
 base = pathlib.Path(__file__).resolve().parent
 html = (base/'shell.html').read_text(encoding='utf-8')
 css  = (base/'base.css').read_text(encoding='utf-8')
-js_files = ['data.js','data-ext.js','data-dict.js','data-vals.js','data-f47.js','data-dd.js','data-cust.js','core.js','pages-shared.js','pages-archive.js','pages-r04.js','pages-r01.js','pages-elem.js','pages-std.js','pages-dict.js','pages-nd.js','pages-cust.js','pages-r02.js']
+js_files = ['data.js','data-ext.js','data-dict.js','data-vals.js','data-f47.js','data-v12.js','data-dd.js','data-cust.js','core.js','pages-shared.js','pages-archive.js','pages-r04.js','pages-r01.js','pages-elem.js','pages-std.js','pages-dict.js','pages-nd.js','pages-cust.js','pages-r02.js','pages-vers.js']
 js = '\n\n'.join((base/f).read_text(encoding='utf-8') for f in js_files if (base/f).exists())
 
 outdir = base.parent
 
 targets = [
-    ('融敢平台-角色版-v1.1.html', False),
+    ('融敢平台-角色版-v1.2.html', False),
     ('融敢平台-解释版.html', True),
 ]
 for name, explain in targets:
