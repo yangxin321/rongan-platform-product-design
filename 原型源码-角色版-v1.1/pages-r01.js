@@ -138,35 +138,40 @@ function r01Confirms(){
   const rows = DEMANDS.map(d=>{
     const st = d.confirm==='已确认'?'g':d.confirm==='待客户确认'?'w':'r';
     const av = activeVer(d), pv = pendingVer(d), lk = mainLink(d.id);
+    const rg = lastReg(d.id, av?av.v:(pv?pv.v:'v1.0'));
     return `<tr class="clk" onclick="openConfirm('${d.id}')">
       <td><div class="t-name mono" style="font-size:13px">QR-${d.code.slice(3)}</div>
         <div class="t-sub">${av?av.v:'—'}${pv?' → '+pv.v:''}</div></td>
       <td><div class="sm">${esc(d.client)} · ${esc(d.project)}</div><div class="t-sub">${esc(d.post)}（${d.head} 人）</div></td>
       <td><span class="b n">47 项</span></td>
-      <td class="sm">${av?`${esc(av.by)}<div class="t-sub">${esc(av.way)} · ${esc(av.at)}</div>`:'<span class="mut">未确认</span>'}</td>
+      <td class="sm">${rg?`<b>${esc(rg.regBy)}</b><div class="t-sub">登记 · 反馈人 ${esc(rg.fbPerson)}</div>
+          <div class="t-sub">反馈 ${esc(rg.fbAt)} / 登记 ${esc(rg.regAt)}</div>`
+        :'<span class="mut">未登记</span>'}</td>
       <td>${lk?`<span class="b ${lk.state==='有效'?'g':'r'}">${esc(lk.state)}</span><div class="t-sub mono">${esc(lk.tok)}</div>`
         :`<span class="b w">未生成</span>`}</td>
       <td><span class="mono sm">${esc(d.valid.split(' ~ ')[1])}</span></td>
       <td><span class="b ${st}">${esc(d.confirm)}</span>
+        ${pv?`<div class="t-sub">${esc(pv.v)} ${esc(pv.audit||'未送审')}</div>`:''}
         ${av?'':'<div class="t-sub" style="color:var(--bad)">不生效</div>'}</td>
       <td><div class="acts"><span class="link">查看确认单</span>
         <span class="link" onclick="event.stopPropagation();openVers('${d.id}')">版本</span></div></td>
     </tr>`;
   }).join('');
+  const needAudit = DEMANDS.filter(d=>{ const v=openVer(d); return v && v.status==='待内部审核'; }).length;
   return `<div class="page">
-    ${head('客户确认','一张确认单覆盖同一项目的多个岗位 · 客户线下确认后，由我方逐项登记', `<button class="btn" onclick="go('clinks')">确认链接</button><button class="btn pri" onclick="ndEnter()">＋ 新建确认单</button>`)}
+    ${head('客户确认','客户线下确认 → 我方代登记 → 内部审核 → 生效；一张确认单覆盖同一项目的多个岗位', `<button class="btn" onclick="go('clinks')">确认链接</button><button class="btn pri" onclick="ndEnter()">＋ 新建确认单</button>`)}
     ${stats([
       {lab:'确认单', val:DEMANDS.length, unit:'份'},
       {lab:'已生效', val:DEMANDS.filter(d=>isEffective(d)).length, unit:'份'},
-      {lab:'待客户确认', val:DEMANDS.filter(d=>d.confirm==='待客户确认').length, unit:'份', accent:true},
-      {lab:'变更待重确认', val:DEMANDS.filter(d=>d.confirm==='变更待重确认').length, unit:'份'},
+      {lab:'待客户确认', val:DEMANDS.filter(d=>d.confirm==='待客户确认').length, unit:'份'},
+      {lab:'待内部审核', val:needAudit, unit:'份', accent:true},
     ])}
     ${toolbar({q:'搜索客户 / 项目 / 岗位', right:`<span class="sm mut">${DEMANDS.length} 份</span>`})}
     <div class="tbl-wrap"><table>
-      <thead><tr><th>确认单</th><th>项目 / 岗位</th><th>确认项</th><th>确认人 / 方式</th><th>只读链接</th><th>有效期至</th><th>状态</th><th>操作</th></tr></thead>
+      <thead><tr><th>确认单</th><th>项目 / 岗位</th><th>确认项</th><th>代登记（客户反馈人 / 我方登记人）</th><th>只读链接</th><th>有效期至</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
     ${pager(DEMANDS.length)}
-    <div class="note" style="margin-top:12px">「已确认」但无生效版本的按未生效处理；新版确认前旧版仍生效，但匹配需按新版重算（见 REVIEW.md §2）。</div>
+    <div class="note" style="margin-top:12px">「已确认」但无生效版本的按未生效处理；代登记后需<b>内部审核通过</b>才生效，退回的版本由我方补充客户依据后重新送审（见 REVIEW.md §2）。</div>
   </div>`;
 }
 function openConfirm(id){

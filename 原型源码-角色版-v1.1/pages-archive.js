@@ -218,6 +218,8 @@ function huVerify(p){
   <div class="note" style="margin-bottom:14px">核实依据只记录<b>客户明示的硬条件</b>，每条都要有来源。技能关键词<b>不等于</b>持证；现居地<b>不推断</b>异地意愿；投递状态<b>不推断</b>可到岗。</div>
 
   <div class="sec"><div class="sec-t">证书<span class="perm">独立字段 · 需核验</span></div>
+    <div class="xs mut" style="margin-bottom:9px">只记<b>作业证书</b>（低压电工证、焊工证、特种设备作业证等）。
+      职称（技师 / 高级技师 / 工程师）是等级评定，<b>不等于</b>作业证书，不写在这一栏，也不据此判为持证。</div>
     ${certs.length ? certs.map(x=>row(x.name, x.state, '客户要求的有效证件', 
         x.state==='ok'?'已核验证件有效':x.state==='no'?'候选人明确表示不满足':'待核验',
         x.src, x.ev, x.at, x.state==='pend'?'证据不足，未核验前不得视为持证':'' )).join('')
@@ -235,9 +237,21 @@ function huVerify(p){
   </div>
 
   <div class="sec"><div class="sec-t">可到岗时间<span class="perm">须候选人确认</span></div>
-    ${row('可到岗日期', a.state==='已确认'?'ok':'pend', '需求最晚报到日',
-        a.date ? a.date+' 起可到岗' : '未确认', a.src, '', a.at,
-        a.state==='已确认'?'':'没有候选人确认的时间就不算可到岗，与是否有进行中投递无关')}
+    ${(()=>{
+      /* 与当前查看的这次投递对应需求比对最晚报到日（第 7 项）；没有投递记录时退回最近一次投递 */
+      const curApp = (HU.appId && P(HU.appId)) || appsOf(p.id)[0] || null;
+      const dm = curApp ? D(curApp.demandId) : null;
+      const raw = dm ? String(effVal(dm, 7).v || '') : '';
+      const need = (raw.match(/\d{4}-\d{2}-\d{2}/) || [])[0] || '';
+      const dv = (String(a.date || '').match(/\d{4}-\d{2}-\d{2}/) || [])[0] || '';
+      const late = !!(dv && need && a.state === '已确认' && dv > need);
+      const st = late ? 'no' : (a.state === '已确认' ? 'ok' : 'pend');
+      const got = a.date ? a.date + ' 起可到岗' : '未确认';
+      const note = late
+        ? `候选人确认的可到岗日期 ${dv} <b>晚于</b>需求（${esc(dm.post)}）要求的最晚报到日 ${need}，按日期依据判为<b>已确认不符合</b>。`
+        : (a.state === '已确认' ? '' : '没有候选人确认的时间就不算可到岗，与是否有进行中投递无关');
+      return row('可到岗日期', st, dm ? `需求最晚报到日 ${need || '—'}` : '需求最晚报到日', got, a.src, '', a.at, note);
+    })()}
   </div>
 
   <div class="sec"><div class="sec-t">夜班意愿</div>

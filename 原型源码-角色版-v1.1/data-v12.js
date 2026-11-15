@@ -292,23 +292,26 @@ function bonusOf(p, d){
 }
 
 /* ---------- 5. 需求版本 ---------- */
+/* 版本状态机：待客户确认 → 待内部审核 → 生效 → 已被取代
+                                   ↘ 已退回 → （补充后）待内部审核
+   audit 位单独记「谁审的、何时、什么意见」，与状态分开存 */
 const DEMAND_VERS = {
   D1:[
-    {v:'v1.0', status:'已被取代', at:'2026-11-05 10:20', by:'金诚（代客户登记）', way:'微信', n:47,
+    {v:'v1.0', status:'已被取代', audit:'已通过', at:'2026-11-05 10:20', by:'金诚（代客户登记）', way:'微信', n:47,
      note:'首版，客户口头确认', changes:[]},
-    {v:'v1.1', status:'生效', at:'2026-11-10 14:20', by:'金诚（代客户登记）', way:'微信', n:47,
+    {v:'v1.1', status:'生效', audit:'已通过', at:'2026-11-10 14:20', by:'金诚（代客户登记）', way:'微信', n:47,
      note:'客户上调工价并放宽到岗时间',
      changes:[{f:'工价', from:'30-36 元/时', to:'32-38 元/时'},{f:'最晚报到日', from:'2026-12-08', to:'2026-12-15'}]},
   ],
   D7:[
-    {v:'v1.0', status:'生效', at:'2026-11-02 09:40', by:'王浩（代客户登记）', way:'电话', n:47,
+    {v:'v1.0', status:'生效', audit:'已通过', at:'2026-11-02 09:40', by:'王浩（代客户登记）', way:'电话', n:47,
      note:'旧版仍生效，直至新版确认后自动取代', changes:[]},
-    {v:'v1.1', status:'待重新确认', at:'2026-11-12 16:10', by:'王浩', way:'待客户反馈', n:47,
+    {v:'v1.1', status:'待重新确认', audit:'未送审', at:'2026-11-12 16:10', by:'王浩', way:'待客户反馈', n:47,
      note:'客户口头改工价与到岗日，尚未回签',
      changes:[{f:'工价', from:'28-32 元/时', to:'30-36 元/时'},{f:'最晚报到日', from:'2026-11-25', to:'2026-12-01'}]},
   ],
   D8:[
-    {v:'v1.0', status:'待客户确认', at:'2026-11-01 15:00', by:'王浩', way:'链接已发出', n:47,
+    {v:'v1.0', status:'待客户确认', audit:'未送审', at:'2026-11-01 15:00', by:'王浩', way:'链接已发出', n:47,
      note:'新单，客户尚未反馈', changes:[]},
   ],
 };
@@ -316,18 +319,114 @@ const DEMAND_VERS = {
 DEMANDS.forEach(d=>{
   if(!DEMAND_VERS[d.id]){
     DEMAND_VERS[d.id] = [{v:'v1.0', status: d.confirm==='已确认'?'生效':'待客户确认',
+      audit: d.confirm==='已确认'?'已通过':'未送审',
       at:'2026-11-0'+(1+Number(d.id.slice(1))%9)+' 10:00', by:'金诚（代客户登记）', way:'微信', n:47,
       note:'首版确认', changes:[]}];
   }
 });
+/* 演示样本：D3 已代登记、等内部审核（旧版仍生效）；D4 代登记被内部退回 */
+DEMAND_VERS.D3.push({v:'v1.1', status:'待内部审核', audit:'待审核', at:'2026-11-13 09:40', by:'金诚', way:'电话', n:47,
+  note:'客户电话要求把最晚报到日提前，已按客户原话代登记，等待内部审核',
+  changes:[{f:'最晚报到日', from:'2026-12-05', to:'2026-11-28'}]});
+DEMAND_VERS.D4.push({v:'v1.1', status:'已退回', audit:'已退回', at:'2026-11-12 17:20', by:'金诚', way:'微信', n:47,
+  note:'客户只说「到岗时间再谈」，未落到具体日期，第 7 项无法判定',
+  auditBy:'王浩', auditAt:'2026-11-12 18:02',
+  auditNote:'退回：反馈未落到具体日期，且缺客户原话截图。请补充后重新送审。',
+  changes:[{f:'最晚报到日', from:'2026-12-10', to:'再谈（未定）'}]});
 
+const VER_OPEN = ['待客户确认','待重新确认','待内部审核','已退回'];
+const VER_TONE = {'生效':'g','待客户确认':'w','待重新确认':'w','待内部审核':'i','已退回':'r','已被取代':'n'};
 function versOf(d){ return DEMAND_VERS[d.id] || []; }
 function activeVer(d){ const l = versOf(d).filter(v=>v.status==='生效'); return l.length ? l[l.length-1] : null; }
-function pendingVer(d){ const l = versOf(d).filter(v=>v.status==='待客户确认'||v.status==='待重新确认'); return l.length ? l[l.length-1] : null; }
+function openVer(d){ const l = versOf(d).filter(v=>VER_OPEN.includes(v.status)); return l.length ? l[l.length-1] : null; }
+/* 兼容旧名：pendingVer = 尚未生效的那一版（可能是待确认 / 待审核 / 已退回） */
+function pendingVer(d){ return openVer(d); }
 function isEffective(d){ return !!activeVer(d); }
 function verStatTxt(d){
-  if(activeVer(d)) return pendingVer(d) ? `已生效 ${activeVer(d).v} · 新版 ${pendingVer(d).v} 待重新确认` : `已生效 ${activeVer(d).v}`;
-  return pendingVer(d) ? `${pendingVer(d).v} 待客户确认` : '无生效版本';
+  const av = activeVer(d), ov = openVer(d);
+  if(av) return ov ? `已生效 ${av.v} · ${ov.v} ${ov.status}` : `已生效 ${av.v}`;
+  return ov ? `${ov.v} ${ov.status}` : '无生效版本';
+}
+
+/* ---------- 5b. 客户反馈代登记记录（RG-002 要求 8 个字段） ----------
+   一条记录 = 客户一次线下反馈被我方抄进系统。
+   客户不登录、不点击，因此必须能区分：
+     · 客户反馈人 ≠ 我方登记人
+     · 反馈发生时间 ≠ 系统登记时间
+   缺任何一项都不允许送审，更不允许标为有效需求。 */
+const REG_CHANNELS = ['微信','电话','会议','邮件','现场'];
+const REG_FIELDS = [
+  {k:'ver',       n:'对应需求版本',        hint:'客户这次看到的是哪一版'},
+  {k:'fbPerson',  n:'客户反馈人',          hint:'客户侧说话的人，不是我方对接人'},
+  {k:'fbChannel', n:'反馈渠道',            hint:'微信 / 电话 / 会议 / 邮件 / 现场'},
+  {k:'fbAt',      n:'反馈发生时间',        hint:'客户实际说话的时间'},
+  {k:'fbContent', n:'反馈内容 / 确认结论',  hint:'客户原话或结论，逐项写清'},
+  {k:'fbAttach',  n:'依据附件或记录',      hint:'聊天截图 / 会议纪要 / 通话录音编号'},
+  {k:'regBy',     n:'我方登记人',          hint:'谁把这条抄进系统'},
+  {k:'regAt',     n:'登记时间',            hint:'系统录入时间，不得早于反馈时间'},
+];
+const REGS = {};
+function regsOf(did){ return REGS[did] || []; }
+function regsOfVer(did, ver){ return regsOf(did).filter(r=>r.ver===ver); }
+function lastReg(did, ver){ const l = regsOfVer(did, ver); return l.length ? l[l.length-1] : null; }
+function regMissing(r){
+  r = r || {};
+  return REG_FIELDS.filter(f=>!String(r[f.k]==null?'':r[f.k]).trim()).map(f=>f.n);
+}
+function addReg(rec){
+  const did = rec.demandId;
+  (REGS[did] = REGS[did] || []).push(rec);
+  return rec;
+}
+function newRegId(){
+  const n = Object.keys(REGS).reduce((s,k)=>s+REGS[k].length,0)+1;
+  return 'RG-'+String(n).padStart(3,'0');
+}
+
+/* 演示样本：先写 3 条有细节的，其余已生效版本补标准记录 */
+[
+  {demandId:'D1', ver:'v1.1', fbPerson:'张工（立讯·设备部）', fbChannel:'微信', fbAt:'2026-11-10 11:32',
+   fbContent:'工价上调到 32-38 元/时；最晚报到日放宽到 12-15；其余 45 项按我方报的清单执行，不再逐条回。',
+   fbAttach:'微信聊天记录截图 2 张（arch/2026-11-10-D1-01.png、-02.png）',
+   regBy:'金诚', regAt:'2026-11-10 14:20',
+   audit:'已通过', auditBy:'王浩', auditAt:'2026-11-10 15:05', auditNote:'与微信原文逐条核对，工价、到岗日两处变更明确'},
+  {demandId:'D1', ver:'v1.0', fbPerson:'张工（立讯·设备部）', fbChannel:'微信', fbAt:'2026-11-05 09:50',
+   fbContent:'按报价清单整体确认，工价 30-36 元/时，12-08 前到岗。',
+   fbAttach:'微信聊天记录截图 1 张（arch/2026-11-05-D1-01.png）',
+   regBy:'金诚', regAt:'2026-11-05 10:20',
+   audit:'已通过', auditBy:'王浩', auditAt:'2026-11-05 10:40', auditNote:'首版，依据齐全'},
+  {demandId:'D3', ver:'v1.1', fbPerson:'李主管（宁德时代·品质部）', fbChannel:'电话', fbAt:'2026-11-13 09:12',
+   fbContent:'「最晚 11-28 要到人，其他不变。」——仅口头，未发文字。',
+   fbAttach:'通话录音 RC-20261113-0912（时长 4′12″）',
+   regBy:'金诚', regAt:'2026-11-13 09:40',
+   audit:'待审核'},
+  {demandId:'D4', ver:'v1.1', fbPerson:'周经理（江南造船·生产部）', fbChannel:'微信', fbAt:'2026-11-12 16:40',
+   fbContent:'「到岗时间再谈，最近船期紧。」',
+   fbAttach:'（未附截图，仅口头转述）',
+   regBy:'金诚', regAt:'2026-11-12 17:20',
+   audit:'已退回', auditBy:'王浩', auditAt:'2026-11-12 18:02',
+   auditNote:'退回：反馈未落到具体日期，且缺客户原话截图'},
+].forEach(r=>addReg(Object.assign({id:newRegId()}, r)));
+
+/* 其余：已生效 / 已被取代的版本补一条标准记录，保证列表里每份确认单都能追溯 */
+DEMANDS.forEach(d=>{
+  versOf(d).filter(v=>v.status==='生效'||v.status==='已被取代').forEach(v=>{
+    if(lastReg(d.id, v.v)) return;
+    addReg({
+      id:newRegId(), demandId:d.id, ver:v.v,
+      fbPerson: d.client+' · 对接人', fbChannel: (v.way==='电话'?'电话':v.way==='会议'?'会议':'微信'),
+      fbAt: v.at, fbContent: v.note || '客户按我方报价清单整体确认。',
+      fbAttach: '微信聊天记录截图 1 张（已归档）',
+      regBy: String(v.by||'金诚').replace('（代客户登记）',''), regAt: v.at,
+      audit:'已通过', auditBy:'王浩', auditAt:v.at, auditNote:'依据齐全',
+    });
+  });
+});
+
+/* 演示用的「现在」：日期跟 TODAY 一致，时分取真实时钟，避免演示时间倒退 */
+function nowTs(){
+  const t = new Date(), p = n => String(n).padStart(2,'0');
+  return TODAY+' '+p(t.getHours())+':'+p(t.getMinutes());
 }
 
 /* ---------- 6. 受控链接 ---------- */

@@ -41,14 +41,20 @@ function confTag(st){
 }
 
 /* ---------- 需求详情顶部：生效状态 / 版本 / 链接 / 匹配是否需更新 ---------- */
+function verBadge(v){
+  if(!v) return '';
+  const tone = VER_TONE[v.status] || 'n';
+  return `<span class="b ${tone}">${esc(v.v)} ${esc(v.status)}</span>`;
+}
 function demandStateBar(d){
-  const av = activeVer(d), pv = pendingVer(d), lk = mainLink(d.id);
+  const av = activeVer(d), ov = openVer(d), lk = mainLink(d.id);
   const stale = matchNeedsUpdate(d);
   const stamp = MATCH_STAMP[d.id] || {};
+  const ovBadge = ov && ov.status === '待客户确认' ? '<span class="b w">待客户确认</span>' : verBadge(ov);
   return `<div class="card" style="margin-bottom:14px"><div class="card-b">
     <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
       ${av?`<span class="b g">生效 ${esc(av.v)}</span>`:'<span class="b r">未生效</span>'}
-      ${pv?`<span class="b w">${esc(pv.v)} 待客户确认</span>`:''}
+      ${ov?ovBadge:''}
       ${confirmB(d.confirm)}
       ${lk?`<span class="b ${lk.state==='有效'?'i':'n'}">只读链接 ${esc(lk.state)}</span>`:'<span class="b w">无只读链接</span>'}
       ${stale?`<span class="b r">匹配结果需更新</span>`:`<span class="b g">匹配依据 ${esc(stamp.ver||'—')}</span>`}
@@ -56,7 +62,9 @@ function demandStateBar(d){
       <button class="btn xs" onclick="openVers('${d.id}')">版本历史</button>
       <button class="btn xs" onclick="openConfirm('${d.id}')">确认单</button>
     </div>
-    ${!av?`<div class="note r" style="margin-top:10px">该需求尚无生效版本，<b>不得作为匹配与推荐依据</b>。需完成客户确认并在我方登记后方可生效。</div>`:''}
+    ${!av?`<div class="note r" style="margin-top:10px">该需求尚无生效版本，<b>不得作为匹配与推荐依据</b>。需客户线下反馈、我方代登记，并经内部审核通过后方可生效。</div>`:''}
+    ${ov&&ov.status==='待内部审核'?`<div class="note w" style="margin-top:10px">${esc(ov.v)} 已代登记客户反馈，<b>等待内部审核</b>；审核通过前不生效，旧版 ${esc((av||{}).v||'—')} 仍为匹配依据。</div>`:''}
+    ${ov&&ov.status==='已退回'?`<div class="note r" style="margin-top:10px">${esc(ov.v)} 已被内部<b>退回</b>：${esc(ov.auditNote||'—')} 需补充客户依据后重新送审。</div>`:''}
     ${stale&&av?`<div class="note w" style="margin-top:10px">需求条件已变更：当前匹配结果依据 ${esc(stamp.ver||'—')}，需按 ${esc(av.v)} 重算。</div>`:''}
   </div></div>`;
 }
@@ -97,18 +105,21 @@ function demandConfirmDrawer(id){
     <div class="card" style="margin-bottom:14px"><div class="card-b">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span class="b ${av?'g':'w'}">${av?('生效版本 '+av.v):'无生效版本'}</span>
-        ${pv?`<span class="b r">${pv.v} 待客户确认</span>`:''}
+        ${pv?verBadge(pv):''}
         ${confirmB(d.confirm)}
         <span class="sp" style="flex:1"></span>
         <button class="btn xs" onclick="openVers('${d.id}')">版本历史（${vers.length}）</button>
         ${lk?`<button class="btn xs" onclick="openCustLinkDemo('${lk.tok}')">打开只读确认单</button>`
              :`<button class="btn xs" onclick="regenLink('${d.id}')">生成只读链接</button>`}
       </div>
-      <div class="note" style="margin-top:11px">客户<b>不登录系统</b>。我方按客户线下反馈（微信 / 会议 / 电话）逐项登记；<b>关键条件变更后必须重新确认</b>，旧版确认不自动继承给新版。生效版本才可用于 AI 匹配。</div>
+      <div class="note" style="margin-top:11px">客户<b>不登录系统</b>，只查看这份只读确认单，通过微信 / 会议 / 电话口头反馈；我方按客户原话<b>代登记</b>，登记后经<b>内部审核</b>通过才生效。系统里不存在「客户点击确认」的记录。</div>
       ${lk?`<div class="xs mut" style="margin-top:8px">只读链接 <span class="mono">${esc(lk.tok)}</span> · ${esc(lk.at)} 生成 · 有效期至 ${esc(lk.expire)} · 已查看 ${lk.views} 次
         <span class="link" style="margin-left:8px" onclick="revokeLinkUI('${lk.tok}')">撤销</span></div>`
         :`<div class="xs" style="margin-top:8px;color:var(--bad)">尚未生成只读链接，客户手上没有可核对的确认单</div>`}
     </div></div>
+
+    ${regBlock(d, pv||av)}
+
 
     <div class="sec" style="padding-top:0"><div class="sec-t">条件来源：标准 ≠ 客户级 ≠ 本单调整</div>
       <div class="tbl-wrap" style="border-radius:9px"><table>
@@ -131,10 +142,182 @@ function demandConfirmDrawer(id){
   </div>
   <div class="dr-f">
     <button class="btn" onclick="closeAll()">关闭</button>
-    ${d.confirm==='已确认'
-      ? `<button class="btn" onclick="confirmReg('${d.id}','change')">标记条件已变更，需重新确认</button>`
-      : `<button class="btn pri" onclick="confirmReg('${d.id}','ok')">登记客户确认（按 ${pv?pv.v:(av?av.v:'v1.0')} 生效）</button>`}
+    ${pv&&pv.status==='待内部审核'?`<button class="btn pri" onclick="auditDrawer('${d.id}')">内部审核 ${esc(pv.v)}</button>`:''}
+    ${pv&&pv.status==='已退回'?`<button class="btn pri" onclick="regDrawer('${d.id}')">补充反馈并重新送审</button>`:''}
+    ${!pv?`<button class="btn pri" onclick="regDrawer('${d.id}')">代登记客户反馈</button>`:''}
+    ${d.confirm==='已确认'||av?`<button class="btn" onclick="confirmReg('${d.id}','change')">标记条件已变更</button>`:''}
   </div>`);
+}
+
+/* ---------- 代登记记录展示（8 字段，两个时间两个人分开看） ---------- */
+function regTable(r){
+  const miss = regMissing(r);
+  return `<div class="tbl-wrap" style="border-radius:9px"><table>
+    <thead><tr><th style="width:132px">登记项</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td class="sm mut">对应需求版本</td><td class="sm mono">${esc(r.ver)}</td></tr>
+      <tr><td class="sm mut">客户反馈人</td><td class="sm"><b>${esc(r.fbPerson)}</b><div class="t-sub">客户侧，不是我方对接人</div></td></tr>
+      <tr><td class="sm mut">反馈渠道</td><td class="sm">${esc(r.fbChannel)}</td></tr>
+      <tr><td class="sm mut">反馈发生时间</td><td class="sm"><b>${esc(r.fbAt)}</b><div class="t-sub">客户实际说话的时间</div></td></tr>
+      <tr><td class="sm mut">反馈内容 / 结论</td><td class="sm">${esc(r.fbContent)}</td></tr>
+      <tr><td class="sm mut">依据附件或记录</td><td class="sm">${esc(r.fbAttach)}</td></tr>
+      <tr><td class="sm mut">我方登记人</td><td class="sm">${esc(r.regBy)}<div class="t-sub">我方录入，不是客户</div></td></tr>
+      <tr><td class="sm mut">登记时间</td><td class="sm"><b>${esc(r.regAt)}</b><div class="t-sub">系统录入时间，晚于反馈时间</div></td></tr>
+    </tbody></table></div>
+    ${miss.length?`<div class="note r" style="margin-top:9px">缺 ${miss.length} 项：${miss.map(esc).join('、')}。<b>缺项不允许送审。</b></div>`:''}`;
+}
+function regBlock(d, v){
+  if(!v) return '';
+  const r = lastReg(d.id, v.v), hist = regsOfVer(d.id, v.v);
+  const tone = v.audit==='已通过'?'g':v.audit==='已退回'?'r':v.audit==='待审核'?'w':'n';
+  return `<div class="sec" style="padding-top:0"><div class="sec-t">客户反馈代登记 · ${esc(v.v)}
+      <span class="b ${tone}">${esc(v.audit||'未送审')}</span>
+      <span class="sp" style="flex:1"></span>
+      <span class="xs mut">共 ${hist.length} 条记录</span></div>
+    ${r?regTable(r):`<div class="note w">该版本还没有代登记记录。客户口头反馈回来后，点「代登记客户反馈」逐项录入，才能送内部审核。</div>`}
+    ${v.auditNote?`<div class="note ${v.audit==='已退回'?'r':'i'}" style="margin-top:9px"><b>${v.audit==='已退回'?'退回意见':'审核意见'}</b>：${esc(v.auditNote)}${v.auditBy?`　— ${esc(v.auditBy)} · ${esc(v.auditAt||'')}`:''}</div>`:''}
+  </div>`;
+}
+
+/* ---------- 代登记表单（客户线下反馈 → 我方录入） ---------- */
+function regDrawer(did, ver){
+  const d = D(did);
+  const vers = versOf(d);
+  const target = (ver && vers.find(x=>x.v===ver)) || openVer(d) || vers[vers.length-1];
+  const prev = lastReg(d.id, target.v) || {};
+  const redo = target.status === '已退回';
+  const now = nowTs();
+  const val = (k, dft) => esc(prev[k]!=null && prev[k]!=='' ? prev[k] : (dft||''));
+  openDrawerW(`<div class="dr-h"><div><h3>代登记客户反馈 · ${esc(d.post)}</h3>
+    <div class="sub">${esc(d.client)} · 对应版本 <b class="mono">${esc(target.v)}</b> · 客户线下反馈，由我方录入</div></div>
+    <button class="dr-x" onclick="closeAll()">×</button></div>
+  <div class="dr-b">
+    <div class="note r" style="margin-bottom:14px">
+      这不是客户点出来的记录。<b>客户从不登录、不点击。</b>下面每个字段都是我方按客户原话抄录，
+      系统会同时保留<b>客户什么时候说的</b>和<b>我在什么时候抄进来的</b>，两者都要有依据才能送审。
+    </div>
+    ${redo?`<div class="note w" style="margin-bottom:14px">上一轮被退回：${esc(target.auditNote||'—')}<br>补充后重新提交，旧记录不删除，作为历史保留。</div>`:''}
+
+    <div class="sec" style="padding-top:0"><div class="sec-t">必填 8 项</div>
+    <div class="frow">
+      <div class="field"><label>对应需求版本 <i>*</i></label>
+        <input id="rg_ver" value="${esc(target.v)}" readonly style="background:var(--bg2);font-family:var(--mono)">
+        <div class="hint">客户手上那份只读确认单是哪个版本，就只能登记到哪个版本</div></div>
+      <div class="field"><label>客户反馈人 <i>*</i></label>
+        <input id="rg_fbPerson" value="${val('fbPerson')}" placeholder="例：张工（立讯·设备部）">
+        <div class="hint">客户侧的说话人，不是我方对接人</div></div>
+    </div>
+    <div class="frow">
+      <div class="field"><label>反馈渠道 <i>*</i></label>
+        <select id="rg_fbChannel">${REG_CHANNELS.map(c=>`<option ${prev.fbChannel===c?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div class="field"><label>反馈发生时间 <i>*</i></label>
+        <input id="rg_fbAt" value="${val('fbAt')}" placeholder="2026-11-13 09:12">
+        <div class="hint">客户实际说话的时间，不是我录入的时间</div></div>
+    </div>
+    <div class="field"><label>反馈内容 / 确认结论 <i>*</i></label>
+      <textarea id="rg_fbContent" placeholder="逐项写清客户改了什么、确认了什么；能写原话就写原话">${esc(prev.fbContent||'')}</textarea>
+      <div class="hint">「都行」「再谈」这类没有落到具体值的反馈，审核会被退回</div></div>
+    <div class="field"><label>依据附件或记录 <i>*</i></label>
+      <input id="rg_fbAttach" value="${val('fbAttach')}" placeholder="例：微信聊天记录截图 2 张（arch/xxx.png）/ 会议纪要编号 / 通话录音编号">
+      <div class="hint">没有可查证的东西就不算依据</div></div>
+    <div class="frow">
+      <div class="field"><label>我方登记人 <i>*</i></label>
+        <input id="rg_regBy" value="${esc(prev.regBy || S.who || '金诚')}"></div>
+      <div class="field"><label>登记时间 <i>*</i></label>
+        <input id="rg_regAt" value="${esc(prev.regAt || now)}">
+        <div class="hint">系统录入时间，不得早于反馈时间</div></div>
+    </div>
+    <div id="rg_err"></div>
+    </div>
+  </div>
+  <div class="dr-f">
+    <button class="btn" onclick="closeAll()">取消</button>
+    <button class="btn pri" onclick="regSave('${d.id}','${esc(target.v)}')">保存并送内部审核</button>
+  </div>`);
+}
+
+function regSave(did, ver){
+  const g = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  const rec = {
+    id:newRegId(), demandId:did, ver:ver,
+    fbPerson:g('rg_fbPerson'), fbChannel:g('rg_fbChannel'), fbAt:g('rg_fbAt'),
+    fbContent:g('rg_fbContent'), fbAttach:g('rg_fbAttach'),
+    regBy:g('rg_regBy'), regAt:g('rg_regAt'), audit:'待审核',
+  };
+  const miss = regMissing(rec);
+  const err = [];
+  if(miss.length) err.push(`还有 ${miss.length} 项没填：${miss.join('、')}`);
+  if(rec.fbAt && rec.regAt && rec.fbAt > rec.regAt) err.push('登记时间早于反馈发生时间，请核对');
+  if(err.length){
+    const box = document.getElementById('rg_err');
+    if(box) box.innerHTML = `<div class="note r">${err.map(esc).join('<br>')}</div>`;
+    toast('登记未保存：'+err[0]);
+    return;
+  }
+  addReg(rec);
+  const d = D(did), v = versOf(d).find(x=>x.v===ver);
+  if(v){
+    if(v.status==='已退回'){ v.prevAudit = {note:v.auditNote||'', by:v.auditBy||'', at:v.auditAt||''}; }
+    v.status = '待内部审核'; v.audit = '待审核'; v.auditNote = ''; v.auditBy = ''; v.auditAt = '';
+  }
+  if(!activeVer(d)) d.confirm = '待内部审核';
+  closeAll(); refreshTable();
+  toast(`已代登记 ${rec.id}，${ver} 送内部审核（审核通过前不生效）`);
+}
+
+/* ---------- 内部审核 ---------- */
+function auditDrawer(did){
+  const d = D(did);
+  const v = openVer(d);
+  if(!v) return toast('没有待审核的版本');
+  const r = lastReg(d.id, v.v);
+  const miss = regMissing(r);
+  openDrawerW(`<div class="dr-h"><div><h3>内部审核 · ${esc(d.post)}</h3>
+    <div class="sub">${esc(d.client)} · ${esc(v.v)} · 审核人 ${esc(S.who||'王浩')}</div></div>
+    <button class="dr-x" onclick="closeAll()">×</button></div>
+  <div class="dr-b">
+    <div class="note" style="margin-bottom:14px">审核的不是「客户有没有同意」，而是<b>这条代登记是否站得住</b>：客户是谁、什么时候说的、原话是什么、有没有可查的依据、改的值是否写死。<b>依据不全不得通过。</b></div>
+    ${r?regTable(r):`<div class="note r">该版本没有代登记记录，不能审核通过。</div>`}
+    ${(v.changes||[]).length?`<div class="sec"><div class="sec-t">本版变更 ${v.changes.length} 项</div>
+      <div class="tbl-wrap" style="border-radius:9px"><table><thead><tr><th>字段</th><th>旧值</th><th>新值</th></tr></thead>
+        <tbody>${v.changes.map(c=>`<tr><td class="sm">${esc(c.f)}</td><td class="sm mut">${esc(c.from)}</td><td class="sm"><b>${esc(c.to)}</b></td></tr>`).join('')}</tbody></table></div></div>`:''}
+    <div class="sec"><div class="sec-t">审核结论</div>
+      <div class="field"><label>退回原因（选「退回」时必填）</label>
+        <textarea id="au_note" placeholder="例：反馈未落到具体日期，且缺客户原话截图"></textarea></div>
+      <div class="note w">退回后该版本标记「已退回」，不生效；旧版 ${esc((activeVer(d)||{}).v||'—')} 继续作为匹配依据。补充反馈后可再次送审。</div>
+    </div>
+  </div>
+  <div class="dr-f">
+    <button class="btn" onclick="closeAll()">关闭</button>
+    <button class="btn" onclick="auditAct('${d.id}','back')">退回补充</button>
+    <button class="btn pri" ${miss.length?'disabled style="opacity:.45;cursor:not-allowed"':''}
+      onclick="auditAct('${d.id}','pass')">审核通过并生效</button>
+  </div>`);
+}
+
+function auditAct(did, act){
+  const d = D(did), v = openVer(d);
+  if(!v) return toast('没有待审核的版本');
+  const r = lastReg(d.id, v.v), miss = regMissing(r);
+  const at = nowTs(), by = S.who || '王浩';
+  if(act === 'pass'){
+    if(miss.length) return toast('缺 '+miss.length+' 项登记依据，不能通过：'+miss[0]);
+    versOf(d).forEach(x=>{ if(x.status==='生效') x.status = '已被取代'; });
+    v.status = '生效'; v.audit = '已通过'; v.auditBy = by; v.auditAt = at;
+    v.auditNote = '代登记依据齐全，第 '+(r?r.id:'—')+' 条记录与变更项一致';
+    v.by = (r?r.regBy:by)+'（代客户登记）'; v.way = r?r.fbChannel:'—'; v.at = r?r.regAt:at;
+    d.confirm = '已确认';
+    MATCH_STAMP[did] = {ver:v.v, at:at, stale:true};
+    closeAll(); refreshTable();
+    toast(`${v.v} 已生效；匹配结果标为「需更新」`);
+    return;
+  }
+  const note = (document.getElementById('au_note')||{}).value || '';
+  if(!note.trim()) { toast('退回必须写原因'); return; }
+  v.status = '已退回'; v.audit = '已退回'; v.auditBy = by; v.auditAt = at; v.auditNote = note.trim();
+  if(!activeVer(d)) d.confirm = '已退回';
+  closeAll(); refreshTable();
+  toast(`${v.v} 已退回，需补充客户依据后重新送审`);
 }
 
 /* ---------- 版本历史 ---------- */
@@ -148,9 +331,14 @@ function openVers(did){
     ${vers.map(v=>`<div class="card" style="margin-bottom:11px"><div class="card-h">
       <div><h3 class="mono" style="font-size:14px">${esc(v.v)}</h3>
         <div class="sub">${esc(v.at)} · ${esc(v.by)} · ${esc(v.way)}</div></div>
-      <span class="b ${v.status==='生效'?'g':v.status==='待客户确认'||v.status==='待重新确认'?'w':v.status==='已被取代'?'n':'r'}">${esc(v.status)}</span>
+      <span class="b ${VER_TONE[v.status]||'n'}">${esc(v.status)}</span>
     </div><div class="card-b">
       <div class="sm mut">${esc(v.note||'')}</div>
+      <div class="xs" style="margin-top:7px;display:flex;gap:10px;flex-wrap:wrap">
+        <span>审核：<b class="${v.audit==='已通过'?'':''}">${esc(v.audit||'未送审')}</b></span>
+        ${v.auditBy?`<span class="mut">${esc(v.auditBy)} · ${esc(v.auditAt||'')}</span>`:''}
+        <span class="mut">代登记记录 ${regsOfVer(d.id, v.v).length} 条</span>
+      </div>
       ${(v.changes||[]).length?`
         <div class="sec-t" style="margin-top:11px">变更 ${v.changes.length} 项</div>
         <div class="tbl-wrap" style="border-radius:8px"><table>
@@ -158,39 +346,31 @@ function openVers(did){
           <tbody>${v.changes.map(c=>`<tr><td class="sm">${esc(c.f)}</td>
             <td class="sm mut">${esc(c.from)}</td><td class="sm"><b>${esc(c.to)}</b></td></tr>`).join('')}</tbody>
         </table></div>`:'<div class="xs mut" style="margin-top:8px">首版，无字段变更</div>'}
-      ${v.status==='待重新确认'?`<div class="note r" style="margin-top:10px">旧版（生效中）的确认<b>不自动继承</b>到本版。重新确认前，本版不作为匹配依据。</div>`:''}
+      ${v.auditNote?`<div class="note ${v.audit==='已退回'?'r':'i'}" style="margin-top:10px">${v.audit==='已退回'?'退回意见':'审核意见'}：${esc(v.auditNote)}</div>`:''}
+      ${v.status==='待重新确认'||v.status==='待内部审核'?`<div class="note r" style="margin-top:10px">旧版（生效中）的确认<b>不自动继承</b>到本版。本版未生效前，不作为匹配依据。</div>`:''}
+      ${lastReg(d.id, v.v)?`<div class="xs mut" style="margin-top:9px">最近一条代登记 ${esc(lastReg(d.id,v.v).id)} · 反馈人 ${esc(lastReg(d.id,v.v).fbPerson)} · 反馈 ${esc(lastReg(d.id,v.v).fbAt)} · 登记 ${esc(lastReg(d.id,v.v).regAt)}</div>`:''}
     </div></div>`).join('')}
     <div class="note">同一字段在三个地方出现时必须可辨认来源：岗位标准标准（跨客户共用）、客户级条件（该客户模板）、本单调整（只此一单）。原标准永远不会被本单覆盖。</div>
   </div>
   <div class="dr-f"><button class="btn" onclick="closeAll()">关闭</button></div>`);
 }
 
-/* ---------- 登记动作（真实改状态） ---------- */
+/* ---------- 登记动作 ----------
+   v1.2 修订：不再「点一下直接生效」。
+   代登记 → 待内部审核 → 审核通过才生效；依据不全时既不能送审也不能通过。 */
 function confirmReg(did, act){
   const d = D(did);
-  if(act === 'ok'){
-    const pv = pendingVer(d);
-    if(pv){
-      versOf(d).forEach(v=>{ if(v.status==='生效') v.status='已被取代'; });
-      pv.status = '生效'; pv.at = '2026-11-14 08:20'; pv.by = '金诚（代客户登记）'; pv.way = '微信';
-    }
-    d.confirm = '已确认';
-    const av = activeVer(d);
-    MATCH_STAMP[did] = {ver: av?av.v:'—', at:'2026-11-14 08:20', stale:true};
-    closeAll(); refreshTable();
-    toast(`已登记确认，${av?av.v:''} 生效 · 旧匹配结果已标记「需更新」`);
-    return;
-  }
+  if(act === 'ok'){ return regDrawer(did); }
   /* 标记条件变更 */
-  showAsk('标记为「条件已变更，需重新确认」','变更后旧的客户确认作废，需生成新版本重新确认；已发出的匹配结果同时失效。', ()=>{
+  showAsk('标记为「条件已变更，需重新确认」','变更后旧的客户确认作废，需生成新版本重新走「客户反馈 → 我方代登记 → 内部审核」；已发出的匹配结果同时失效。', ()=>{
     const cur = activeVer(d);
     const base = cur ? cur.v : 'v1.0';
     const next = 'v'+(Number(String(base).replace('v','').split('.')[0])+1)+'.0';
-    versOf(d).push({v:next, status:'待重新确认', at:'2026-11-14 08:20', by:'金诚', way:'待客户反馈',
-      n:47, note:'我方发起变更，等待客户重新确认',
+    versOf(d).push({v:next, status:'待重新确认', audit:'未送审', at:nowTs(), by:'金诚', way:'待客户反馈',
+      n:47, note:'我方发起变更，等待客户反馈',
       changes:[{f:'工效条款', from:'按原版本', to:'待客户确认'}]});
-    d.confirm = '变更待重确认';
-    MATCH_STAMP[did] = {ver:base, at:'2026-11-14 08:20', stale:true};
+    d.confirm = activeVer(d) ? '变更待重确认' : '待客户确认';
+    MATCH_STAMP[did] = {ver:base, at:nowTs(), stale:true};
     closeAll(); refreshTable();
     toast('已生成 '+next+'，状态改为「变更待重确认」；匹配结果需更新');
   });

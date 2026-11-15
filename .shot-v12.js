@@ -90,6 +90,51 @@ const OUT = '/Users/yangxin/WorkBuddy/2026-11-10-18-54-53/月贝招聘平台-需
   await page.evaluate(() => { enter('R01'); go('confirms'); openConfirm('D7'); });
   await page.waitForTimeout(400);
   await shot('14-confirm-pending');
+  await page.evaluate(() => closeAll());
+
+  /* ---- 代登记 / 内部审核 全链（对应 RG-002 追加修订） ---- */
+  await page.evaluate(() => { enter('R01'); go('confirms'); });
+  await page.waitForTimeout(300);
+  await shot('14b-confirms-with-reg');
+  await page.evaluate(() => regDrawer('D7'));
+  await page.waitForTimeout(400);
+  await shot('15-reg-form');
+  await page.evaluate(() => {
+    const set = (id,v) => { const el=document.getElementById(id); if(el) el.value=v; };
+    set('rg_fbPerson','黄经理（领益智造·生产部）');
+    set('rg_fbChannel','微信');
+    set('rg_fbAt','2026-11-13 10:05');
+    set('rg_fbContent','工价按 30-36 元/时；最晚报到日 12-01；其余按清单执行。');
+    set('rg_fbAttach','微信截图 1 张（arch/2026-11-13-D7-01.png）');
+    set('rg_regBy','金诚');
+    set('rg_regAt','2026-11-13 11:20');
+    regSave('D7','v1.1');
+  });
+  await page.waitForTimeout(400);
+  await page.evaluate(() => auditDrawer('D7'));
+  await page.waitForTimeout(400);
+  await shot('16-audit');
+  await page.evaluate(() => auditAct('D7','pass'));
+  await page.waitForTimeout(400);
+
+  // 待内部审核 / 已退回 样本
+  await page.evaluate(() => openDemand('D3','detail'));
+  await page.waitForTimeout(400);
+  await shot('17-demand-pending-audit');
+  await page.evaluate(() => closeAll());
+  await page.evaluate(() => openDemand('D4','detail'));
+  await page.waitForTimeout(400);
+  await shot('18-demand-rejected');
+  await page.evaluate(() => closeAll());
+
+  // 退回 → 补充 → 重新送审
+  await page.evaluate(() => { auditDrawer('D3'); });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { const n=document.getElementById('au_note'); if(n) n.value='反馈未落到具体日期，请补充客户原话截图'; auditAct('D3','back'); });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => regDrawer('D3'));
+  await page.waitForTimeout(400);
+  await shot('19-reg-resubmit');
 
   console.log('ERRS', JSON.stringify(errs, null, 1));
   await browser.close();

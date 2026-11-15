@@ -47,7 +47,7 @@ const nodeB = n => `<span class="b ${NODE_TONE[n]||'n'}">${esc(n)}</span>`;
 const tierChip = t => t? `<span class="tier ${t}">${t}</span>` : '<span class="mut">—</span>';
 const statB = s => s==='已入职'? '<span class="b g">已入职</span>' : s==='无意向'? '<span class="b r">无意向</span>' : '<span class="b i">跟进中</span>';
 const demandB = s => ({'招聘中':'<span class="b i">招聘中</span>','已完成':'<span class="b g">已完成</span>','待分配':'<span class="b w">待分配</span>','已关闭':'<span class="b n">已关闭</span>'}[s]||`<span class="b n">${esc(s)}</span>`);
-const confirmB = s => ({'已确认':'<span class="b g">已确认</span>','待客户确认':'<span class="b w">待客户确认</span>','变更待重确认':'<span class="b r">变更待重确认</span>'}[s]||`<span class="b n">${esc(s)}</span>`);
+const confirmB = s => ({'已确认':'<span class="b g">已确认</span>','待客户确认':'<span class="b w">待客户确认</span>','变更待重确认':'<span class="b r">变更待重确认</span>','待内部审核':'<span class="b i">待内部审核</span>','已退回':'<span class="b r">已退回</span>'}[s]||`<span class="b n">${esc(s)}</span>`);
 
 function mainSel(){ return S.role==='R01'?'全部':S.who; }
 

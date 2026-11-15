@@ -1,5 +1,5 @@
 const { chromium } = require('playwright-core');
-const FILE = 'file://' + encodeURI('/Users/yangxin/WorkBuddy/2026-11-10-18-54-53/月贝招聘平台-需求梳理/融敢平台-角色版-v1.2.html');
+const FILE = process.env.TARGET || ('file://' + encodeURI('/Users/yangxin/WorkBuddy/2026-11-10-18-54-53/月贝招聘平台-需求梳理/融敢平台-角色版-v1.2.html'));
 
 const checks = [];
 const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || '' });
@@ -40,6 +40,11 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     const t = await txt('.cust-doc'); return t.includes('链接已失效'); })());
   ok('RG001-13 撤销链接提示明确', await (async () => { await ev(() => openCustLinkDemo('LK-D3-V10')); await page.waitForTimeout(200);
     const t = await txt('.cust-doc'); return t.includes('链接已撤销'); })());
+  ok('RG001-14 只读页无任何输入或提交控件', await ev(() => {
+      const n = document.querySelectorAll('.cust-doc input, .cust-doc textarea, .cust-doc select').length;
+      const btns = Array.from(document.querySelectorAll('.cust-doc button'))
+        .filter(b => /提交|确认|修改|保存|切换/.test(b.innerText||''));
+      return n === 0 && btns.length === 0; }));
   await ev(() => exitCustLink());
 
   /* ---- RG-002 ---- */
@@ -68,18 +73,94 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   ok('RG002-8 新需求可生成受控链接', (await ev(() => CLINKS.length)) === linkCount0 + 1);
   ok('RG002-9 新需求未确认不生效', await ev(() => isEffective(D('DT1')) === false));
 
-  /* D7 待重新确认 -> 登记后生效 */
-  await ev(() => confirmReg('D7','ok')); await page.waitForTimeout(300);
-  ok('RG002-10 登记后状态为已确认', await ev(() => D('D7').confirm === '已确认'));
-  ok('RG002-11 新版 v1.1 生效', await ev(() => (activeVer(D('D7'))||{}).v === 'v1.1'));
-  ok('RG002-12 旧版被取代', await ev(() => DEMAND_VERS.D7[0].status === '已被取代'));
-  ok('RG002-13 登记后标记匹配需更新', await ev(() => matchNeedsUpdate(D('D7')) === true));
+  /* ---- RG-002 代登记 → 内部审核 → 生效（v1.2 修订后主链） ---- */
+  ok('RG002-10 演示数据含待内部审核版本', await ev(() => {
+      const v = openVer(D('D3')); return v && v.status === '待内部审核' && (activeVer(D('D3'))||{}).v === 'v1.0'; }));
+  ok('RG002-11 演示数据含已退回版本', await ev(() => {
+      const v = openVer(D('D4')); return v && v.status === '已退回' && v.auditNote.length > 4; }));
+  ok('RG002-12 审核中的新版不改变生效版本', await ev(() => (activeVer(D('D3'))||{}).v === 'v1.0' && matchNeedsUpdate(D('D3')) === false));
+
+  await ev(() => { enter('R01'); go('confirms'); }); await page.waitForTimeout(200);
+  await ev(() => regDrawer('D7')); await page.waitForTimeout(300);
+  const rg1 = await txt('#drawer');
+  ok('RG002-13 代登记表单含 8 必填项', rg1.includes('必填 8 项') && rg1.includes('客户反馈人')
+     && rg1.includes('依据附件或记录') && rg1.includes('我方登记人') && rg1.includes('登记时间'));
+  ok('RG002-14 明示不是客户在线点击', rg1.includes('客户从不登录'));
+
+  const regN0 = await ev(() => regsOf('D7').length);
+  await ev(() => regSave('D7','v1.1'));
+  ok('RG002-15 缺项拒绝保存且不改变状态', (await ev(() => regsOf('D7').length)) === regN0
+     && await ev(() => openVer(D('D7')).status === '待重新确认'));
+
+  await ev(() => {
+    const set = (id,v) => { document.getElementById(id).value = v; };
+    set('rg_fbPerson','黄经理（领益智造·生产部）');
+    set('rg_fbChannel','微信');
+    set('rg_fbAt','2026-11-13 10:05');
+    set('rg_fbContent','工价按 30-36 元/时；最晚报到日 12-01；其余按清单执行。');
+    set('rg_fbAttach','微信截图 1 张（arch/2026-11-13-D7-01.png）');
+    set('rg_regBy','金诚');
+    set('rg_regAt','2026-11-13 11:20');
+    regSave('D7','v1.1');
+  });
+  await page.waitForTimeout(250);
+  ok('RG002-16 代登记后进入待内部审核', await ev(() => openVer(D('D7')).status === '待内部审核'));
+  ok('RG002-17 待审核期间旧版仍是匹配依据', await ev(() => (activeVer(D('D7'))||{}).v === 'v1.0'));
+  ok('RG002-18 记录区分客户反馈人与我方登记人', await ev(() => {
+      const r = lastReg('D7','v1.1'); return r.fbPerson.includes('黄经理') && r.regBy === '金诚' && r.fbPerson !== r.regBy; }));
+  ok('RG002-19 记录区分反馈时间与登记时间', await ev(() => {
+      const r = lastReg('D7','v1.1'); return r.fbAt === '2026-11-13 10:05' && r.regAt === '2026-11-13 11:20'; }));
+  ok('RG002-20 登记时间早于反馈时间被拦截', await ev(() => {
+      const n = regsOf('D7').length;
+      addReg({id:'X', demandId:'D7', ver:'v1.1', fbPerson:'x', fbChannel:'微信',
+        fbAt:'2026-11-13 12:00', fbContent:'x', fbAttach:'x', regBy:'x', regAt:'2026-11-13 09:00'});
+      const bad = lastReg('D7','v1.1'); const late = bad.fbAt > bad.regAt;
+      regsOf('D7').pop();
+      return late && regsOf('D7').length === n; }));
+
+  await ev(() => auditDrawer('D7')); await page.waitForTimeout(250);
+  const au = await txt('#drawer');
+  ok('RG002-21 审核页展示 8 字段全文', au.includes('反馈发生时间') && au.includes('依据附件或记录') && au.includes('审核的不是'));
+  ok('RG002-22 声明依据不全不得通过', au.includes('依据不全不得通过'));
+
+  await ev(() => auditAct('D7','back'));
+  ok('RG002-23 退回不填原因被拒', await ev(() => openVer(D('D7')).status === '待内部审核'));
+
+  await ev(() => { document.getElementById('au_note').value = '反馈未落到具体日期，请补充客户原话截图'; auditAct('D7','back'); });
+  await page.waitForTimeout(200);
+  ok('RG002-24 退回后版本标已退回且不生效', await ev(() => {
+      const v = versOf(D('D7')).find(x=>x.v==='v1.1');
+      return v.status === '已退回' && v.auditNote.includes('补充客户原话') && (activeVer(D('D7'))||{}).v === 'v1.0'; }));
+
+  await ev(() => regDrawer('D7')); await page.waitForTimeout(200);
+  const rg2 = await txt('#drawer');
+  ok('RG002-25 退回后可补充并重新送审', rg2.includes('上一轮被退回'));
+  await ev(() => {
+    document.getElementById('rg_fbAt').value = '2026-11-13 14:40';
+    document.getElementById('rg_fbContent').value = '「11-30 前要到人，工价就按 30-36。」';
+    document.getElementById('rg_fbAttach').value = '微信截图 2 张（arch/2026-11-13-D7-02.png）';
+    document.getElementById('rg_regAt').value = '2026-11-13 15:10';
+    regSave('D7','v1.1');
+  });
+  await page.waitForTimeout(200);
+  ok('RG002-26 补充后重新进入待内部审核', await ev(() => openVer(D('D7')).status === '待内部审核'));
+  ok('RG002-27 历史记录不删除', await ev(() => regsOfVer('D7','v1.1').length === 2));
+
+  await ev(() => auditDrawer('D7')); await page.waitForTimeout(200);
+  await ev(() => auditAct('D7','pass')); await page.waitForTimeout(200);
+  ok('RG002-28 审核通过后新版生效', await ev(() => (activeVer(D('D7'))||{}).v === 'v1.1'));
+  ok('RG002-29 旧版被取代', await ev(() => DEMAND_VERS.D7[0].status === '已被取代'));
+  ok('RG002-30 审核通过后需求为已确认', await ev(() => D('D7').confirm === '已确认'));
+  ok('RG002-31 生效后标记匹配需更新', await ev(() => matchNeedsUpdate(D('D7')) === true));
+  ok('RG002-32 审核留痕记录审核人', await ev(() => {
+      const v = versOf(D('D7')).find(x=>x.v==='v1.1'); return v.audit === '已通过' && !!v.auditBy && !!v.auditAt; }));
 
   /* 版本历史 */
   await ev(() => openVers('D1')); await page.waitForTimeout(200);
   const vh = await txt('#drawer');
-  ok('RG002-14 版本历史含变更差异', vh.includes('变更') && vh.includes('32-38'));
-  ok('RG002-15 版本历史保留旧版记录', vh.includes('已被取代'));
+  ok('RG002-33 版本历史含变更差异', vh.includes('变更') && vh.includes('32-38'));
+  ok('RG002-34 版本历史保留旧版记录', vh.includes('已被取代'));
+  ok('RG002-35 版本历史显示审核状态与记录条数', vh.includes('审核：') && vh.includes('代登记记录'));
   await ev(() => closeAll());
 
   /* ---- RG-004 ---- */
@@ -101,6 +182,18 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   await ev(() => openPerson(PERSONS.find(x=>x.name==='王秀兰').id)); await page.waitForTimeout(200); await ev(() => huSetTab('verify'));
   const hv2 = await txt('#drawer');
   ok('RG004-7 已核验证书显示已核实符合', hv2.includes('已核实符合') && hv2.includes('已核验证件有效'));
+  ok('RG004-8 声明职称不等于作业证书', hv2.includes('职称') && hv2.includes('不等于'));
+  const lateCheck = await ev(() => {
+    const pe = PEOPLE.find(x=>x.name==='谢天成');
+    const ap = appsOf(pe.id).find(a=>a.demandId==='D7') || appsOf(pe.id)[0];
+    const keep = HU.appId; HU.appId = ap.id;
+    const vf = verifyOf(pe.id), old = JSON.parse(JSON.stringify(vf.arrive||{}));
+    vf.arrive = {date:'2026-12-20', state:'已确认', src:'候选人确认', at:'2026-11-13'};
+    const html = huVerify(pe);
+    vf.arrive = old; HU.appId = keep;
+    return { late: html.includes('晚于') && html.includes('已确认不符合'), hasNeed: html.includes('需求最晚报到日 2026-12-01') };
+  });
+  ok('RG004-9 到岗晚于需求要求判为不符合并给原因', lateCheck.late && lateCheck.hasNeed);
   await ev(() => closeAll());
 
   /* ---- RG-003 ---- */
