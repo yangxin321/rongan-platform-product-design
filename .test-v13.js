@@ -489,17 +489,19 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   });
   await page.goBack(); await page.waitForTimeout(350);
   const ctx2 = await ev2(() => ({ page: S.page, dmId: DM.id, q: S.f.q }));
-  const ctx3 = await ev2(() => {
+  const ctx3 = await ev2(did => {
     setF('q', '焊工');                       /* 第二次来源：筛选改成「焊工」 */
-    openDemand(DM.id);                       /* 再进同一条需求（DM.id 还留着） */
+    openDemand(did);                         /* 再进同一条需求：按记录 ID 进，不依赖上一次残留 */
     return { usedQ: DM.back ? DM.back.f.q : null };
-  });
+  }, ctx1.did);
   await ev2(() => dmBack());
   const ctx4 = await ev2(() => ({ afterQ: S.f.q }));
   ok('RG012-42 浏览器后退后二次进入同一记录，返回用本次来源的筛选',
-     !ctx1.err && ctx1.firstCtx === '电工' && ctx2.page === 'demands' && ctx2.dmId === ctx1.did
+     !ctx1.err && ctx1.firstCtx === '电工' && ctx2.page === 'demands' && ctx2.q === '电工'
      && ctx3.usedQ === '焊工' && ctx4.afterQ === '焊工',
      JSON.stringify({ ctx1, ctx2, ctx3, ctx4 }));
+  /* 后退回列表后不能残留上一条详情记录（残留 DM.id 正是「二次进入沿用旧上下文」的老病根） */
+  ok('RG012-42b 后退回列表后不残留详情记录', ctx2.dmId === null, JSON.stringify(ctx2));
 
   /* 43：D1 简历明细 → 档案 → 「这一单」回 D1 → 连续两次返回，第二次不能是「找不到这条需求」 */
   const chain = await ev2(() => {
@@ -551,6 +553,94 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      && s2.page === 'personDetail'
      && s3.page === 'persons' && Math.abs(s3.sc - 700) < 40,
      JSON.stringify({ s1, s2, s3 }));
+
+  /* 45：P1 档案 → D1 简历明细 → P2 档案 → 浏览器连续后退两次回到 P1 → 点页面内返回。
+     期望回到「P1 是从人员列表进来的那条历史」，不能沿用 P2 的返回链又弹回 D1。 */
+  await ev(() => { enter('R01'); go('persons'); });
+  await page.waitForTimeout(250);
+  const h45a = await ev2(() => {
+    const link = document.querySelector('.main .tbl-wrap tbody tr [onclick*="openPerson"], .main .tbl-wrap tbody tr [onclick*="openHuman"]');
+    if(!link) return { err:'人员列表没有可点的人名' };
+    link.click();
+    return { page: S.page, pid: HU.pid, hash: location.hash };
+  });
+  await page.waitForTimeout(200);
+  const h45b = await ev2(() => {
+    huSetTab('apply');
+    const post = [...document.querySelectorAll('.main .arc-link')]
+      .find(el => /openDemand/.test(el.getAttribute('onclick') || ''));
+    if(!post) return { err:'档案投递页没有可点的岗位名' };
+    post.click();
+    const onDemand = { page: S.page, dm: DM.id, hash: location.hash };
+    dmSetTab('resume');
+    const pid1 = HU.pid || null;   /* D1 之前那个人的 id 已被 openHuman 覆盖前先留着 */
+    return { onDemand, pid1 };
+  });
+  await page.waitForTimeout(200);
+  const h45c = await ev2(pid1 => {
+    const cand = [...document.querySelectorAll('.main .tbl-wrap tbody tr [onclick*="openHuman"], .main .tbl-wrap tbody tr [onclick*="openPerson"]')];
+    const pick = cand.find(el => !new RegExp("'" + pid1 + "'").test(el.getAttribute('onclick') || ''));
+    if(!pick) return { err:'简历明细里没有第二个人可点' };
+    pick.click();
+    return { page: S.page, pid: HU.pid, hash: location.hash, back: HU.back ? HU.back.page : null };
+  }, h45a.pid);
+  await page.waitForTimeout(250);
+  await page.goBack(); await page.waitForTimeout(350);
+  const h45d = await ev2(() => ({ page: S.page, dm: DM.id }));
+  await page.goBack(); await page.waitForTimeout(350);
+  const h45e = await ev2(() => ({ page: S.page, pid: HU.pid,
+    backPage: HU.back ? HU.back.page : null, hash: location.hash }));
+  const h45f = await ev2(() => {
+    document.querySelector('.main .pg-back').click();      /* 页面内返回 */
+    const body = document.querySelector('.main').innerText;
+    return { page: S.page, pid: HU.pid, hash: location.hash, hasList: !!document.querySelector('.main .tbl-wrap'),
+      rows: document.querySelectorAll('.main .tbl-wrap tbody tr').length };
+  });
+  ok('RG012-45 连续后退回到更早的那份档案，页面内返回回到人员列表（不串用后一次的返回链）',
+     !h45a.err && !h45b.err && !h45c.err && h45a.page === 'personDetail'
+     && h45c.page === 'personDetail' && h45c.pid !== h45a.pid
+     && h45d.page === 'demandDetail' && h45e.page === 'personDetail' && h45e.pid === h45a.pid
+     && h45e.backPage === 'persons'
+     && h45f.page === 'persons' && h45f.hash === '#persons' && h45f.hasList && h45f.rows > 0,
+     JSON.stringify({ h45a, h45b, h45c, h45d, h45e, h45f }));
+
+  /* 46：人员列表筛 D1 → 进档案 → 侧栏切需求列表筛「招聘中」→ 浏览器后退两次回人员列表。
+     历史条目各自带筛选，人员列表要恢复 D1 那份，不能读到需求列表的 st:'招聘中' 变空表。 */
+  await ev(() => { enter('R01'); go('persons'); });
+  await page.waitForTimeout(250);
+  const h46a = await ev2(() => {
+    const dm = DEMANDS[0].id;
+    setF('dm', dm);
+    return { dm, rows: document.querySelectorAll('.main .tbl-wrap tbody tr').length, hash: location.hash };
+  });
+  await page.waitForTimeout(150);
+  await ev(() => { document.querySelector('.main .tbl-wrap tbody tr [onclick*="openPerson"], .main .tbl-wrap tbody tr [onclick*="openHuman"]').click(); });
+  await page.waitForTimeout(250);
+  const h46b = await ev2(() => {
+    go('demands');                                   /* 侧栏点需求列表 */
+    setF('st', '招聘中');                            /* 需求列表自己的筛选 */
+    return { page: S.page, st: S.f.st, dm: S.f.dm || '', hash: location.hash };
+  });
+  await page.waitForTimeout(200);
+  await page.goBack(); await page.waitForTimeout(350);
+  const h46c = await ev2(() => ({ page: S.page, hash: location.hash }));
+  await page.goBack(); await page.waitForTimeout(400);
+  const h46d = await ev2(() => {
+    const body = document.querySelector('.main').innerText;
+    const sel = [...document.querySelectorAll('.main .toolbar select')];
+    return { page: S.page, hash: location.hash, dm: S.f.dm || '', st: S.f.st || '',
+      rows: document.querySelectorAll('.main .tbl-wrap tbody tr').length,
+      empty: /没有匹配的数据/.test(body),
+      selDm: (sel[2] || {}).value, inText: /人员列表/.test(body) };
+  });
+  ok('RG012-46 浏览器退回人员列表，恢复该列表自己的筛选（不串用需求列表的筛选）',
+     !h46a.err && !h46b.err && h46a.rows > 0
+     && h46b.page === 'demands' && h46b.st === '招聘中'
+     && h46c.page === 'personDetail'
+     && h46d.page === 'persons' && h46d.hash === '#persons'
+     && h46d.dm === h46a.dm && h46d.st === '' && !h46d.empty && h46d.rows > 0
+     && h46d.selDm === h46a.dm && h46d.inText,
+     JSON.stringify({ h46a, h46b, h46c, h46d }));
 
   /* 全页渲染无错（详情页在路由里，需单独过一遍） */
   const pages = ['demands','batches','persons','pool','logs','custreq','confirms','clinks','dicts','factors','std','dash','conversion','perms','home'];

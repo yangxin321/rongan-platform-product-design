@@ -3711,9 +3711,14 @@ function mainScroll(){ const m=document.getElementById('main'); return m? m.scro
 function setMainScroll(v){ const m=document.getElementById('main'); if(m) m.scrollTop = v||0; }
 function scrollMem(){ try{ return JSON.parse(sessionStorage.getItem(SCROLL_MEM)||'{}'); }catch(e){ return {}; } }
 /* 离开一个页面前，滚动位置会先被 render + setMainScroll(0) 冲掉，
-   所以在切换动作的**第一行**就把「旧地址 + 旧滚动」记下来，等 navHash 真正改地址时再落盘。 */
+   所以在切换动作的**第一行**就把「旧地址 + 旧滚动」记下来，等 navHash 真正改地址时再落盘。
+   历史条目快照同理：旧页面的 S.page / 记录定位在 render 之后就被覆盖了，必须提前抓。 */
 let SCROLL_OUT = null;
-function markScrollOut(){ SCROLL_OUT = { h: location.hash || ('#'+S.page), v: mainScroll() }; }
+let SNAP_OUT = null;
+function markScrollOut(){
+  SCROLL_OUT = { h: location.hash || ('#'+S.page), v: mainScroll() };
+  SNAP_OUT = trimSnap(snapshotHere(), 3);
+}
 function saveScrollHere(){
   const key = SCROLL_OUT ? SCROLL_OUT.h : (location.hash || ('#'+S.page));
   const val = SCROLL_OUT ? SCROLL_OUT.v : mainScroll();
@@ -3755,13 +3760,21 @@ function routeHash(){
 }
 let NAV_SELF = false;               /* 自己改的地址不再触发一次渲染 */
 function navHash(h, mode){
-  if(!h || location.hash === h){ SCROLL_OUT = null; LAST_HASH = h || location.hash; return; }
+  if(!h || location.hash === h){
+    SCROLL_OUT = null; SNAP_OUT = null; LAST_HASH = h || location.hash;
+    commitState();                  /* 地址没变但状态变了（切页签等）：更新本条目的快照 */
+    return;
+  }
   saveScrollHere();
+  /* 先把「离开的这条」写完整：SNAP_OUT 是切换动作第一行抓的旧页面状态 */
+  try{ history.replaceState({ snap: SNAP_OUT || { page: S.page } }, '', location.href); }catch(e){}
+  SNAP_OUT = null;
   NAV_SELF = true;
+  const next = { snap: trimSnap(snapshotHere(), 3) };
   if(mode === 'push'){
-    try{ history.pushState(null, '', h); NAV_SELF = false; LAST_HASH = h; return; }catch(e){}
+    try{ history.pushState(next, '', h); NAV_SELF = false; LAST_HASH = h; return; }catch(e){}
   } else {
-    try{ history.replaceState(null, '', h); NAV_SELF = false; LAST_HASH = h; return; }catch(e){}
+    try{ history.replaceState(next, '', h); NAV_SELF = false; LAST_HASH = h; return; }catch(e){}
   }
   LAST_HASH = h;
   location.hash = h;                /* file:// 等不支持 pushState 时退回 hash */
@@ -3819,12 +3832,29 @@ function snapshotHere(){
     snap.cr = { cid: CR.cid, item: CR.item, back: CR.back };
   return snap;
 }
+/* 快照会层层引用「来源页自己」，写进 history.state 前必须限深：
+   否则连点几十层后 state 体积按平方增长，浏览器可能直接抛 DataCloneError。 */
+function trimSnap(s, d){
+  if(!s) return null;
+  const o = { page: s.page, f: s.f || {}, scroll: s.scroll || 0 };
+  if(d <= 0) return o;
+  if(s.dm) o.dm = { id: s.dm.id, tab: s.dm.tab, scope: s.dm.scope, back: trimSnap(s.dm.back, d-1) };
+  if(s.hu) o.hu = { pid: s.hu.pid, tab: s.hu.tab, appId: s.hu.appId, navKey: s.hu.navKey, back: trimSnap(s.hu.back, d-1) };
+  if(s.cr) o.cr = { cid: s.cr.cid, item: s.cr.item, back: trimSnap(s.cr.back, d-1) };
+  return o;
+}
+function clearDetail(){
+  DM.id = null; DM.tab = 'detail'; DM.back = null;
+  HU.pid = null; HU.appId = null; HU.tab = 'resume'; HU.back = null;
+  CR.cid = null; CR.item = ''; CR.back = null;
+}
 /* 恢复快照；返回 false 表示这个快照不可用（没来源页 / 页面已不存在） */
 function restoreSnap(snap){
   if(!snap || !snap.page || !PAGES[snap.page]) return false;
   if(snap.page === 'demandDetail' && !snap.dm) return false;   /* 没有记录的空详情页不还原 */
   if(snap.page === 'personDetail' && !snap.hu) return false;
   if(snap.page === 'custreqRaw' && !snap.cr) return false;
+  clearDetail();                    /* 先清干净：不能让较早的档案沿用最后打开的另一份档案的返回链 */
   if(snap.dm){ DM.id = snap.dm.id; DM.tab = snap.dm.tab || 'detail';
     DM.scope = snap.dm.scope || 'mine'; DM.back = snap.dm.back || null; }
   if(snap.hu){ HU.pid = snap.hu.pid; HU.tab = snap.hu.tab || 'resume';
@@ -3835,24 +3865,44 @@ function restoreSnap(snap){
   S.f = Object.assign({}, snap.f || {});
   return true;
 }
+/* 把「当前页面长什么样」写进当前这条历史条目。
+   浏览器前进/后退时按条目各自的快照还原 —— URL 里没有筛选，也没有「从哪来」，
+   光靠 applyHash() 反推一定串状态（人员列表会读到需求列表的 st 筛选）。 */
+function commitState(){
+  try{ history.replaceState({ snap: trimSnap(snapshotHere(), 3) }, '', location.href); }catch(e){}
+}
 /* 上一次渲染时地址栏里的值。popstate 触发时 location.hash 已经是**目标**地址，
    拿它当「从哪来」会错位，必须自己记住。 */
 let LAST_HASH = location.hash || '';
-function onHashNav(){
+/* 后退一次会同时派发 popstate 和 hashchange；两个都监听是为了兼容「不支持 pushState
+   只能退回改 hash」的环境，但正常环境下必须去重，否则第二遍会用 applyHash()
+   把第一遍按快照还原好的筛选冲掉。 */
+let HANDLED_HASH = null;
+function onHashNav(ev){
   if(NAV_SELF){ NAV_SELF = false; LAST_HASH = location.hash; return; }
   if(!S.role) return;               /* 还在角色入口页 / 只读确认单页：地址变化不重建外壳 */
+  const hasState = !!(ev && ev.state && ev.state.snap);
+  if(!hasState && HANDLED_HASH === location.hash) return;   /* popstate 之后紧跟的同址通知 */
   /* 前进/后退不经过 openXxx / go()，此时 DOM 还是旧页面、main 还停在那：
      先把旧滚动记到「离开时的地址」上再重绘，否则回到这一页永远是最早那次的位置。 */
   if(LAST_HASH && LAST_HASH !== location.hash){
     SCROLL_OUT = { h: LAST_HASH, v: mainScroll() };
     saveScrollHere();
   }
-  const ok = applyHash();
-  if(!ok){ S.page = DEFAULT_PAGE[S.role] || S.page; }
+  /* 历史条目自带快照就按它还原（含筛选、记录定位、返回链）；
+     没有（首次加载 / 外部直接贴地址 / 退回 hash 模式）才从 URL 反推。 */
+  const st = (ev && ev.state) || history.state || null;
+  let ok = false;
+  if(st && st.snap) ok = restoreSnap(st.snap);
+  if(!ok){
+    ok = applyHash();
+    if(!ok){ S.page = DEFAULT_PAGE[S.role] || S.page; }
+  }
   closeAll();
   render();
   restoreScrollHere();
   LAST_HASH = location.hash;
+  HANDLED_HASH = location.hash;
 }
 window.addEventListener('popstate', onHashNav);
 window.addEventListener('hashchange', onHashNav);
@@ -3937,8 +3987,16 @@ function pager(n){
   return `<div class="pager"><span>共 ${n} 条 · 已选 0 条</span>
     <div class="pgs"><span class="pg on">1</span></div></div>`;
 }
-function setQ(v){ S.f.q=v; refreshTable(); }
-function setF(k,v){ S.f[k]=v; refreshTable(); }
+/* 筛选也是「这一页长什么样」的一部分：改了筛选就把当前历史条目刷新一遍，
+   否则浏览器后退回来时条目里还是进页面那会儿的空筛选。
+   搜索框是逐字触发，逐次 replaceState 会被浏览器限频，改成稍后合并写一次。 */
+let COMMIT_T = null;
+function commitStateSoon(){
+  if(COMMIT_T) clearTimeout(COMMIT_T);
+  COMMIT_T = setTimeout(()=>{ COMMIT_T = null; commitState(); }, 200);
+}
+function setQ(v){ S.f.q=v; refreshTable(); commitStateSoon(); }
+function setF(k,v){ S.f[k]=v; refreshTable(); commitState(); }
 function refreshTable(){
   const m = document.getElementById('main');
   const sc = m.scrollTop;
@@ -3946,9 +4004,9 @@ function refreshTable(){
   m.scrollTop = sc;
   const q = document.getElementById('q'); if(q){ q.focus(); q.setSelectionRange(q.value.length,q.value.length); }
 }
-function clearF(){ S.f={}; refreshTable(); }
+function clearF(){ S.f={}; refreshTable(); commitState(); }
 /* 统计卡点一下过滤下表，再点一下取消 */
-function statFilter(k, v){ S.f[k] = (S.f[k]===v) ? '' : v; refreshTable(); }
+function statFilter(k, v){ S.f[k] = (S.f[k]===v) ? '' : v; refreshTable(); commitState(); }
 
 /* ---------- 抽屉 / 弹窗 ---------- */
 function openDrawer(html){
