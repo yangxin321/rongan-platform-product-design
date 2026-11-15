@@ -333,7 +333,7 @@ function render(){
           }).join('')}
         </div>`).join('')}
       </nav>
-      <div class="side-foot"><span>v1.2 · 角色版</span><span>2026-11-14</span></div>
+      <div class="side-foot"><span>角色版</span><span>演示数据</span></div>
     </aside>
     <main class="main" id="main">${renderPage()}</main>
   </div>
