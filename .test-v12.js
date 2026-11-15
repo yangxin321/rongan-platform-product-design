@@ -764,8 +764,14 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     /* 直接验证 soft 排除：加分证即使明确不满足/待确认，也不能把 Pass 汇总拉成 no/pend */
     const softNo = triSum([{ key:'city', state:'ok' }, { key:'cert', state:'no', soft:true }]);
     const softPend = triSum([{ key:'city', state:'ok' }, { key:'cert', state:'pend', soft:true }]);
+    /* 渲染侧（Codex 复现的入口）：匹配依据抽屉的证书行必须是真实状态，不能是绿色「已核实符合」 */
+    VERIFY[p.personId] = Object.assign({}, keep, { certs: [] });
+    enter('R04'); openMatchDetail(p.id, 'D1');
+    const certRow = Array.from(document.querySelectorAll('#drawer .tri-row'))
+      .map(r => r.innerText).find(t => t.startsWith('证书要求')) || '';
+    closeAll(); VERIFY[p.personId] = keep;
     DEMAND_GATE.D1 = keepGate; VERIFY[p.personId] = keep;
-    return { miss, pend, no, okc, softNo, softPend };
+    return { miss, pend, no, okc, softNo, softPend, certRow };
   });
   ok('RG002-58 全加分证仍按真实证据给出核验状态',
      allOptCert.miss.state === 'pend' && allOptCert.miss.soft === true
@@ -777,7 +783,11 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      && allOptCert.miss.sum === allOptCert.okc.sum
      && allOptCert.no.sum === allOptCert.okc.sum
      /* 更直接的区分力：soft 的 no/pend 都不能动 Pass 汇总 */
-     && allOptCert.softNo === 'ok' && allOptCert.softPend === 'ok',
+     && allOptCert.softNo === 'ok' && allOptCert.softPend === 'ok'
+     /* 界面层：缺记录时不得显示绿色「已核实符合」，且要标明这是加分项 */
+     && allOptCert.certRow.includes('信息待确认')
+     && !allOptCert.certRow.includes('已核实符合')
+     && allOptCert.certRow.includes('加分项（不计入 Pass）'),
      JSON.stringify(allOptCert));
 
   /* ---- 匹配模式切换 ---- */
