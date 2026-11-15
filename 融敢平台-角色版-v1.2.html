@@ -4005,8 +4005,9 @@ function render(){
 }
 
 function badgeFor(k){
-  if(k==='persons'&&S.role==='R04') return String(PERSONS.filter(p=>p.owner==='李文静'&&p.status==='跟进中').length);
-  if(k==='home') return String(FOCUS.filter(f=>f.staff==='李文静').length);
+  /* 侧栏数字必须和列表第一屏对得上：列表按「我当前跟进」筛，数字也照同一个口径算。 */
+  if(k==='persons'&&S.role==='R04') return String(PERSONS.filter(p=>dmWhoFollows(p)===S.who&&p.status==='跟进中').length);
+  if(k==='home') return String(FOCUS.filter(f=>f.staff===S.who).length);
   if(k==='confirms'&&S.role==='R02') return String(DEMANDS.filter(d=>d.confirm!=='已确认').length);
   return '';
 }
@@ -4217,7 +4218,9 @@ function batchesPage(){
 function personsPage(){
   const isR04 = S.role==='R04';
   let rows = PERSONS.slice();
-  if(isR04) rows = rows.filter(p=>p.owner===S.who);
+  /* 「我名下」= 这一单里我当前跟进的人，与需求详情的「简历明细」同一口径（dmWhoFollows）。
+     以前按 p.owner 筛，而演示数据里同一单的 owner 是常量，会把同事跟进的人一起算进来。 */
+  if(isR04) rows = rows.filter(p=>dmWhoFollows(p)===S.who);
   const q=(S.f.q||'').trim(), nd=S.f.nd||'', dm=S.f.dm||'', ow=S.f.ow||'', stt=S.f.st||'', triF=S.f.tri||'';
   if(q) rows = rows.filter(p=>(p.name+p.phone+p.skills.join('')).includes(q));
   if(stt) rows = rows.filter(p=>p.status===stt);
@@ -4606,9 +4609,17 @@ function dmSetD(field, v){
   toast(`已改 ${field}：${old} → ${v}${field==='head'||field==='deadline'?'（关键内容，需重确认）':''}`);
   dmRender(false);
 }
+/* 「这一单里谁在跟这个人」—— 与表格「当前跟进人」列同源（档案层跟进人，回退到这一单负责人）。
+   以前 dmMine 用 `p.owner===我 || 跟进人===我`，而演示数据里同一单的 owner 常常是常量，
+   于是「我的 8 / 全部 8」，可每行的「当前跟进人」却是陈曦 / 王浩 —— 数字与列对不上，
+   招聘专员在自己那一栏里看到的是同事的简历。现在筛选与显示用同一个函数，不再各算一套。 */
+function dmWhoFollows(p){
+  const a = appPerson(p.personId) || {};
+  return a.follower || p.owner;
+}
 function dmMine(did){
   const me = S.who;
-  return personsOf(did).filter(p=>p.owner===me || (appPerson(p.personId)||{}).follower===me);
+  return personsOf(did).filter(p => dmWhoFollows(p) === me);
 }
 
 /* ---------- 变更历史（独立页 #demand/<id>/history） ----------
@@ -4686,11 +4697,16 @@ function openDmHistory(did){
 function dmHistoryBack(){ DM.sub = null; dmRender(false); navHash(routeHash(), 'replace'); }
 function dmToggleEdit(){ DM.edit = !DM.edit; dmRender(false); }
 
-/* ---------- 页签 2 · 简历明细（列与人员列表一致） ---------- */
+/* ---------- 页签 2 · 简历明细（只列我当前跟进的人） ----------
+   招聘专员这一页不放「全部」：看同事的简历不是他的活，而且会把「我的」稀释掉。
+   管理层（R01/R02）要审全量，保留「我的 / 全部」两档。
+   两种情况都标出「全单 N 人」，让人一眼知道自己是 2 / 8 而不是「这单只有 2 个人」。 */
 function dmResume(d){
   const all = personsOf(d.id);
   const mine = dmMine(d.id);
-  const rows = DM.scope==='mine' ? mine : all;
+  const isR04 = S.role==='R04';
+  const canSeeAll = !isR04;                       /* 管理层才给「全部」 */
+  const rows = (canSeeAll && DM.scope==='all') ? all : mine;
   const cols = [
     {label:'姓名', r:p=>`<div class="t-name"><span class="arc-link" onclick="openPerson('${p.id}')">${esc(p.name)}</span>
         <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span></div><div class="t-sub mono">${esc(p.phone)}</div>`},
@@ -4698,25 +4714,35 @@ function dmResume(d){
     {label:'来源 / 批次', r:p=>`<div class="sm">${esc(p.channel||'—')}</div><div class="t-sub mono">${p.batchId?esc(B(p.batchId).code):'人才池捞入'}</div>`},
     {label:'当前节点', r:p=>nodeB(p.node)},
     {label:'匹配档位', r:p=>`<div style="display:flex;align-items:center;gap:6px">${tierChip(p.tier)}<span class="mono sm">${p.score}</span></div>`},
-    {label:'当前跟进人', r:p=>`<span class="sm">${esc((appPerson(p.personId)||{}).follower||p.owner)}</span>`},
+    {label:'当前跟进人', r:p=>`<span class="sm">${esc(dmWhoFollows(p))}</span>`},
     {label:'上次联系', r:p=>`<div class="sm mono">${p.lastContact==='—'?'—':p.lastContact.slice(5)}</div><div class="t-sub">${p.lastType==='—'?'未联系':esc(p.lastType)}</div>`},
     {label:'下次跟进', r:p=>{ if(p.nextFollow==='—') return '<span class="mut">—</span>';
       const late = p.nextFollow < TODAY;
       return `<span class="mono sm" ${late?'style="color:var(--bad)"':''}>${p.nextFollow.slice(5)}${late?' · 逾期':''}</span>`;}},
     {label:'结果', r:p=>statB(p.status)},
   ];
-  return `
-    <div class="sec"><div class="sec-t">这一单的简历
-        <span class="xs mut" style="font-weight:400">列与人员列表完全一致 · 不按批次切、不限时间</span></div>
-      <div class="seg" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+  const scopeBar = canSeeAll
+    ? `<div class="seg" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
         <span class="sm">范围</span>
-        <span class="chip ${DM.scope==='mine'?'on':''}" onclick="dmSetScope('mine')">我的 ${mine.length}</span>
+        <span class="chip ${DM.scope!=='all'?'on':''}" onclick="dmSetScope('mine')">我的 ${mine.length}</span>
         <span class="chip ${DM.scope==='all'?'on':''}" onclick="dmSetScope('all')">全部 ${all.length}</span>
         <div class="sp"></div>
-        <span class="xs mut">「我的」= 我负责或我当前跟进的人</span>
-      </div>
-      ${table(cols, rows, DM.scope==='mine'?'这个岗位下还没有你负责的人 —— 可切「全部」看同事拉进来的':'这个岗位还没有任何投递')}
-      <div class="xs mut" style="margin-top:8px">共 ${rows.length} 人，不分页。人从哪来：${esc([...new Set(rows.map(r=>r.channel||'—'))].join(' / ')||'—')}</div>
+        <span class="xs mut">「我的」= 我当前跟进的人</span>
+      </div>`
+    : `<div class="seg" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span class="sm">范围</span>
+        <span class="chip on" style="cursor:default" title="招聘专员只看自己当前跟进的人">我的 ${mine.length}</span>
+        <span class="xs mut">全单 ${all.length} 人 · 同事跟进的不在这里显示</span>
+      </div>`;
+  const empty = canSeeAll && DM.scope==='all'
+    ? '这个岗位还没有任何投递'
+    : '这个岗位下还没有你当前跟进的人 —— 你的份额可能还没分配，或人还在同事手上';
+  return `
+    <div class="sec"><div class="sec-t">我在这单上跟进的简历
+        <span class="xs mut" style="font-weight:400">列与人员列表完全一致 · 不含同事跟进的人</span></div>
+      ${scopeBar}
+      ${table(cols, rows, empty)}
+      <div class="xs mut" style="margin-top:8px">共 ${rows.length} 人（全单 ${all.length} 人在投），不分页。人从哪来：${esc([...new Set(rows.map(r=>r.channel||'—'))].join(' / ')||'—')}</div>
     </div>`;
 }
 

@@ -772,6 +772,73 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      && ed.btn1.includes('完成编辑') && /\/detail\?tab=detail$/.test(ed.hash || ''),
      JSON.stringify(ed));
 
+  /* 53~55：简历明细只留「当前招聘人员自己的简历」。
+     原实现筛选用 p.owner、显示用档案跟进人，演示数据里同一单 owner 是常量，
+     于是「我的 8 / 全部 8」、可每行跟进人却是陈曦 / 王浩 —— 专员在自己那一栏看到同事的人。 */
+  const rr = await ev2(() => {
+    enter('R04');
+    openDemand('D1', 'resume');
+    const m = document.querySelector('.main');
+    const th = [...m.querySelectorAll('.tbl-wrap thead th')].map(x => x.innerText.trim());
+    const fi = th.indexOf('当前跟进人');
+    const rows = [...m.querySelectorAll('.tbl-wrap tbody tr')];
+    return {
+      me: S.who,
+      chips: [...m.querySelectorAll('.chip')].map(c => c.innerText.trim()),
+      n: rows.length, all: personsOf('D1').length, mine: dmMine('D1').length,
+      followers: [...new Set(rows.map(t => t.children[fi].innerText.trim()))],
+      tabBadge: (m.querySelector('.arc-tab.on .vis') || {}).innerText || '',
+      foot: m.innerText.includes('全单 ' + personsOf('D1').length + ' 人在投'),
+    };
+  });
+  ok('RG012-53 R04 简历明细只列自己当前跟进的人：没有「全部」档，行内跟进人只有自己',
+     !rr.err && rr.n === rr.mine && rr.mine > 0 && rr.mine < rr.all
+     && rr.followers.length === 1 && rr.followers[0] === rr.me
+     && !rr.chips.some(c => /^全部/.test(c))
+     && rr.chips.some(c => new RegExp('^我的 ' + rr.mine + '$').test(c))
+     && rr.tabBadge === rr.mine + '/' + rr.all && rr.foot,
+     JSON.stringify(rr));
+
+  const r01r = await ev2(() => {
+    enter('R01');
+    openDemand('D1', 'resume');
+    const m = () => document.querySelector('.main');
+    const chips = [...m().querySelectorAll('.chip')].map(c => c.innerText.trim());
+    const n1 = m().querySelectorAll('.tbl-wrap tbody tr').length;
+    dmSetScope('all');
+    const n2 = m().querySelectorAll('.tbl-wrap tbody tr').length;
+    const all = personsOf('D1').length;
+    dmSetScope('mine');
+    return { chips, n1, n2, all };
+  });
+  ok('RG012-54 管理层（R01）仍保留「我的 / 全部」两档，切「全部」能看到全单（能力没有因为收紧专员视角而丢失）',
+     !r01r.err && r01r.chips.length === 2
+     && r01r.chips.some(c => /^全部 \d+$/.test(c))
+     && r01r.n1 < r01r.n2 && r01r.n2 === r01r.all,
+     JSON.stringify(r01r));
+
+  const sameRoster = await ev2(() => {
+    enter('R04');
+    const me = S.who;
+    const others = personsOf('D1').filter(p => dmWhoFollows(p) !== me);
+    go('persons');
+    /* 只取姓名链接的文字：第一格里还有「男 · 34岁」与电话，innerText 会连在一起 */
+    const names = [...document.querySelectorAll('.tbl-wrap tbody tr')]
+      .map(t => (t.querySelector('.arc-link') || {}).innerText || '').map(x => x.trim());
+    const leaked = others.filter(p => names.includes(p.name.trim())).map(p => p.name);
+    openDemand('D1', 'resume');
+    const dmNames = [...document.querySelectorAll('.main .tbl-wrap tbody tr')]
+      .map(t => (t.querySelector('.arc-link') || {}).innerText || '').map(x => x.trim());
+    const mineNames = dmMine('D1').map(p => p.name.trim());
+    return { othersN: others.length, leaked, dmNames,
+      missing: mineNames.filter(n => !dmNames.includes(n)),
+      inPersonList: mineNames.filter(n => names.includes(n)).length, mineN: mineNames.length };
+  });
+  ok('RG012-55 人员列表与简历明细同一口径：同事跟进的人两边都不出现，我的两页都在',
+     !sameRoster.err && sameRoster.othersN > 0 && sameRoster.leaked.length === 0
+     && sameRoster.missing.length === 0 && sameRoster.inPersonList === sameRoster.mineN,
+     JSON.stringify(sameRoster));
+
   /* 全页渲染无错（详情页在路由里，需单独过一遍） */
   const pages = ['demands','batches','persons','pool','logs','custreq','confirms','clinks','dicts','factors','std','dash','conversion','perms','home'];
   let renderErr = '';

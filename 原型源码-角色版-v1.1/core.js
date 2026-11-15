@@ -522,8 +522,9 @@ function render(){
 }
 
 function badgeFor(k){
-  if(k==='persons'&&S.role==='R04') return String(PERSONS.filter(p=>p.owner==='李文静'&&p.status==='跟进中').length);
-  if(k==='home') return String(FOCUS.filter(f=>f.staff==='李文静').length);
+  /* 侧栏数字必须和列表第一屏对得上：列表按「我当前跟进」筛，数字也照同一个口径算。 */
+  if(k==='persons'&&S.role==='R04') return String(PERSONS.filter(p=>dmWhoFollows(p)===S.who&&p.status==='跟进中').length);
+  if(k==='home') return String(FOCUS.filter(f=>f.staff===S.who).length);
   if(k==='confirms'&&S.role==='R02') return String(DEMANDS.filter(d=>d.confirm!=='已确认').length);
   return '';
 }
