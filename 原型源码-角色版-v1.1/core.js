@@ -300,6 +300,7 @@ function applyHash(){
 }
 function onHashNav(){
   if(NAV_SELF){ NAV_SELF = false; return; }
+  if(!S.role) return;               /* 还在角色入口页 / 只读确认单页：地址变化不重建外壳 */
   const ok = applyHash();
   if(!ok){ S.page = DEFAULT_PAGE[S.role] || S.page; }
   closeAll();
