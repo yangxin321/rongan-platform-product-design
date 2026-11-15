@@ -411,7 +411,7 @@ function clinkPage(){
   const rows = list.map(l=>{
     const d = D(l.demandId);
     const tone = l.state==='有效'?'g':l.state==='已失效'?'n':'r';
-    const expired = l.state==='有效' && l.expire < '2026-11-14';
+    const expired = linkExpired(l);
     return `<tr>
       <td><div class="mono sm">${esc(l.tok)}</div><div class="t-sub">${esc(l.mode)}</div></td>
       <td><div class="sm">${esc(d.client)} · ${esc(d.post)}</div><div class="t-sub">${esc(d.project)}</div></td>
@@ -422,7 +422,7 @@ function clinkPage(){
       <td class="mono sm">${esc(l.expire)}</td>
       <td class="num">${l.views}</td>
       <td><div class="acts">
-        ${l.state==='有效'?`<span class="link" onclick="openCustLinkDemo('${l.tok}')">打开</span>
+        ${l.state==='有效' && !expired?`<span class="link" onclick="openCustLinkDemo('${l.tok}')">打开</span>
           <span class="link" onclick="copyLinkText('${l.tok}')">复制</span>
           <span class="link" onclick="revokeLinkUI('${l.tok}')">撤销</span>`
           :`<span class="link" onclick="regenLink('${l.demandId}')">重新生成</span>`}

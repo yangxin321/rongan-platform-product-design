@@ -115,8 +115,10 @@ function viewLanding(){
 function openCustLinkDemo(tok){
   localStorage.removeItem('rg-role');
   S.role = null;
-  location.hash = 'cust=' + (tok||'LK-D8-V10');
-  document.getElementById('root').innerHTML = viewCustLink(tok||'LK-D8-V10');
+  /* 默认取一条**未过期**的链接；LK-D8-V10 已过期，留作「过期后被拒」的演示样本 */
+  const t = tok || (CLINKS.find(l=>l.state==='有效' && !linkExpired(l))||{}).tok || 'LK-D1-V11';
+  location.hash = 'cust=' + t;
+  document.getElementById('root').innerHTML = viewCustLink(t);
   window.scrollTo(0,0);
 }
 function viewCustLink(tok){

@@ -1152,10 +1152,14 @@ function runMatch(bid, forceScope){
     return {p, items, sum: triSum(items), bonus: bonusOf(p,d).filter(x=>x.hit).length, score:p.score};
   }).sort((x,y)=> (TRI_RANK[x.sum]-TRI_RANK[y.sum]) || (y.score-x.score));
 
-  const okN = rows.filter(r=>r.sum==='ok').length;
+  const av = activeVer(d);
+  /* 没有生效版本 = 条件未定，任何人都不能进「可推荐」；否则会出现「顶部说禁止推荐、底部提示推荐成功」 */
+  const canRec = !!av;
+  const okRows = rows.filter(r=>r.sum==='ok');
+  const okN = canRec ? okRows.length : 0;
+  const blockedN = canRec ? 0 : okRows.length;
   const pendN = rows.filter(r=>r.sum==='pend').length;
   const noN = rows.filter(r=>r.sum==='no').length;
-  const av = activeVer(d);
   const stale = matchNeedsUpdate(d);
   const stamp = MATCH_STAMP[d.id] || {};
 
@@ -1165,7 +1169,7 @@ function runMatch(bid, forceScope){
       <button class="dr-x" onclick="closeAll()">×</button></div>
     <div class="md-b">
 
-      ${av? '' : `<div class="note r" style="margin-bottom:12px"><b>该需求没有生效版本</b>（${esc(d.confirm)}），本次结果仅作演示，不得作为推荐依据。</div>`}
+      ${av? '' : `<div class="note r" style="margin-bottom:12px"><b>该需求没有生效版本</b>（${esc(d.confirm)}），本次结果仅作演示，<b>不得作为推荐依据</b>；下方「可推荐」已归零，推荐入口不可用。</div>`}
       ${stale? `<div class="note w" style="margin-bottom:12px"><b>匹配结果需更新</b>：需求条件已变更（结果基于 ${esc(stamp.ver||'—')}，当前生效 ${esc(av?av.v:'无')}）。
         <button class="btn xs" style="margin-left:8px" onclick="refreshMatch('${bid}')">按当前版本重算</button></div>`:''}
 
@@ -1174,7 +1178,8 @@ function runMatch(bid, forceScope){
           <div style="flex:1;text-align:center;background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px">
             <div class="xs mut">${esc(lab)}</div>
             <div class="mono" style="font-size:22px;font-weight:600;color:${k==='ok'?'var(--good)':k==='pend'?'var(--warn)':'var(--bad)'}">${v}</div>
-            <div class="xs">${tri(k)}</div></div>`).join('')}
+            <div class="xs">${tri(k)}</div>
+            ${k==='ok'&&!canRec&&blockedN?`<div class="xs mut">${blockedN} 人条件已符合，但需求未生效</div>`:''}</div>`).join('')}
       </div>
 
       <div class="toolbar" style="border:1px solid var(--line);border-radius:9px;margin-bottom:10px">
@@ -1204,7 +1209,19 @@ function runMatch(bid, forceScope){
     </div>
     <div class="md-f"><button class="btn" onclick="closeAll()">关闭</button>
       ${stale?`<button class="btn" onclick="refreshMatch('${bid}')">按当前版本重算</button>`:''}
-      <button class="btn pri" onclick="closeAll();toast('已把 ${okN} 位「已核实符合」的人加入优先跟进')">加入优先跟进（${okN} 人）</button></div>`, 'md-xl');
+      ${canRec
+        ? `<button class="btn pri" onclick="closeAll();toast('已把 ${okN} 位「已核实符合」的人加入优先跟进')">加入优先跟进（${okN} 人）</button>`
+        : `<button class="btn" title="需求没有生效版本，未审核不得推荐" onclick="recBlocked('${d.id}')">不可推荐（需求未生效）</button>`}
+    </div>`, 'md-xl');
+}
+/* 拦截原因必须点名：哪一步没过、为什么不能推荐，而不是一个灰按钮 */
+function recBlocked(did){
+  const d = D(did);
+  const ov = openVer(d);
+  const why = ov
+    ? `该需求当前是「${ov.status}」的 ${ov.v}，未经内部审核通过不生效`
+    : `该需求当前为「${d.confirm}」，还没有生效版本`;
+  toast(`不可推荐：${why}。请先完成代登记与内部审核，再用生效版本重算匹配`);
 }
 function refreshMatch(bid){
   const b = B(bid)||{}; const d = D(b.demandId); if(!d) return;

@@ -2992,7 +2992,9 @@ DEMANDS.forEach(d=>{
 /* 演示样本：D3 已代登记、等内部审核（旧版仍生效）；D4 代登记被内部退回 */
 DEMAND_VERS.D3.push({v:'v1.1', status:'待内部审核', audit:'待审核', at:'2026-11-13 09:40', by:'金诚', way:'电话', n:47,
   note:'客户电话要求把最晚报到日提前，已按客户原话代登记，等待内部审核',
-  changes:[{f:'最晚报到日', from:'2026-12-05', to:'2026-11-28'}]});
+  changes:[{f:'最晚报到日', from:'2026-11-30', to:'2026-11-28'}],
+  /* 版本必须自带条件快照：审核通过后 gateOf 读的就是这一份，不能退回基础值 */
+  gate:{arriveBy:'2026-11-28'}});
 DEMAND_VERS.D4.push({v:'v1.1', status:'已退回', audit:'已退回', at:'2026-11-12 17:20', by:'金诚', way:'微信', n:47,
   note:'客户只说「到岗时间再谈」，未落到具体日期，第 7 项无法判定',
   auditBy:'王浩', auditAt:'2026-11-12 18:02',
@@ -3099,6 +3101,8 @@ const CLINKS = [
   {tok:'LK-D1-V11', demandId:'D1', ver:'v1.1', state:'有效', at:'2026-11-10 14:05', by:'金诚', views:3, expire:'2026-11-17', mode:'只读确认单'},
   {tok:'LK-D7-V11', demandId:'D7', ver:'v1.1', state:'有效', at:'2026-11-12 16:15', by:'王浩', views:1, expire:'2026-11-19', mode:'只读确认单'},
   {tok:'LK-D8-V10', demandId:'D8', ver:'v1.0', state:'有效', at:'2026-11-01 15:10', by:'王浩', views:0, expire:'2026-11-08', mode:'只读确认单'},
+  /* 同单重新生成的一条：首条已过期，这条才是客户现在能打开的 */
+  {tok:'LK-D8-V20', demandId:'D8', ver:'v1.0', state:'有效', at:'2026-11-10 09:20', by:'王浩', views:1, expire:'2026-11-17', mode:'只读确认单'},
   {tok:'LK-D3-V10', demandId:'D3', ver:'v1.0', state:'已撤销', at:'2026-11-08 11:20', by:'金诚', views:2, expire:'2026-11-15', mode:'只读确认单',
    why:'客户改由会议确认，链接主动撤销'},
   {tok:'LK-D6-V10', demandId:'D6', ver:'v1.0', state:'已失效', at:'2026-11-03 09:00', by:'金诚', views:5, expire:'2026-11-10', mode:'只读确认单',
@@ -3118,13 +3122,20 @@ function revokeLink(tok, why){
 }
 
 /* 外部链接可见范围：只放该需求本身，不放人才库 / 其他需求 / 合同价与利润 */
+/* 链接是否已过期：状态写「有效」但有效期已过，也算过期 —— 打开与列表必须用同一个判断 */
+function linkExpired(l){ return !!l && l.state === '有效' && !!l.expire && l.expire < TODAY; }
 function custLinkPayload(tok){
   const l = linkOf(tok);
   if(!l) return {ok:false, code:'NOTFOUND', msg:'链接不存在'};
   if(l.state === '已失效') return {ok:false, code:'EXPIRED', l, msg:`该链接已于 ${l.expire} 失效，需重新生成`};
   if(l.state === '已撤销') return {ok:false, code:'REVOKED', l, msg:`该链接已撤销${l.why?'：'+l.why:''}`};
+  /* 按有效期拒绝：否则列表显示「已过期」、打开却还能看全文，客户侧口径自相矛盾 */
+  if(linkExpired(l)) return {ok:false, code:'EXPIRED', l, msg:`该链接有效期至 ${l.expire}，已过期，需重新生成`};
   const d = D(l.demandId);
-  return {ok:true, l, d, gate:DEMAND_GATE[d.id]||{}, ver:(versOf(d).find(v=>v.v===l.ver)||{})};
+  const ver = versOf(d).find(v=>v.v===l.ver) || {};
+  /* 客户看到的是**当时发出去的那一版**的条件快照，不是当前生效版 */
+  const gate = ver.gate ? Object.assign({}, DEMAND_GATE[d.id]||{}, ver.gate) : (DEMAND_GATE[d.id]||{});
+  return {ok:true, l, d, gate, ver};
 }
 
 /* ---------- 7. 匹配结果所依据的版本（版本一变即标记需更新） ---------- */
@@ -3411,8 +3422,10 @@ function viewLanding(){
 function openCustLinkDemo(tok){
   localStorage.removeItem('rg-role');
   S.role = null;
-  location.hash = 'cust=' + (tok||'LK-D8-V10');
-  document.getElementById('root').innerHTML = viewCustLink(tok||'LK-D8-V10');
+  /* 默认取一条**未过期**的链接；LK-D8-V10 已过期，留作「过期后被拒」的演示样本 */
+  const t = tok || (CLINKS.find(l=>l.state==='有效' && !linkExpired(l))||{}).tok || 'LK-D1-V11';
+  location.hash = 'cust=' + t;
+  document.getElementById('root').innerHTML = viewCustLink(t);
   window.scrollTo(0,0);
 }
 function viewCustLink(tok){
@@ -4790,10 +4803,14 @@ function runMatch(bid, forceScope){
     return {p, items, sum: triSum(items), bonus: bonusOf(p,d).filter(x=>x.hit).length, score:p.score};
   }).sort((x,y)=> (TRI_RANK[x.sum]-TRI_RANK[y.sum]) || (y.score-x.score));
 
-  const okN = rows.filter(r=>r.sum==='ok').length;
+  const av = activeVer(d);
+  /* 没有生效版本 = 条件未定，任何人都不能进「可推荐」；否则会出现「顶部说禁止推荐、底部提示推荐成功」 */
+  const canRec = !!av;
+  const okRows = rows.filter(r=>r.sum==='ok');
+  const okN = canRec ? okRows.length : 0;
+  const blockedN = canRec ? 0 : okRows.length;
   const pendN = rows.filter(r=>r.sum==='pend').length;
   const noN = rows.filter(r=>r.sum==='no').length;
-  const av = activeVer(d);
   const stale = matchNeedsUpdate(d);
   const stamp = MATCH_STAMP[d.id] || {};
 
@@ -4803,7 +4820,7 @@ function runMatch(bid, forceScope){
       <button class="dr-x" onclick="closeAll()">×</button></div>
     <div class="md-b">
 
-      ${av? '' : `<div class="note r" style="margin-bottom:12px"><b>该需求没有生效版本</b>（${esc(d.confirm)}），本次结果仅作演示，不得作为推荐依据。</div>`}
+      ${av? '' : `<div class="note r" style="margin-bottom:12px"><b>该需求没有生效版本</b>（${esc(d.confirm)}），本次结果仅作演示，<b>不得作为推荐依据</b>；下方「可推荐」已归零，推荐入口不可用。</div>`}
       ${stale? `<div class="note w" style="margin-bottom:12px"><b>匹配结果需更新</b>：需求条件已变更（结果基于 ${esc(stamp.ver||'—')}，当前生效 ${esc(av?av.v:'无')}）。
         <button class="btn xs" style="margin-left:8px" onclick="refreshMatch('${bid}')">按当前版本重算</button></div>`:''}
 
@@ -4812,7 +4829,8 @@ function runMatch(bid, forceScope){
           <div style="flex:1;text-align:center;background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px">
             <div class="xs mut">${esc(lab)}</div>
             <div class="mono" style="font-size:22px;font-weight:600;color:${k==='ok'?'var(--good)':k==='pend'?'var(--warn)':'var(--bad)'}">${v}</div>
-            <div class="xs">${tri(k)}</div></div>`).join('')}
+            <div class="xs">${tri(k)}</div>
+            ${k==='ok'&&!canRec&&blockedN?`<div class="xs mut">${blockedN} 人条件已符合，但需求未生效</div>`:''}</div>`).join('')}
       </div>
 
       <div class="toolbar" style="border:1px solid var(--line);border-radius:9px;margin-bottom:10px">
@@ -4842,7 +4860,19 @@ function runMatch(bid, forceScope){
     </div>
     <div class="md-f"><button class="btn" onclick="closeAll()">关闭</button>
       ${stale?`<button class="btn" onclick="refreshMatch('${bid}')">按当前版本重算</button>`:''}
-      <button class="btn pri" onclick="closeAll();toast('已把 ${okN} 位「已核实符合」的人加入优先跟进')">加入优先跟进（${okN} 人）</button></div>`, 'md-xl');
+      ${canRec
+        ? `<button class="btn pri" onclick="closeAll();toast('已把 ${okN} 位「已核实符合」的人加入优先跟进')">加入优先跟进（${okN} 人）</button>`
+        : `<button class="btn" title="需求没有生效版本，未审核不得推荐" onclick="recBlocked('${d.id}')">不可推荐（需求未生效）</button>`}
+    </div>`, 'md-xl');
+}
+/* 拦截原因必须点名：哪一步没过、为什么不能推荐，而不是一个灰按钮 */
+function recBlocked(did){
+  const d = D(did);
+  const ov = openVer(d);
+  const why = ov
+    ? `该需求当前是「${ov.status}」的 ${ov.v}，未经内部审核通过不生效`
+    : `该需求当前为「${d.confirm}」，还没有生效版本`;
+  toast(`不可推荐：${why}。请先完成代登记与内部审核，再用生效版本重算匹配`);
 }
 function refreshMatch(bid){
   const b = B(bid)||{}; const d = D(b.demandId); if(!d) return;
@@ -8567,7 +8597,7 @@ function clinkPage(){
   const rows = list.map(l=>{
     const d = D(l.demandId);
     const tone = l.state==='有效'?'g':l.state==='已失效'?'n':'r';
-    const expired = l.state==='有效' && l.expire < '2026-11-14';
+    const expired = linkExpired(l);
     return `<tr>
       <td><div class="mono sm">${esc(l.tok)}</div><div class="t-sub">${esc(l.mode)}</div></td>
       <td><div class="sm">${esc(d.client)} · ${esc(d.post)}</div><div class="t-sub">${esc(d.project)}</div></td>
@@ -8578,7 +8608,7 @@ function clinkPage(){
       <td class="mono sm">${esc(l.expire)}</td>
       <td class="num">${l.views}</td>
       <td><div class="acts">
-        ${l.state==='有效'?`<span class="link" onclick="openCustLinkDemo('${l.tok}')">打开</span>
+        ${l.state==='有效' && !expired?`<span class="link" onclick="openCustLinkDemo('${l.tok}')">打开</span>
           <span class="link" onclick="copyLinkText('${l.tok}')">复制</span>
           <span class="link" onclick="revokeLinkUI('${l.tok}')">撤销</span>`
           :`<span class="link" onclick="regenLink('${l.demandId}')">重新生成</span>`}

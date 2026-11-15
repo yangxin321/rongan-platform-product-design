@@ -351,7 +351,9 @@ DEMANDS.forEach(d=>{
 /* 演示样本：D3 已代登记、等内部审核（旧版仍生效）；D4 代登记被内部退回 */
 DEMAND_VERS.D3.push({v:'v1.1', status:'待内部审核', audit:'待审核', at:'2026-11-13 09:40', by:'金诚', way:'电话', n:47,
   note:'客户电话要求把最晚报到日提前，已按客户原话代登记，等待内部审核',
-  changes:[{f:'最晚报到日', from:'2026-12-05', to:'2026-11-28'}]});
+  changes:[{f:'最晚报到日', from:'2026-11-30', to:'2026-11-28'}],
+  /* 版本必须自带条件快照：审核通过后 gateOf 读的就是这一份，不能退回基础值 */
+  gate:{arriveBy:'2026-11-28'}});
 DEMAND_VERS.D4.push({v:'v1.1', status:'已退回', audit:'已退回', at:'2026-11-12 17:20', by:'金诚', way:'微信', n:47,
   note:'客户只说「到岗时间再谈」，未落到具体日期，第 7 项无法判定',
   auditBy:'王浩', auditAt:'2026-11-12 18:02',
@@ -458,6 +460,8 @@ const CLINKS = [
   {tok:'LK-D1-V11', demandId:'D1', ver:'v1.1', state:'有效', at:'2026-11-10 14:05', by:'金诚', views:3, expire:'2026-11-17', mode:'只读确认单'},
   {tok:'LK-D7-V11', demandId:'D7', ver:'v1.1', state:'有效', at:'2026-11-12 16:15', by:'王浩', views:1, expire:'2026-11-19', mode:'只读确认单'},
   {tok:'LK-D8-V10', demandId:'D8', ver:'v1.0', state:'有效', at:'2026-11-01 15:10', by:'王浩', views:0, expire:'2026-11-08', mode:'只读确认单'},
+  /* 同单重新生成的一条：首条已过期，这条才是客户现在能打开的 */
+  {tok:'LK-D8-V20', demandId:'D8', ver:'v1.0', state:'有效', at:'2026-11-10 09:20', by:'王浩', views:1, expire:'2026-11-17', mode:'只读确认单'},
   {tok:'LK-D3-V10', demandId:'D3', ver:'v1.0', state:'已撤销', at:'2026-11-08 11:20', by:'金诚', views:2, expire:'2026-11-15', mode:'只读确认单',
    why:'客户改由会议确认，链接主动撤销'},
   {tok:'LK-D6-V10', demandId:'D6', ver:'v1.0', state:'已失效', at:'2026-11-03 09:00', by:'金诚', views:5, expire:'2026-11-10', mode:'只读确认单',
@@ -477,13 +481,20 @@ function revokeLink(tok, why){
 }
 
 /* 外部链接可见范围：只放该需求本身，不放人才库 / 其他需求 / 合同价与利润 */
+/* 链接是否已过期：状态写「有效」但有效期已过，也算过期 —— 打开与列表必须用同一个判断 */
+function linkExpired(l){ return !!l && l.state === '有效' && !!l.expire && l.expire < TODAY; }
 function custLinkPayload(tok){
   const l = linkOf(tok);
   if(!l) return {ok:false, code:'NOTFOUND', msg:'链接不存在'};
   if(l.state === '已失效') return {ok:false, code:'EXPIRED', l, msg:`该链接已于 ${l.expire} 失效，需重新生成`};
   if(l.state === '已撤销') return {ok:false, code:'REVOKED', l, msg:`该链接已撤销${l.why?'：'+l.why:''}`};
+  /* 按有效期拒绝：否则列表显示「已过期」、打开却还能看全文，客户侧口径自相矛盾 */
+  if(linkExpired(l)) return {ok:false, code:'EXPIRED', l, msg:`该链接有效期至 ${l.expire}，已过期，需重新生成`};
   const d = D(l.demandId);
-  return {ok:true, l, d, gate:DEMAND_GATE[d.id]||{}, ver:(versOf(d).find(v=>v.v===l.ver)||{})};
+  const ver = versOf(d).find(v=>v.v===l.ver) || {};
+  /* 客户看到的是**当时发出去的那一版**的条件快照，不是当前生效版 */
+  const gate = ver.gate ? Object.assign({}, DEMAND_GATE[d.id]||{}, ver.gate) : (DEMAND_GATE[d.id]||{});
+  return {ok:true, l, d, gate, ver};
 }
 
 /* ---------- 7. 匹配结果所依据的版本（版本一变即标记需更新） ---------- */

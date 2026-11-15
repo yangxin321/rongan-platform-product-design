@@ -30,7 +30,7 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   ok('RG001-7 R02 有确认链接菜单', nav02.includes('客户确认链接'));
 
   /* ---- RG-001 外部链接：只读、无内部信息 ---- */
-  await ev(() => openCustLinkDemo('LK-D8-V10')); await page.waitForTimeout(300);
+  await ev(() => openCustLinkDemo('LK-D8-V20')); await page.waitForTimeout(300);
   const cl = await txt('.cust-doc');
   ok('RG001-8 只读页含只读标识', cl.includes('只读'));
   ok('RG001-9 只读页声明不含内部信息', cl.includes('不含内部人才库'));
@@ -42,7 +42,7 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     const t = await txt('.cust-doc'); return t.includes('链接已撤销'); })());
   /* 必须在**有效**链接上断言，否则 .cust-doc 不存在会空过（历史 bug） */
   ok('RG001-14 只读页无任何输入或提交控件', await (async () => {
-      await ev(() => openCustLinkDemo('LK-D8-V10')); await page.waitForTimeout(250);
+      await ev(() => openCustLinkDemo('LK-D8-V20')); await page.waitForTimeout(250);
       const r = await ev(() => {
         const doc = document.querySelector('.cust-doc');
         if(!doc) return {noDoc:true};
@@ -52,6 +52,17 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
         return {noDoc:false, n, btns:btns.map(b=>b.innerText.trim()), hasNote: doc.innerText.includes('不提供在线提交')};
       });
       return !r.noDoc && r.n === 0 && r.btns.length === 0 && r.hasNote; })());
+  /* 回归第二轮 ③：状态写「有效」但有效期已过，打开必须拒绝（列表与打开同一判断） */
+  ok('RG001-17 有效状态但已过有效期仍被拒绝', await (async () => {
+      await ev(() => openCustLinkDemo('LK-D8-V10')); await page.waitForTimeout(250);
+      const r = await ev(() => {
+        const doc = document.querySelector('.cust-doc');
+        return {hasDoc: !!doc, t: doc ? doc.innerText : '',
+                listSays: linkExpired(linkOf('LK-D8-V10')),
+                payload: custLinkPayload('LK-D8-V10')};
+      });
+      return r.hasDoc && /链接已失效|已过期/.test(r.t) && r.listSays === true
+        && r.payload.ok === false && r.payload.code === 'EXPIRED'; })());
   await ev(() => exitCustLink());
 
   /* ---- RG-002 ---- */
@@ -258,6 +269,45 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
       return t.state === 'pend' && s.state === 'pend' && triSum(it) === 'pend'; }));
 
   ok('RG003-7 版本提示存在', mm.includes('生效版本'));
+
+  /* 回归第二轮 ①：需求没有生效版本时，推荐入口必须被门控（不能又提示禁止、又提示推荐成功） */
+  const recGate = await ev(() => {
+    const d = D('D8');                       /* D8 = 待客户确认，无生效版本 */
+    const before = !!activeVer(d);
+    runMatch('B9','demand');
+    const m = document.querySelector('.modal');
+    const t = m ? m.innerText : '';
+    const btns = Array.from((m||document).querySelectorAll('button')).map(b=>b.innerText.trim());
+    const canClickRec = btns.some(b=>/加入优先跟进/.test(b));
+    const cardOk = (t.match(/可推荐\s*\n?\s*(\d+)/)||[])[1];
+    closeAll();
+    return {before, hasBlockBtn: btns.some(b=>/不可推荐（需求未生效）/.test(b)),
+            canClickRec, cardOk, t};
+  });
+  ok('RG003-17 无生效版本时推荐入口被门控',
+     recGate.before === false && recGate.hasBlockBtn && !recGate.canClickRec && recGate.cardOk === '0',
+     JSON.stringify({before:recGate.before, block:recGate.hasBlockBtn, clickable:recGate.canClickRec, card:recGate.cardOk}));
+
+  /* 回归第二轮 ②：版本自带条件快照，审核通过后匹配必须按新版条件（D3 11-30 → 11-28） */
+  const d3gate = await ev(() => {
+    const d = D('D3');
+    /* 审核会改 DEMAND_VERS / d.confirm / MATCH_STAMP 三处，全部备份还原，避免污染后续断言 */
+    const bak = JSON.stringify(DEMAND_VERS.D3), bakConfirm = d.confirm,
+          bakStamp = JSON.stringify(MATCH_STAMP.D3 || null);
+    const arrBefore = gateOf(d).arriveBy;
+    auditDrawer('D3'); auditAct('D3','pass');
+    const avV = (activeVer(d)||{}).v;
+    const arrAfter = gateOf(d).arriveBy;
+    const ver = versOf(d).find(v=>v.v==='v1.1') || {};
+    DEMAND_VERS.D3 = JSON.parse(bak); d.confirm = bakConfirm;
+    if(bakStamp) MATCH_STAMP.D3 = JSON.parse(bakStamp); else delete MATCH_STAMP.D3;
+    closeAll();
+    return {arrBefore, avV, arrAfter, hasGate: !!ver.gate, confirmRestored: d.confirm === bakConfirm};
+  });
+  ok('RG003-18 审核通过后匹配改用新版条件',
+     d3gate.arrBefore === '2026-11-30' && d3gate.avV === 'v1.1' && d3gate.arrAfter === '2026-11-28'
+     && d3gate.hasGate && d3gate.confirmRestored,
+     JSON.stringify(d3gate));
 
   /* 回归 #3：匹配必须用**生效版本**条件，而不是待确认的新版。
      自带夹具：RG002 那组用例会把 D7 v1.1 审到生效并取代 v1.0，此处不能直接读线上状态，
