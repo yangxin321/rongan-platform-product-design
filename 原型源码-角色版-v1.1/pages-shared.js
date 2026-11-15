@@ -102,9 +102,12 @@ function batchesPage(){
   }
   rows.sort((a,b)=>b.date.localeCompare(a.date) || a.code.localeCompare(b.code));
 
-  const actions = `<button class="btn" onclick="go('pool')">从人才池捞人</button>
-    <button class="btn pri" onclick="openModal(uploadNewBatchModal(),'md-lg')">↑ 传简历建批次</button>
-    <button class="btn" onclick="openModal(newBatchModal())">补建批次</button>`;
+  /* 这一页不再挂「从人才池捞人 / 传简历建批次 / 补建批次」三个按钮：
+     批次不是在这儿起头的 —— 简历从需求详情或人才池进来，系统自己按「需求+日期」建批。
+     顶部三个按钮既重复又把人往「先建批再找人」的错顺序上带。
+     能力都还在：传简历 / 新增到今日批次在行内，人才库找人在行内，捞人在人才池页，
+     补建批次在「我的首页 → 需要我跟的事」。 */
+  const actions = '';
 
   const cols = [
     {label:'批次名称', r:b=>`<div class="t-name mono arc-link" style="font-size:15px" onclick="event.stopPropagation();openBatchPersons('${b.id}')">${esc(b.code)}</div><div class="t-sub">${b.date}${b.date===TODAY?' · <span style="color:var(--accent)">今天</span>':''}${sameDayCount(b)>1?' · 同日第 '+sameDaySeq(b)+' 批':''}</div>`},
@@ -131,7 +134,6 @@ function batchesPage(){
         ? `<span class="link" onclick="event.stopPropagation();openModal(uploadModal('${b.id}'),'md-lg')">传简历</span>`
         : `<span class="link" title="这批已关闭，不再收新简历；新简历进今天的批次" onclick="event.stopPropagation();openModal(uploadNewBatchModal(),'md-lg')">新增到今日批次</span>`}
       <span class="link" onclick="event.stopPropagation();findInPool('${b.demandId}')">人才库找人</span>
-      ${b.status==='进行中'?`<span class="link" onclick="event.stopPropagation();runMatch('${b.id}')">AI匹配</span>`:''}
     </div>`},
   ];
 

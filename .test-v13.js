@@ -24,6 +24,7 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   /* 反向验证用：旧产物缺函数时返回错误对象，让断言变红而不是让脚本崩掉 */
   const ev2 = async (fn, arg) => { try { return await page.evaluate(fn, arg); } catch(e){ return { err: String(e.message||e).split('\n')[0] }; } };
   const hash = () => page.evaluate(() => location.hash);
+  const A = v => Array.isArray(v) ? v : [];      /* 反向验证时字段可能缺失，别让脚本崩 */
 
   await page.goto(FILE); await page.waitForTimeout(500);
   await ev(() => { localStorage.clear(); sessionStorage.clear(); enter('R04'); });
@@ -1072,16 +1073,25 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      !closed.err && closed.closedTag && closed.noUpload && closed.pageHint,
      JSON.stringify(closed));
 
-  /* ---------- 06 「AI 打分」统一为「AI 匹配」 ---------- */
+  /* ---------- 06 批次列表去掉顶部三按钮与「AI匹配」入口 ----------
+     第九批：顶部「从人才池捞人 / 传简历建批次 / 补建批次」三个按钮删掉
+     （批次不在这儿起头），行内也不再给「AI匹配」入口。留着的是查看简历 / 传简历 / 人才库找人。 */
   const aiName = await ev2(() => {
     enter('R04'); go('batches');
-    const t = document.querySelector('.main').innerText;
-    const row = [...document.querySelectorAll('.tbl-wrap tbody tr')].find(tr => /进行中/.test(tr.innerText));
+    const m = document.querySelector('.main');
+    const t = m.innerText;
+    const btns = [...m.querySelectorAll('.page-head .btn, .page-head button')].map(b => b.innerText.trim());
+    const row = [...m.querySelectorAll('.tbl-wrap tbody tr')].find(tr => /进行中/.test(tr.innerText));
     const links = row ? [...row.querySelectorAll('.acts .link')].map(x => x.innerText.trim()) : [];
-    return { old: /AI 打分|AI打分/.test(t), now: links.includes('AI匹配'), links };
+    return { old: /AI 打分|AI打分/.test(t), ai: /AI匹配|AI 匹配/.test(t), btns, links,
+      noCreate: !/传简历建批次|补建批次|从人才池捞人/.test(t.split('\n').slice(0,8).join('\n')) };
   });
-  ok('RG012-65 批次入口统一叫「AI 匹配」，不再出现「AI 打分」',
-     !aiName.err && !aiName.old && aiName.now, JSON.stringify(aiName));
+  ok('RG012-65 批次列表不再有「AI匹配」入口，顶部也不再挂建批三个按钮',
+     !aiName.err && !aiName.old && !aiName.ai
+     && aiName.btns.length === 0
+     && A(aiName.links).length === 3 && aiName.links[0] === '查看简历'
+     && aiName.links[1] === '传简历' && aiName.links[2] === '人才库找人',
+     JSON.stringify(aiName));
 
   /* ---------- 补充：口径标注（第七批自测反馈修正） ---------- */
   const srcLabel = await ev2(() => {
