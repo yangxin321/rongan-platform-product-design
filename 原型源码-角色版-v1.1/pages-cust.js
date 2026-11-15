@@ -47,7 +47,7 @@ function openCustRaw(cid, item){
   const from = S.page;
   markScrollOut();                  /* 先记住列表滚到哪了，render 之后就是 0 了 */
   /* 浏览器后退回列表时 CR.cid 还留着，只比 ID 的话第二次进来会沿用第一次的筛选与滚动 */
-  if(CR.cid !== cid || from !== 'custreqRaw') CR.back = { page: from, f: Object.assign({}, S.f), scroll: mainScroll() };
+  if(CR.cid !== cid || from !== 'custreqRaw') CR.back = snapshotHere();
   CR.cid = cid; CR.item = item || '';
   S.page = 'custreqRaw';
   closeAll(); render(); setMainScroll(0);
@@ -57,8 +57,7 @@ function openCustRaw(cid, item){
 function crBack(){
   const b = CR.back;
   CR.cid = null; CR.item = ''; CR.back = null;
-  if(b && b.page && PAGES[b.page]){
-    S.page = b.page; S.f = Object.assign({}, b.f || {});
+  if(b && b.page && b.page !== 'custreqRaw' && restoreSnap(b)){
     render(); setMainScroll(b.scroll || 0);
     navHash(routeHash(), 'replace');
     return;

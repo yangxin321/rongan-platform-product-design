@@ -501,6 +501,57 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      && ctx3.usedQ === '焊工' && ctx4.afterQ === '焊工',
      JSON.stringify({ ctx1, ctx2, ctx3, ctx4 }));
 
+  /* 43：D1 简历明细 → 档案 → 「这一单」回 D1 → 连续两次返回，第二次不能是「找不到这条需求」 */
+  const chain = await ev2(() => {
+    enter('R01'); go('demands');
+    openDemand(DEMANDS[0].id, 'resume');
+    const d1 = DM.id;
+    /* 简历明细点人名进档案 */
+    const nameLink = document.querySelector('.main .tbl-wrap tbody tr [onclick*="openHuman"], .main .tbl-wrap tbody tr [onclick*="openPerson"]');
+    if(!nameLink) return { err:'简历明细没有可点的人名' };
+    nameLink.click();
+    const inPerson = { page: S.page, pid: HU.pid };
+    huSetTab('apply');
+    /* 本次投递点「这一单」回需求 */
+    const postLink = [...document.querySelectorAll('.main .arc-link')]
+      .find(el => /openDemand/.test(el.getAttribute('onclick') || ''));
+    if(!postLink) return { err:'档案投递页没有可点的岗位名' };
+    postLink.click();
+    const inDemand2 = { page: S.page, dm: DM.id, hash: location.hash };
+    document.querySelector('.main .pg-back').click();     /* 第一次返回 → 档案 */
+    const back1 = { page: S.page, hash: location.hash };
+    document.querySelector('.main .pg-back').click();     /* 第二次返回 → 应回到 D1 简历明细 */
+    const back2 = { page: S.page, hash: location.hash, dm: DM.id, tab: DM.tab };
+    const body = document.querySelector('.main').innerText;
+    return { d1, inPerson, inDemand2, back1, back2,
+      missing: /找不到这条需求|找不到该需求|该页面暂未开放/.test(body) };
+  });
+  ok('RG012-43 需求→档案→需求 连续两次返回，第二次仍回到原需求',
+     !chain.err && chain.inDemand2.dm === chain.d1
+     && chain.back1.page === 'personDetail'
+     && chain.back2.page === 'demandDetail' && chain.back2.dm === chain.d1
+     && chain.back2.hash === `#demand/${chain.d1}/detail?tab=resume` && !chain.missing,
+     JSON.stringify(chain));
+
+  /* 44：列表滚 500 → 进档案 → 后退 → 滚到 700 → 前进 → 再后退，应恢复 700 而不是 500 */
+  await ev(() => { enter('R01'); go('persons'); });
+  await page.waitForTimeout(250);
+  await ev(() => { document.getElementById('main').scrollTop = 500; });
+  await ev(() => { document.querySelector('.main .tbl-wrap tbody tr [onclick*="openPerson"]').click(); });
+  await page.waitForTimeout(300);
+  await page.goBack(); await page.waitForTimeout(400);
+  const s1 = await ev(() => ({ page: S.page, sc: document.getElementById('main').scrollTop }));
+  await ev(() => { document.getElementById('main').scrollTop = 700; });
+  await page.goForward(); await page.waitForTimeout(400);
+  const s2 = await ev(() => ({ page: S.page }));
+  await page.goBack(); await page.waitForTimeout(450);
+  const s3 = await ev(() => ({ page: S.page, sc: document.getElementById('main').scrollTop }));
+  ok('RG012-44 前进后退后再回来，恢复的是最近一次离开的滚动位置',
+     s1.page === 'persons' && Math.abs(s1.sc - 500) < 40
+     && s2.page === 'personDetail'
+     && s3.page === 'persons' && Math.abs(s3.sc - 700) < 40,
+     JSON.stringify({ s1, s2, s3 }));
+
   /* 全页渲染无错（详情页在路由里，需单独过一遍） */
   const pages = ['demands','batches','persons','pool','logs','custreq','confirms','clinks','dicts','factors','std','dash','conversion','perms','home'];
   let renderErr = '';

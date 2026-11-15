@@ -54,7 +54,7 @@ function openHuman(pid, tab, appId){
   markScrollOut();                  /* 先记住来源列表滚到哪了，render 之后就是 0 了 */
   /* 浏览器后退回列表时 HU.pid 还留着，只比 ID 的话第二次进来会沿用第一次的筛选与滚动 */
   if(HU.pid !== pid || from !== 'personDetail'){
-    HU.back = { page: from, f: Object.assign({}, S.f), scroll: mainScroll() };
+    HU.back = snapshotHere();       /* 带来源页记录定位：从 D1 简历明细进来的，返回要回到那条需求 */
     HU.navKey = from;
   }
   HU.pid = pid;
@@ -86,17 +86,17 @@ function huSetTab(t){
   huRender(false);
 }
 function huAppTo(appId){ HU.appId = appId; HU.tab = 'apply'; huMemSet('apply'); huRender(false); }
-/* 页面内返回：回到进来时的列表，还原筛选与滚动 */
+/* 页面内返回：回到进来时的列表 / 详情页，还原记录、筛选与滚动 */
 function huBack(){
   const b = HU.back;
+  const nav = HU.navKey;
   HU.pid = null; HU.appId = null; HU.tab = 'resume'; HU.back = null;
-  if(b && b.page && b.page !== 'personDetail' && PAGES[b.page]){
-    S.page = b.page; S.f = Object.assign({}, b.f || {});
+  if(b && b.page && b.page !== 'personDetail' && restoreSnap(b)){
     render(); setMainScroll(b.scroll || 0);
     navHash(routeHash(), 'replace');
     return;
   }
-  go(HU.navKey === 'personDetail' ? 'persons' : (HU.navKey || 'persons'));
+  go(nav === 'personDetail' ? 'persons' : (nav || 'persons'));
 }
 /* 兼容入口：全站所有「点人名」都收口到 openHuman */
 function openArchive(id, tab){ openHuman(id, tab); }

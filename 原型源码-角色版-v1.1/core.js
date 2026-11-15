@@ -258,6 +258,7 @@ function exitRole(){
   DM.id=null; HU.pid=null; HU.appId=null; HU.back=null; CR.cid=null; CR.item=''; CR.back=null;
   /* 清地址：留着上一个角色的 #demands，下次进来会被当成直达地址 */
   try{ history.replaceState(null, '', location.pathname + location.search); }catch(e){ location.hash = ''; }
+  LAST_HASH = location.hash || '';
   document.getElementById('root').innerHTML = viewLanding();
 }
 function go(page){
@@ -324,14 +325,15 @@ function routeHash(){
 }
 let NAV_SELF = false;               /* 自己改的地址不再触发一次渲染 */
 function navHash(h, mode){
-  if(!h || location.hash === h){ SCROLL_OUT = null; return; }
+  if(!h || location.hash === h){ SCROLL_OUT = null; LAST_HASH = h || location.hash; return; }
   saveScrollHere();
   NAV_SELF = true;
   if(mode === 'push'){
-    try{ history.pushState(null, '', h); NAV_SELF = false; return; }catch(e){}
+    try{ history.pushState(null, '', h); NAV_SELF = false; LAST_HASH = h; return; }catch(e){}
   } else {
-    try{ history.replaceState(null, '', h); NAV_SELF = false; return; }catch(e){}
+    try{ history.replaceState(null, '', h); NAV_SELF = false; LAST_HASH = h; return; }catch(e){}
   }
+  LAST_HASH = h;
   location.hash = h;                /* file:// 等不支持 pushState 时退回 hash */
   setTimeout(()=>{ NAV_SELF = false; }, 0);
 }
@@ -373,14 +375,54 @@ function applyHash(){
   if(pageOkForRole(seg[0])){ S.page = seg[0]; return true; }
   return false;                     /* 无效地址 / 不属于该角色：保持原页面，不静默跳转 */
 }
+/* 返回上下文快照：不能只存页面键。
+   详情页之间可以互相跳（D1 简历明细 → 档案 → 「这一单」回 D1），返回时如果只记 'demandDetail'，
+   DM.id 早已被上一层返回清空，地址就会退化成 #demand//detail。
+   所以把来源页正在看的那条记录的定位信息一起存下来，返回时原样恢复。 */
+function snapshotHere(){
+  const snap = { page: S.page, f: Object.assign({}, S.f), scroll: mainScroll() };
+  if(S.page === 'demandDetail' && DM.id)
+    snap.dm = { id: DM.id, tab: DM.tab, scope: DM.scope, back: DM.back };
+  if(S.page === 'personDetail' && HU.pid)
+    snap.hu = { pid: HU.pid, tab: HU.tab, appId: HU.appId, navKey: HU.navKey, back: HU.back };
+  if(S.page === 'custreqRaw' && CR.cid)
+    snap.cr = { cid: CR.cid, item: CR.item, back: CR.back };
+  return snap;
+}
+/* 恢复快照；返回 false 表示这个快照不可用（没来源页 / 页面已不存在） */
+function restoreSnap(snap){
+  if(!snap || !snap.page || !PAGES[snap.page]) return false;
+  if(snap.page === 'demandDetail' && !snap.dm) return false;   /* 没有记录的空详情页不还原 */
+  if(snap.page === 'personDetail' && !snap.hu) return false;
+  if(snap.page === 'custreqRaw' && !snap.cr) return false;
+  if(snap.dm){ DM.id = snap.dm.id; DM.tab = snap.dm.tab || 'detail';
+    DM.scope = snap.dm.scope || 'mine'; DM.back = snap.dm.back || null; }
+  if(snap.hu){ HU.pid = snap.hu.pid; HU.tab = snap.hu.tab || 'resume';
+    HU.appId = snap.hu.appId || null; HU.navKey = snap.hu.navKey || 'persons';
+    HU.back = snap.hu.back || null; }
+  if(snap.cr){ CR.cid = snap.cr.cid; CR.item = snap.cr.item || ''; CR.back = snap.cr.back || null; }
+  S.page = snap.page;
+  S.f = Object.assign({}, snap.f || {});
+  return true;
+}
+/* 上一次渲染时地址栏里的值。popstate 触发时 location.hash 已经是**目标**地址，
+   拿它当「从哪来」会错位，必须自己记住。 */
+let LAST_HASH = location.hash || '';
 function onHashNav(){
-  if(NAV_SELF){ NAV_SELF = false; return; }
+  if(NAV_SELF){ NAV_SELF = false; LAST_HASH = location.hash; return; }
   if(!S.role) return;               /* 还在角色入口页 / 只读确认单页：地址变化不重建外壳 */
+  /* 前进/后退不经过 openXxx / go()，此时 DOM 还是旧页面、main 还停在那：
+     先把旧滚动记到「离开时的地址」上再重绘，否则回到这一页永远是最早那次的位置。 */
+  if(LAST_HASH && LAST_HASH !== location.hash){
+    SCROLL_OUT = { h: LAST_HASH, v: mainScroll() };
+    saveScrollHere();
+  }
   const ok = applyHash();
   if(!ok){ S.page = DEFAULT_PAGE[S.role] || S.page; }
   closeAll();
   render();
   restoreScrollHere();
+  LAST_HASH = location.hash;
 }
 window.addEventListener('popstate', onHashNav);
 window.addEventListener('hashchange', onHashNav);

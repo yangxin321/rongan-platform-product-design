@@ -279,7 +279,7 @@ function openDemand(id, tab){
      浏览器后退回列表时 DM.id 还留着，只比 ID 的话第二次进来会沿用第一次的筛选与滚动。 */
   if(DM.id !== id || from !== 'demandDetail'){
     DM.scope = 'mine';
-    DM.back = { page: from, f: Object.assign({}, S.f), scroll: mainScroll() };
+    DM.back = snapshotHere();       /* 带来源页记录定位，详情页互跳也能原样返回 */
   }
   DM.id = id;
   DM.tab = dmTabOk(tab) ? tab : 'detail';
@@ -304,13 +304,12 @@ function dmRender(push){
   setMainScroll(push === false ? sc : 0);
   navHash(routeHash(), push ? 'push' : 'replace');
 }
-/* 页面内返回：优先回到进来时的列表并还原筛选与滚动，没有来源就去需求列表 */
+/* 页面内返回：优先回到进来时的那一页并还原记录、筛选与滚动，没有来源就去需求列表 */
 function dmBack(){
   const b = DM.back;
   DM.id = null; DM.tab = 'detail'; DM.back = null;
-  if(b && b.page && PAGES[b.page] && b.page !== 'demandDetail'){
-    S.page = b.page;
-    S.f = Object.assign({}, b.f || {});
+  /* 来源页本身是需求详情（详情互跳）时不能返回自己，回落列表 */
+  if(b && b.page && b.page !== 'demandDetail' && restoreSnap(b)){
     render();
     setMainScroll(b.scroll || 0);
     /* 来源可能是另一个详情页（如从档案页的「这一单」点进来），必须写完整记录地址；
