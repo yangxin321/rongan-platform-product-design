@@ -548,7 +548,7 @@ function huApply(p){
       ${fl.length? `<div class="tl">${fl.map(f=>`<div class="tl-item hot"><div class="tl-d">${esc(f.time)} · ${esc(f.type)} · ${esc(f.staff)}</div>
         <div class="tl-t">${esc(f.note)}</div></div>`).join('')}</div>`
       : '<div class="mut sm">这一单还没有联系记录</div>'}
-      <div class="xs mut" style="margin-top:6px">只列这一单的联系；跨需求的合并记录在「沟通记录」。</div>
+      <div class="xs mut" style="margin-top:6px">只列这一单；跨需求的记录在「沟通记录」。</div>
     </div>`;
 }
 function huApplyEmpty(p){

@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <link rel="icon" href="data:,">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- 单文件原型每次改动都换整页内容，浏览器若沿用缓存会让人对着旧页面提意见（2026-11-15 真发生过）。
+     这里禁掉缓存：刷新 / 重新打开一定拿到当前这一版。 -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>融敢平台 · 角色版</title>
 <style>
 :root{
@@ -6700,7 +6705,7 @@ function huApply(p){
       ${fl.length? `<div class="tl">${fl.map(f=>`<div class="tl-item hot"><div class="tl-d">${esc(f.time)} · ${esc(f.type)} · ${esc(f.staff)}</div>
         <div class="tl-t">${esc(f.note)}</div></div>`).join('')}</div>`
       : '<div class="mut sm">这一单还没有联系记录</div>'}
-      <div class="xs mut" style="margin-top:6px">只列这一单的联系；跨需求的合并记录在「沟通记录」。</div>
+      <div class="xs mut" style="margin-top:6px">只列这一单；跨需求的记录在「沟通记录」。</div>
     </div>`;
 }
 function huApplyEmpty(p){
