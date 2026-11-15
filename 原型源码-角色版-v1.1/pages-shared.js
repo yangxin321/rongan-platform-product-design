@@ -74,7 +74,7 @@ function batchesPage(){
     <button class="btn" onclick="openModal(newBatchModal())">补建批次</button>`;
 
   const cols = [
-    {label:'批次名称', r:b=>`<div class="t-name mono arc-link" style="font-size:13.5px" onclick="event.stopPropagation();openBatch('${b.id}')">${esc(b.code)}</div><div class="t-sub">${b.date}${b.date===TODAY?' · <span style="color:var(--accent)">今天</span>':''}${sameDayCount(b)>1?' · 同日第 '+sameDaySeq(b)+' 批':''}</div>`},
+    {label:'批次名称', r:b=>`<div class="t-name mono arc-link" style="font-size:15px" onclick="event.stopPropagation();openBatch('${b.id}')">${esc(b.code)}</div><div class="t-sub">${b.date}${b.date===TODAY?' · <span style="color:var(--accent)">今天</span>':''}${sameDayCount(b)>1?' · 同日第 '+sameDaySeq(b)+' 批':''}</div>`},
     {label:'所属需求', r:b=>`<div class="sm">${esc(D(b.demandId).post)}</div><div class="t-sub">${esc(D(b.demandId).client)}</div>`},
     {label:'负责人', r:b=>`<span class="sm">${esc(b.owner)}</span>`},
     {label:'来源构成', r:b=>{const ch=batchChannels(b);
@@ -529,7 +529,7 @@ function dmProgress(d, al, ps){
     <div class="sec"><div class="sec-t">人员漏斗（${ps.length} 人）</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         ${funnel.map(f=>`<div style="flex:1;min-width:76px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:9px 10px;text-align:center">
-          <div class="mono" style="font-size:18px;font-weight:600">${f.c}</div>
+          <div class="mono" style="font-size:19.5px;font-weight:600">${f.c}</div>
           <div class="xs mut" style="margin-top:1px">${f.n}</div></div>`).join('')}
       </div>
     </div>
@@ -990,7 +990,7 @@ function uploadModal(bid, mode){
         </div>`
       : `<div style="display:flex;align-items:center;gap:8px;background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:9px;padding:9px 12px">
           <span class="b i">主批次</span>
-          <b class="mono" style="font-size:13px">${b?esc(b.code):'—'}</b>
+          <b class="mono" style="font-size:14.5px">${b?esc(b.code):'—'}</b>
           <span class="xs mut">${dem?esc(dem.post)+' · '+esc(dem.client):''}</span>
         </div>
         <div class="note" style="margin-top:9px;line-height:1.7">
@@ -1002,7 +1002,7 @@ function uploadModal(bid, mode){
     <button class="dr-x" onclick="closeAll()">×</button></div>
   <div class="md-b">
     <div class="up-drop">
-      <div style="font-size:24px;color:var(--ink4)">↑</div>
+      <div style="font-size:26px;color:var(--ink4)">↑</div>
       <div class="sm" style="margin-top:6px"><b>点击选择文件</b> 或拖拽到此处</div>
       <div class="xs mut" style="margin-top:4px">支持 .xlsx / .csv / .zip / .pdf / 图片 · 单次最多 200 份</div>
       <div class="sm mono" style="margin-top:10px;color:var(--accent)">已选择：BOSS导出_1113.xlsx（8 份）</div>
@@ -1010,7 +1010,7 @@ function uploadModal(bid, mode){
 
     <div style="background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px 14px;margin-top:12px">
       <div class="sm" style="font-weight:600;margin-bottom:6px">查重结果（按手机号比对人才档案）</div>
-      <div style="display:flex;gap:14px;font-size:12.5px;flex-wrap:wrap">
+      <div style="display:flex;gap:14px;font-size:14px;flex-wrap:wrap">
         <span>本次 <b class="mono">8</b> 份</span>
         <span style="color:var(--good)">新建档案 <b class="mono">${nNew}</b></span>
         ${poolOnly
@@ -1151,7 +1151,7 @@ function runMatch(bid, forceScope){
   const stamp = MATCH_STAMP[d.id] || {};
 
   openModal(`
-    <div class="md-h"><div><h3>AI 匹配结果 <span class="b n" style="font-size:10px;vertical-align:middle">演示逻辑</span></h3>
+    <div class="md-h"><div><h3>AI 匹配结果 <span class="b n" style="font-size:12.5px;vertical-align:middle">演示逻辑</span></h3>
       <p>${esc(pool.length?'':'')}依据需求 <span class="mono">${esc(d.code)}</span> · 生效版本 <span class="mono">${esc(av?av.v:'无')}</span> · 硬条件逐项判断</p></div>
       <button class="dr-x" onclick="closeAll()">×</button></div>
     <div class="md-b">
@@ -1164,7 +1164,7 @@ function runMatch(bid, forceScope){
         ${[['ok',okN,'可推荐'],['pend',pendN,'待补依据'],['no',noN,'不可推荐']].map(([k,v,lab])=>`
           <div style="flex:1;text-align:center;background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px">
             <div class="xs mut">${esc(lab)}</div>
-            <div class="mono" style="font-size:22px;font-weight:600;color:${k==='ok'?'var(--good)':k==='pend'?'var(--warn)':'var(--bad)'}">${v}</div>
+            <div class="mono" style="font-size:24px;font-weight:600;color:${k==='ok'?'var(--good)':k==='pend'?'var(--warn)':'var(--bad)'}">${v}</div>
             <div class="xs">${tri(k)}</div>
             ${k==='ok'&&!canRec&&blockedN?`<div class="xs mut">${blockedN} 人条件已符合，但需求未生效</div>`:''}</div>`).join('')}
       </div>
@@ -1265,7 +1265,7 @@ function openMatchDetail(pid, did){
 }
 function matchOneModal(kid){
   const k = PEOPLE.find(x=>x.id===kid);
-  return `<div class="md-h"><div><h3>AI 匹配 · ${esc(k.name)} <span class="b n" style="font-size:10px;vertical-align:middle">演示逻辑</span></h3>
+  return `<div class="md-h"><div><h3>AI 匹配 · ${esc(k.name)} <span class="b n" style="font-size:12.5px;vertical-align:middle">演示逻辑</span></h3>
     <p>选择需求后给出档位与分值 —— 分数只用于排序，符合性以硬条件三态为准</p></div>
     <button class="dr-x" onclick="closeAll()">×</button></div>
   <div class="md-b">
@@ -1274,7 +1274,7 @@ function matchOneModal(kid){
       <div class="hint">不选需求时不产生 Pass 判断，仅给通用演示分</div></div>
     <div style="background:#fff;border:1px solid var(--line);border-radius:10px;padding:15px;margin-top:6px">
       <div style="display:flex;align-items:center;gap:12px">
-        <div style="text-align:center"><div class="mono" style="font-size:32px;font-weight:600;color:var(--good)">A</div><div class="xs mut">演示档位</div></div>
+        <div style="text-align:center"><div class="mono" style="font-size:34px;font-weight:600;color:var(--good)">A</div><div class="xs mut">演示档位</div></div>
         <div style="flex:1">
           <div class="barline"><span class="xs mut">综合</span><div class="bar g"><i style="width:84%"></i></div><b>84</b></div>
           <div class="barline" style="margin-top:6px"><span class="xs mut">技能</span><div class="bar"><i style="width:88%"></i></div><b>88</b></div>

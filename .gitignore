@@ -17,6 +17,10 @@
 !.shot-v12.js
 !.shot-v13.js
 !截图-rg012/
+!截图-字号/
+!截图-字号/**
+!.shot-font.js
+!.check-layout.js
 !截图-rg012/**
 !RG012-页面入口核对表.md
 !AGENTS.md

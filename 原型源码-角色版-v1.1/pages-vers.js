@@ -89,7 +89,7 @@ function demandConfirmDrawer(id){
           return `<tr>
             <td class="mono xs mut">${f.no}</td>
             <td class="sm">${esc(f.name)}<div class="t-sub">${esc(f.l2)}</div></td>
-            <td><span class="b ${f.level==='一级'?'r':f.level==='二级'?'w':'n'}" style="font-size:10.5px">${esc(f.level)}</span></td>
+            <td><span class="b ${f.level==='一级'?'r':f.level==='二级'?'w':'n'}" style="font-size:12px">${esc(f.level)}</span></td>
             <td class="sm mut">${base}</td>
             <td class="sm">${ov?`<span style="color:var(--accent2);font-weight:600">${esc(ov.to)}</span>
               <div class="t-sub">${esc(ov.why)}</div>`:'<span class="mut">—</span>'}</td>
@@ -377,7 +377,7 @@ function openVers(did){
     <button class="dr-x" onclick="closeAll()">×</button></div>
   <div class="dr-b">
     ${vers.map(v=>`<div class="card" style="margin-bottom:11px"><div class="card-h">
-      <div><h3 class="mono" style="font-size:14px">${esc(v.v)}</h3>
+      <div><h3 class="mono" style="font-size:15.5px">${esc(v.v)}</h3>
         <div class="sub">${esc(v.at)} · ${esc(v.by)} · ${esc(v.way)}</div></div>
       <span class="b ${VER_TONE[v.status]||'n'}">${esc(v.status)}</span>
     </div><div class="card-b">

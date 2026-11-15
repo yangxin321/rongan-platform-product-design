@@ -114,7 +114,7 @@ function sjPortraitHtml(s){
     const num = hasMetric(tr) ? tr.metric : null;
     const color = x[2]==='PASS'?'#A32D2D':x[2]==='加分'?'#3B6D11':'#185FA5';
     const bg = x[2]==='PASS'?'#FCEBEB':x[2]==='加分'?'#EAF3DE':'#E6F1FB';
-    return `<span class="tg" style="padding:4px 9px;font-size:11.5px;background:${gap?'var(--bg2)':bg};border-color:${gap?'var(--warn-line)':color};color:${gap?'var(--warn)':color}">${esc(f.name||x[0])} ≥${esc(x[1])} · ${esc(num||tr.label||'待补')}</span>`;
+    return `<span class="tg" style="padding:4px 9px;font-size:13px;background:${gap?'var(--bg2)':bg};border-color:${gap?'var(--warn-line)':color};color:${gap?'var(--warn)':color}">${esc(f.name||x[0])} ≥${esc(x[1])} · ${esc(num||tr.label||'待补')}</span>`;
   }).join('');
   return `<div class="card" style="margin-bottom:14px">
     <div class="card-h"><div>

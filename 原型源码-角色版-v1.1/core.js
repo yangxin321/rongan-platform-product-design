@@ -165,7 +165,7 @@ function viewCustLink(tok){
       ${back}
       <div class="cust-hd"><div class="logo">融</div><div><b>融敢平台 · 需求确认单</b><div class="xs mut">只读链接</div></div></div>
       <div class="cust-body" style="text-align:center;padding:48px 24px">
-        <div style="font-size:34px;margin-bottom:8px">⛔</div>
+        <div style="font-size:36px;margin-bottom:8px">⛔</div>
         <div class="sec-t" style="justify-content:center">${esc(m[0])}</div>
         <p class="sm mut" style="margin-top:10px">${esc(m[1])}</p>
         <div class="note r" style="text-align:left;margin-top:18px">失效 / 撤销后该链接<b>无法继续提交任何内容</b>，也不可作为需求确认依据。</div>
@@ -607,7 +607,7 @@ function openModal(html, size){
 function toast(msg){
   let t = document.getElementById('toast');
   if(!t){ t = document.createElement('div'); t.id='toast';
-    t.style.cssText='position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:#111820;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:99;opacity:0;transition:.2s';
+    t.style.cssText='position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:#111820;color:#fff;padding:10px 18px;border-radius:8px;font-size:14.5px;z-index:99;opacity:0;transition:.2s';
     document.body.appendChild(t);
   }
   t.textContent = msg; t.style.opacity='1';

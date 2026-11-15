@@ -71,7 +71,7 @@ function phoneWrap(body, tab){
     <div class="phone-wrap"><div class="phone">
       <div class="ph-status"><span>9:41</span><span>●●● ▮</span></div>
       <div class="ph-body">${body}</div>
-      <div class="ph-tabbar">${tabs.map(t=>`<button class="${tab===t[0]?'on':''}" onclick="go('${t[0]}')"><span style="font-size:15px">${t[2]}</span>${t[1]}</button>`).join('')}</div>
+      <div class="ph-tabbar">${tabs.map(t=>`<button class="${tab===t[0]?'on':''}" onclick="go('${t[0]}')"><span style="font-size:16.5px">${t[2]}</span>${t[1]}</button>`).join('')}</div>
     </div></div>
   </div>`;
 }
@@ -79,9 +79,9 @@ function phoneWrap(body, tab){
 function e01Jobs(){
   const body = `
     <div style="background:linear-gradient(160deg,#d9541e,#b94d2c);padding:20px 18px 26px;color:#fff">
-      <div style="font-size:13px;opacity:.85">你好，张建国</div>
-      <div style="font-size:19px;font-weight:600;margin-top:3px">今天有 3 个岗位适合你</div>
-      <div style="margin-top:14px;background:rgba(255,255,255,.18);border-radius:9px;padding:9px 12px;font-size:12.5px">搜索岗位 / 城市 / 工价</div>
+      <div style="font-size:14.5px;opacity:.85">你好，张建国</div>
+      <div style="font-size:20.5px;font-weight:600;margin-top:3px">今天有 3 个岗位适合你</div>
+      <div style="margin-top:14px;background:rgba(255,255,255,.18);border-radius:9px;padding:9px 12px;font-size:14px">搜索岗位 / 城市 / 工价</div>
     </div>
     <div style="padding:0 14px;margin-top:-14px">
       ${[['售后运维工程师','立讯精密 · 东莞松山湖','32-38 元/时','12 人 · 急招','匹配你的电气调试经验'],
@@ -93,7 +93,7 @@ function e01Jobs(){
             ${i===0?'<span class="b a">推荐</span>':''}
           </div>
           <div class="ph-kv"><span style="color:var(--accent);font-weight:600">${j[2]}</span><span>${j[3]}</span></div>
-          <div style="font-size:11.5px;color:var(--ink3);margin-top:8px">${j[4]}</div>
+          <div style="font-size:13px;color:var(--ink3);margin-top:8px">${j[4]}</div>
           <div class="ph-btns"><button class="ph-btn">看详情</button><button class="ph-btn pri" onclick="toast('已报名，招聘专员会联系你')">立即报名</button></div>
         </div>`).join('')}
     </div>`;
@@ -106,24 +106,24 @@ function e01Progress(){
     <div class="ph-head"><h3>我的进度</h3><p>立讯精密 · 售后运维工程师</p></div>
     <div class="ph-card">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-        <div style="width:38px;height:38px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-size:16px">◍</div>
-        <div><div style="font-size:14px;font-weight:600">正在面试阶段</div><div class="pc-sub">还有 2 步就到岗</div></div>
+        <div style="width:38px;height:38px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-size:17.5px">◍</div>
+        <div><div style="font-size:15.5px;font-weight:600">正在面试阶段</div><div class="pc-sub">还有 2 步就到岗</div></div>
       </div>
       ${steps.map((s,i)=>`<div style="display:flex;gap:10px;padding:7px 0">
         <div style="width:18px;text-align:center">
           <div style="width:14px;height:14px;border-radius:50%;background:${i<3?'var(--good)':i===3?'var(--accent)':'var(--line2)'};margin:2px auto 0"></div>
         </div>
         <div style="flex:1;padding-bottom:4px">
-          <div style="font-size:13px;font-weight:${i===3?'600':'400'};color:${i>3?'var(--ink4)':'var(--ink)'}">${s[0]}</div>
-          <div style="font-size:11.5px;color:var(--ink3)">${s[1]}</div>
+          <div style="font-size:14.5px;font-weight:${i===3?'600':'400'};color:${i>3?'var(--ink4)':'var(--ink)'}">${s[0]}</div>
+          <div style="font-size:13px;color:var(--ink3)">${s[1]}</div>
         </div>
       </div>`).join('')}
       <div class="ph-btns"><button class="ph-btn pri" onclick="toast('已记住面试时间')">面试须知</button><button class="ph-btn">联系专员</button></div>
     </div>
     <div class="ph-card">
-      <h4 style="font-size:13px">面试提醒</h4>
+      <h4 style="font-size:14.5px">面试提醒</h4>
       <div class="pc-sub" style="margin-top:4px">11 月 14 日 09:30 · 东莞松山湖科技路 8 号</div>
-      <div style="font-size:11.5px;color:var(--ink3);margin-top:6px">请携带身份证、低压电工证原件</div>
+      <div style="font-size:13px;color:var(--ink3);margin-top:6px">请携带身份证、低压电工证原件</div>
     </div>`;
   return phoneWrap(body,'progress');
 }
@@ -146,18 +146,18 @@ function e01Todos(){
 function e01Mine(){
   const body = `
     <div style="background:#fff;padding:18px;display:flex;align-items:center;gap:12px">
-      <div style="width:52px;height:52px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-size:20px;font-weight:600">张</div>
-      <div><div style="font-size:16px;font-weight:600">张建国</div>
+      <div style="width:52px;height:52px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-size:21.5px;font-weight:600">张</div>
+      <div><div style="font-size:17.5px;font-weight:600">张建国</div>
         <div class="pc-sub">男 · 34岁 · 电气调试 8 年</div></div>
       <div style="flex:1"></div><span class="b g">资料 92%</span>
     </div>
     <div class="ph-card">
-      <h4 style="font-size:13px">我的资料</h4>
+      <h4 style="font-size:14.5px">我的资料</h4>
       <div class="ph-kv"><span>电话 138****6621</span><span>期望城市 东莞</span><span>期望薪资 35 元/时</span><span>可到岗 12 月初</span></div>
       <div class="ph-btns"><button class="ph-btn" onclick="toast('进入资料编辑')">编辑资料</button></div>
     </div>
     ${[['我的报名','3 个'],['已入职记录','1 段'],['我的证书','低压电工证'],['帮助与反馈','']].map(m=>`
-      <div style="background:#fff;padding:14px 18px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;font-size:13.5px">
+      <div style="background:#fff;padding:14px 18px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;font-size:15px">
         <span>${m[0]}</span><span class="mut">${m[1]} ›</span></div>`).join('')}`;
   return phoneWrap(body,'mine');
 }

@@ -71,7 +71,7 @@ function r01Dash(){
         </div></div>
       <div class="card"><div class="card-h"><h3>人才池</h3><span class="xs mut">全量</span></div>
         <div class="card-b">
-          <div class="mono" style="font-size:30px;font-weight:600">${POOL.length}</div>
+          <div class="mono" style="font-size:32px;font-weight:600">${POOL.length}</div>
           <div class="xs mut">池内可用人员</div>
           <div class="hr"></div>
           <div class="sm">资料完整度 ≥85%：<b>${POOL.filter(p=>p.complete>=85).length}</b> 人</div>
@@ -113,7 +113,7 @@ function r01Conversion(){
       <div class="card"><div class="card-h"><div><h3>转化漏斗</h3><div class="sub">每一步的留存与流失</div></div></div>
         <div class="card-b">
           ${steps.map((s,i)=>`<div style="margin-bottom:13px">
-            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+            <div style="display:flex;justify-content:space-between;font-size:14.5px;margin-bottom:4px">
               <span>${s.n}</span><span class="mono">${s.v} <span class="xs mut">${i?'· '+s.note:''}</span></span></div>
             <div class="bar" style="height:9px"><i style="width:${s.v/max*100}%;background:${i===6?'var(--good)':'var(--accent)'}"></i></div>
           </div>`).join('')}
@@ -153,7 +153,7 @@ function r01Confirms(){
     const av = activeVer(d), pv = pendingVer(d), lk = mainLink(d.id);
     const rg = lastReg(d.id, av?av.v:(pv?pv.v:'v1.0'));
     return `<tr class="clk" onclick="openConfirm('${d.id}')">
-      <td><div class="t-name mono" style="font-size:13px">QR-${d.code.slice(3)}</div>
+      <td><div class="t-name mono" style="font-size:14.5px">QR-${d.code.slice(3)}</div>
         <div class="t-sub">${av?av.v:'—'}${pv?' → '+pv.v:''}</div></td>
       <td><div class="sm">${esc(d.client)} · ${esc(d.project)}</div><div class="t-sub">${esc(d.post)}（${d.head} 人）</div></td>
       <td><span class="b n">47 项</span></td>
@@ -283,7 +283,7 @@ function factorsTrade(bar){
     if(!x) return '<span class="mut sm">—</span>';
     const gap = isGapTier(x);
     return `<div class="sm" style="color:${gap?'var(--ink4)':'var(--ink)'}">${esc(x.label)}</div>
-      <div class="mono" style="font-size:11px;margin-top:2px;color:${hasMetric(x)?'var(--accent2)':'var(--ink4)'}">${esc(x.metric||'—')}</div>`;
+      <div class="mono" style="font-size:12.5px;margin-top:2px;color:${hasMetric(x)?'var(--accent2)':'var(--ink4)'}">${esc(x.metric||'—')}</div>`;
   };
 
   const cols=[
@@ -359,7 +359,7 @@ function openTradeFactor(fid){
 
   const usedIn = PORTRAITS_V2.filter(p=>p.pick.some(x=>x[0]===fid))
     .map(p=>{ const pr = p.pick.find(x=>x[0]===fid);
-      return `<span class="tg" style="padding:3px 8px;font-size:11.5px">${esc(p.name)} · 要 ${esc(pr[1])} · ${esc(pr[2])}</span>`; }).join('');
+      return `<span class="tg" style="padding:3px 8px;font-size:13px">${esc(p.name)} · 要 ${esc(pr[1])} · ${esc(pr[2])}</span>`; }).join('');
 
   openDrawer(`<div class="dr-h"><div><h3>${esc(f.id)} ${esc(f.name)}</h3>
       <div class="sub">${esc(t.name)} · ${esc(f.valueType)}型 · 算子 ${esc(f.operator)} · ${(f.tiers||[]).length-gapN}/3 档已写</div></div>
@@ -431,7 +431,7 @@ function r01Portraits(){
           const num = hasMetric(tr) ? tr.metric : null;
           const color = x[2]==='PASS'?'#A32D2D':x[2]==='加分'?'#3B6D11':'#185FA5';
           const bg = x[2]==='PASS'?'#FCEBEB':x[2]==='加分'?'#EAF3DE':'#E6F1FB';
-          return `<span class="tg" style="padding:4px 9px;font-size:11.5px;background:${gap?'var(--bg2)':bg};border-color:${gap?'var(--warn-line)':color};color:${gap?'var(--warn)':color}">${esc(f.name||x[0])} ≥${esc(x[1])} · ${esc(num||tr.label||'待补')}</span>`;
+          return `<span class="tg" style="padding:4px 9px;font-size:13px;background:${gap?'var(--bg2)':bg};border-color:${gap?'var(--warn-line)':color};color:${gap?'var(--warn)':color}">${esc(f.name||x[0])} ≥${esc(x[1])} · ${esc(num||tr.label||'待补')}</span>`;
         }).join('')}</div>
         <div class="t-sub" style="margin-top:8px">${metr===0
           ? `${p.pick.length} 条全部落在没有精度指标的档（多为 D1「会做」）—— 只能靠面试实操判定`
@@ -559,13 +559,13 @@ ${p.pick.map(x=>`    [<span class="s">"${x[0]}"</span>, <span class="s">"${x[1]}
       <div class="sec"><div class="sec-t">${xpl('完整度：三个数，不给百分比','完整度')}</div>
         <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px">
           <div class="card"><div class="card-b"><div class="sm mut">PASS · 硬门槛</div>
-            <div style="font-size:20px;font-weight:500;color:#A32D2D">${g('PASS').length} 条</div>
+            <div style="font-size:21.5px;font-weight:500;color:#A32D2D">${g('PASS').length} 条</div>
             <div class="t-sub">缺一项就不能发确认单</div></div></div>
           <div class="card"><div class="card-b"><div class="sm mut">必填</div>
-            <div style="font-size:20px;font-weight:500;color:#185FA5">${g('必填').length} 条</div>
+            <div style="font-size:21.5px;font-weight:500;color:#185FA5">${g('必填').length} 条</div>
             <div class="t-sub">缺了标黄，可后补</div></div></div>
           <div class="card"><div class="card-b"><div class="sm mut">加分</div>
-            <div style="font-size:20px;font-weight:500;color:#3B6D11">${g('加分').length} 条</div>
+            <div style="font-size:21.5px;font-weight:500;color:#3B6D11">${g('加分').length} 条</div>
             <div class="t-sub">只影响排序，不淘汰</div></div></div>
         </div>
         ${xpl(`<div class="t-sub" style="margin-top:8px">合计 ${p.pick.length} 条，不是 47 项 —— 47 项是通用采集口径，工种技能因子在这之外另算。候选人打分时这三个数变成 <b>已满足 / 要求</b>，永远不给百分比。</div>`, '')}
@@ -830,11 +830,11 @@ function r01Perms(){
         <div class="card-b">
           <div class="sec-t">菜单权限</div>
           ${['我的首页','需求列表','批次列表','人员列表','人才池列表','系统操作记录'].map(m=>`
-            <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px"><input type="checkbox" checked style="width:15px;height:15px">${m}</label>`).join('')}
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14.5px"><input type="checkbox" checked style="width:15px;height:15px">${m}</label>`).join('')}
           <div class="sec-t" style="margin-top:14px">动作权限</div>
           <div class="tags">${['查看','新建','编辑','导出','记录联系','分配（否）','删除（否）'].map(t=>`<span class="tg">${t}</span>`).join('')}</div>
           <div class="sec-t" style="margin-top:14px">字段级权限</div>
-          <div style="font-size:13px;line-height:2">
+          <div style="font-size:14.5px;line-height:2">
             <div>合同价 <span class="b r" style="float:right">不可见</span></div>
             <div>提成 / 利润 <span class="b r" style="float:right">不可见</span></div>
             <div>人员手机号 <span class="b w" style="float:right">脱敏</span></div>
@@ -843,7 +843,7 @@ function r01Perms(){
         </div></div></div>`;
   } else if(tab==='data'){
     body = `<div class="grid g2"><div class="card"><div class="card-h"><h3>数据范围规则</h3></div><div class="card-b">
-      ${['本人负责（默认）','本组','指定客户','指定项目','全部'].map((r,i)=>`<label style="display:flex;align-items:center;gap:8px;padding:8px 0;font-size:13.5px">
+      ${['本人负责（默认）','本组','指定客户','指定项目','全部'].map((r,i)=>`<label style="display:flex;align-items:center;gap:8px;padding:8px 0;font-size:15px">
         <input type="radio" name="dr" ${i===0?'checked':''} style="width:15px;height:15px">${r}</label>`).join('')}
       </div></div>
       <div class="card"><div class="card-h"><h3>例外名单</h3><span class="xs mut">白名单 / 黑名单</span></div><div class="card-b">

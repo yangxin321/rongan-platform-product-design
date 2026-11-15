@@ -87,7 +87,7 @@ function hdRow(m, i){
     <td><div class="sm">${esc(d.client)}</div><div class="t-sub">${esc(d.city)}</div></td>
     <td class="num hd-ed" id="hdc-${d.id}-qty" onclick="hdEdit('${d.id}','qty')"><b>${m.mine}</b><span class="xs mut">/${d.head}</span></td>
     <td class="num">${m.mineHired}</td>
-    <td class="num" id="hdc-${d.id}-gap"><b style="color:${gapTone};font-size:15px">${m.gap}</b></td>
+    <td class="num" id="hdc-${d.id}-gap"><b style="color:${gapTone};font-size:16.5px">${m.gap}</b></td>
     <td class="num">${m.act}</td>
     <td class="num">${m.itv}</td>
     <td class="num">${m.onb}</td>

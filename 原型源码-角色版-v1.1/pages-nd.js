@@ -229,8 +229,8 @@ function ndEditor(f, v){
 function ndS3(st, s){
   return `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
       <div class="ndbx"><div class="lab">人</div><div class="val">${esc(st.people||'—')}<small>人</small></div><div class="foot">这一单要几个人</div></div>
-      <div class="ndbx"><div class="lab">时间</div><div class="val" style="font-size:15px">${esc(st.deadline||'—')}</div><div class="foot">最迟到岗 · 工期 ${esc(st.term||'—')}</div></div>
-      <div class="ndbx"><div class="lab">钱</div><div class="val" style="font-size:15px">${esc(st.price||'—')}</div><div class="foot">工价（元/时）</div></div>
+      <div class="ndbx"><div class="lab">时间</div><div class="val" style="font-size:16.5px">${esc(st.deadline||'—')}</div><div class="foot">最迟到岗 · 工期 ${esc(st.term||'—')}</div></div>
+      <div class="ndbx"><div class="lab">钱</div><div class="val" style="font-size:16.5px">${esc(st.price||'—')}</div><div class="foot">工价（元/时）</div></div>
     </div>
     <div class="frow">
       <div class="field"><label>需求人数 <i>*</i></label><input id="ndPeople" type="number" value="${esc(st.people)}" placeholder="20" onchange="ndState().people=this.value"></div>
@@ -260,7 +260,7 @@ function ndS4(st, s){
   }).join('') : '<div class="sm mut">没有改动，整单沿用标准值。</div>';
 
   return `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
-      <div class="ndbx"><div class="lab">标准快照</div><div class="val" style="font-size:15px">${esc(s.ver||'—')}</div><div class="foot">${esc(s.name||'—')}</div></div>
+      <div class="ndbx"><div class="lab">标准快照</div><div class="val" style="font-size:16.5px">${esc(s.ver||'—')}</div><div class="foot">${esc(s.name||'—')}</div></div>
       <div class="ndbx"><div class="lab">本单调整</div><div class="val">${keys.length}<small>项</small></div><div class="foot">其余 ${picks.length-keys.length} 项同标准</div></div>
       <div class="ndbx"><div class="lab">人 · 时间 · 钱</div><div class="val">${esc(st.people||'—')}<small>人</small></div><div class="foot">${esc(st.deadline||'—')} · ${esc(st.price||'待报价')}</div></div>
     </div>
