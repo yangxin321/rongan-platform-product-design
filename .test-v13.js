@@ -342,7 +342,7 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
              body: (document.querySelector('.main')||{}).innerText||'' }; });
   await page.waitForTimeout(250);
   ok('RG012-33 档案子页写进地址（英文稳定键）',
-     /\/apply\/P\d+$/.test(archTab.hash) && archTab.tabs === 0 && archTab.body.includes('这一单的流程'),
+     /\/apply\/P\d+$/.test(archTab.hash) && archTab.tabs === 0 && archTab.body.includes('跟进环节'),
      archTab.hash);
 
   const archBack = await ev2(() => { huBack();
@@ -929,18 +929,21 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     const t = m.innerText;
     const stSel = [...m.querySelectorAll('.toolbar select')].map(x => x.value);
     openModal(poolPickBatch('PE001', S.f.for));
-    const sel = (document.querySelector('#modal select') || {}).innerText || '';
+    /* 第九批：加入需求必须先选目标需求，再落批次 —— 默认需求就是进来的这一单 */
+    const dmSel = (document.querySelector('#modal #pkDm') || {}).value || '';
+    const batchSel = (document.querySelector('#modal #pkBatch') || {}).innerText || '';
     closeAll();
     return { page: S.page, hash: location.hash, forD: S.f.for,
       banner: /正在为「售后运维工程师」找人/.test(t) && /岗位条件/.test(t),
       hasCond: t.includes('能接受客户现场驻场'),
       freeOnly: stSel.includes('free'),
-      pickFirst: /立讯售后-1113/.test(sel) };
+      pickFirst: dmSel === 'D1',
+      batchFirst: /立讯售后-1113/.test(batchSel) };
   });
-  ok('RG012-58 人才库找人进完整筛选页：带入需求与岗位条件，捞入默认选这一单的批次',
+  ok('RG012-58 人才库找人进完整筛选页：带入需求与岗位条件，加入需求默认选这一单',
      !poolFor.err && poolFor.page === 'pool' && poolFor.hash === '#pool'
      && poolFor.forD === 'D1' && poolFor.banner && poolFor.hasCond
-     && poolFor.freeOnly && poolFor.pickFirst,
+     && poolFor.freeOnly && poolFor.pickFirst && poolFor.batchFirst,
      JSON.stringify(poolFor));
 
   /* ---------- 02 简历明细：没有范围切换、没有技术地址、有真分页 ---------- */

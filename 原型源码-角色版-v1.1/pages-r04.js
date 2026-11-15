@@ -214,7 +214,7 @@ function r04Home(){
       <div class="hd-grp-h"><span class="b ${g.tone}">${g.n}</span><b class="sm">${g.list.length} 人</b>
         <div class="sp"></div><span class="xs mut">${g.act}</span></div>
       ${g.list.length? g.list.slice(0,6).map(p=>personRow(p,g.act)).join('') : '<div class="xs mut" style="padding:6px 2px">这类现在没有人</div>'}
-      ${g.list.length>6?`<div class="xs mut" style="padding:4px 2px">还有 ${g.list.length-6} 人 → <span class="link" onclick="event.stopPropagation();go('persons')">去人员列表</span></div>`:''}
+      ${g.list.length>6?`<div class="xs mut" style="padding:4px 2px">还有 ${g.list.length-6} 人 → <span class="link" onclick="event.stopPropagation();go('persons')">去招聘人员列表</span></div>`:''}
     </div>`).join('');
 
   const sysFocus = myFocus.length

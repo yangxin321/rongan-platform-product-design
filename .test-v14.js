@@ -132,7 +132,7 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     return { hash: location.hash, t: m.innerText };
   });
   ok('RG014-13 「投递跟进」进这一单的独立页',
-     app.hash === '#person/PE001/apply/P1' && /这一单的流程/.test(app.t) && /售后运维工程师/.test(app.t),
+     app.hash === '#person/PE001/apply/P1' && /跟进环节/.test(app.t) && /售后运维工程师/.test(app.t),
      app.hash);
   ok('RG014-14 投递跟进页仍是原流程（联系/补全/面试/入职/建档可找到）',
      ['记录联系', '补全', '面试', '入职', '建档'].every(k => app.t.includes(k)), '');
@@ -159,7 +159,7 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
       add: Array.from(m.querySelectorAll('.btn, .link')).some(b => /新增沟通记录/.test(b.innerText)) };
   });
   ok('RG014-16 沟通记录是独立页，关联需求写在列里',
-     logs.hash === '#person/PE001/logs' && A(logs.ths).includes('关联需求'), JSON.stringify(A(logs.ths)));
+     logs.hash === '#person/PE001/logs' && A(logs.ths).includes('关联需求或岗位'), JSON.stringify(A(logs.ths)));
   ok('RG014-17 沟通记录页能新增，且档案记录（建档/上传/转交）在这里',
      logs.add && /档案记录/.test(logs.t) && /建档时间/.test(logs.t) && /上传履历|转交记录/.test(logs.t), '');
 

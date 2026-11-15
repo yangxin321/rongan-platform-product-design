@@ -247,7 +247,7 @@ function personsPage(){
   });
 
   return `<div class="page">
-    ${head('人员列表', (isR04? '我名下的人员' : '全部在跟人员') + ' · 一行 = 一次投递（人 × 需求）；同一个人投多个需求会出现多行，姓名旁标「同投 N」· 点匹配档位看逐项依据 · 新增简历走需求 / 批次的「传简历」「人才库找人」', actions)}
+    ${head('招聘人员列表', (isR04? '我名下的投递' : '全部在跟投递') + ' · 一行 = 一次投递（人 × 需求）；同一人投多个需求会出现多行，各自独立跟进', actions)}
     ${toolbar({q:'搜索姓名 / 电话 / 技能', filters:[
       {k:'fu',opts:[{v:'',label:'全部跟进'},{v:'today',label:'今天待跟进'},{v:'late',label:'已逾期'}]},
       {k:'nd',opts:[{v:'',label:'全部节点'},...NODES.map(n=>({v:n,label:n}))]},
@@ -329,16 +329,19 @@ function poolPage(){
       return `<div class="sm"><b>${n}</b> 个需求</div><div class="t-sub" title="${esc(ds)}">${esc(ds.length>12?ds.slice(0,12)+'…':ds)}</div>`;}},
     {label:'资料完整度', r:p=>`<div class="barline"><div class="bar ${p.complete>=85?'g':p.complete<65?'w':''}"><i style="width:${p.complete}%"></i></div><b>${p.complete}%</b></div>`},
     {label:'操作', r:p=>{const first=appsOf(p.id)[0];
+      /* 人才池 = 一人一档；查看简历 / 沟通记录 / 资料核实都走那三个独立页面，
+         加入需求明确指向一个目标需求（不再只选批次），其他需求投递独立保留。 */
       return `<div class="acts">
-      <span class="link" onclick="event.stopPropagation();openArchive('${p.id}','resume')">档案</span>
-      <span class="link" onclick="event.stopPropagation();openModal(poolPickBatch('${p.id}','${forD}'))">捞入批次</span>
-      ${first?`<span class="link" onclick="event.stopPropagation();openPerson('${first.id}')">看投递</span>`:''}
+      <span class="link" onclick="event.stopPropagation();openArchive('${p.id}','resume')">查看简历</span>
+      <span class="link" onclick="event.stopPropagation();huGoTo('${p.id}','logs','${first?first.id:''}','${first?first.demandId:''}')">沟通记录</span>
+      <span class="link" onclick="event.stopPropagation();huGoTo('${p.id}','verify','${first?first.id:''}','${first?first.demandId:''}')">资料核实</span>
+      <span class="link" onclick="event.stopPropagation();openModal(poolPickBatch('${p.id}','${forD}'))">加入需求</span>
     </div>`;}},
   ];
 
   const sl = pageSlice('pool', rows);
   return `<div class="page">
-    ${head('人才池列表','全量人员档案（按手机号去重）· 一个人只有一份档案，投几次需求就有几条投递；点姓名进档案独立页（简历 / 画像 / 本次投递 / 沟通）', `<button class="btn" onclick="toast('已给 12 位资料待补全的候选人发送补全链接（短信/微信）')">发补全链接</button><button class="btn" onclick="openModal(uploadPoolModal(),'md-lg')">↑ 上传简历入库</button><button class="btn pri" onclick="openModal(aiFindModal(),'md-lg')">AI 找候选人</button>`)}
+    ${head('人才池列表','一人一份档案（按手机号去重）· 投过几次需求就有几条投递；查看简历 / 沟通记录 / 资料核实与招聘人员列表用同一套页面', `<button class="btn" onclick="toast('已给 12 位资料待补全的候选人发送补全链接（短信/微信）')">发补全链接</button><button class="btn" onclick="openModal(uploadPoolModal(),'md-lg')">↑ 上传简历入库</button><button class="btn pri" onclick="openModal(aiFindModal(),'md-lg')">AI 找候选人</button>`)}
     ${forD && D(forD).id ? poolForBar(D(forD)) : ''}
     ${toolbar({q:'搜索姓名 / 技能 / 手机号', filters:[
       {k:'st',opts:[
@@ -1659,20 +1662,50 @@ function matchOneModal(kid){
 }
 /* 捞入批次：从「人才库找人」进来时带着需求（forD），下拉先给这一单的进行中批次，
    省得在一堆批次号里找 —— 但不禁用别的批次，临时帮别的单捞人也是允许的。 */
+/* 加入需求：先选目标需求，再按「需求 + 日期」落批次。
+   以前只让选批次 —— 批次是结果不是目标，容易把人对到别的需求上。 */
+function pkBatchOpts(did){
+  const list = BATCHES.filter(b=>b.status==='进行中' && b.demandId===did);
+  return list.map(b=>`<option>${esc(b.code)}</option>`).join('')
+    || '<option>系统按「需求 + 日期」自动建今日批次</option>';
+}
+function pkDmChange(){
+  const sel = document.getElementById('pkDm'); if(!sel) return;
+  const v = sel.value, kid = (document.getElementById('pkKid')||{}).value;
+  const bs = document.getElementById('pkBatch');
+  if(bs) bs.innerHTML = pkBatchOpts(v);
+  const wn = document.getElementById('pkWarn');
+  if(!wn) return;
+  const mine = appsOf(kid).filter(a=>a.status==='跟进中' && a.demandId===v);
+  wn.innerHTML = mine.length
+    ? `<div class="note w">该人在这个需求下已有进行中的投递（跟进人 ${esc(mine[0].owner)}）。系统会拦下并提示「已在跟进中」，不重复建档，也不覆盖原跟进人。</div>`
+    : '';
+}
 function poolPickBatch(kid, forD){
-  const open = BATCHES.filter(b=>b.status==='进行中');
-  const list = forD ? open.filter(b=>b.demandId===forD).concat(open.filter(b=>b.demandId!==forD)) : open;
-  const d = forD ? D(forD) : null;
-  return `<div class="md-h"><div><h3>捞入批次${d?' · '+esc(d.post):''}</h3><p>把池内人员加入某个进行中的批次</p></div>
+  const mine = appsOf(kid).filter(a=>a.status==='跟进中');
+  const mineIds = mine.map(a=>a.demandId);
+  const d0 = forD || (DEMANDS.filter(d=>d.status==='招聘中' && !mineIds.includes(d.id))[0] || DEMANDS[0]).id;
+  const busy = mine.length
+    ? `<div class="note" style="margin-bottom:12px">这个人在 ${mine.map(a=>esc(D(a.demandId).post)+'（'+esc(a.owner)+'）').join('、')} 已有进行中的投递。加入新需求会新建一条独立投递，不动原投递。</div>`
+    : '';
+  return `<div class="md-h"><div><h3>加入需求</h3><p>先明确目标需求，再落批次 · 批次沿用现有「需求 + 日期」规则</p></div>
     <button class="dr-x" onclick="closeAll()">×</button></div>
   <div class="md-b">
-    ${d?`<div class="note i" style="margin-bottom:12px">当前在给 <b>${esc(d.post)}</b>（${esc(d.client)}）找人，默认选这一单的进行中批次。</div>`:''}
-    <div class="field"><label>选择批次</label>
-      <select>${list.map(b=>`<option>${b.code} · ${D(b.demandId).post}</option>`).join('')}</select></div>
-    <div class="note">捞入后该人员会出现在批次人员列表与需求人员列表中，状态为「新入库」。</div>
+    <input type="hidden" id="pkKid" value="${esc(kid)}">
+    ${busy}
+    <div class="frow">
+      <div class="field"><label>目标需求<i>*</i></label>
+        <select id="pkDm" onchange="pkDmChange()">
+          ${DEMANDS.filter(x=>x.status==='招聘中').map(x=>`<option value="${x.id}" ${x.id===d0?'selected':''}>${esc(x.post)} · ${esc(x.client)}</option>`).join('')}
+        </select></div>
+      <div class="field"><label>进哪个批次</label>
+        <select id="pkBatch">${pkBatchOpts(d0)}</select></div>
+    </div>
+    <div id="pkWarn"></div>
+    <div class="note">加入后生成一条新投递，状态「新入库」，可在需求简历明细与招聘人员列表里找到；这个人的其他需求投递不受影响。</div>
   </div>
   <div class="md-f"><button class="btn" onclick="closeAll()">取消</button>
-    <button class="btn pri" onclick="closeAll();toast('已捞入批次')">确认捞入</button></div>`;
+    <button class="btn pri" onclick="closeAll();toast('已加入需求，生成一条新投递')">确认加入</button></div>`;
 }
 function addPersonModal(){
   const sample = [

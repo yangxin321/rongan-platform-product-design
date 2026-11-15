@@ -10,7 +10,7 @@ const ROLES = {
     groups:[
       {g:'业务监控', items:[['dash','业务看板'],['conversion','转化监控']]},
       {g:'需求管理', items:[['demands','需求列表'],['custreq','客户需求确认'],['confirms','客户确认'],['clinks','客户确认链接']]},
-      {g:'招聘执行', items:[['batches','批次列表'],['persons','人员列表'],['pool','人才池列表']]},
+      {g:'招聘执行', items:[['batches','批次列表'],['persons','招聘人员列表'],['pool','人才池列表']]},
       {g:'数据字典维护', items:[['dicts','数据字典'],['factors','人才画像因子库'],['std','标准岗位标准']]},
       {g:'系统日常管理', items:[['perms','账号与权限'],['logs','系统操作记录']]},
     ]},
@@ -26,7 +26,7 @@ const ROLES = {
     meta:'6 个页面', note:'看不到合同价 / 提成 / 利润',
     groups:[
       {g:'工作', items:[['demands','需求列表'],['batches','批次列表']]},
-      {g:'招人', items:[['persons','人员列表'],['pool','人才池列表']]},
+      {g:'招人', items:[['persons','招聘人员列表'],['pool','人才池列表']]},
       {g:'其他', items:[['logs','系统操作记录'],['home','我的首页']]},
     ]},
   E01:{ code:'E01', who:'张建国', post:'求职者', title:'求职者端', tone:'warn',

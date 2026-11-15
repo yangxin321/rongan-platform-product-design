@@ -829,7 +829,7 @@ function r01Perms(){
       <div class="card"><div class="card-h"><h3>R04 招聘专员 · 权限明细</h3><span class="xs mut">勾选到二级页</span></div>
         <div class="card-b">
           <div class="sec-t">菜单权限</div>
-          ${['我的首页','需求列表','批次列表','人员列表','人才池列表','系统操作记录'].map(m=>`
+          ${['我的首页','需求列表','批次列表','招聘人员列表','人才池列表','系统操作记录'].map(m=>`
             <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14.5px"><input type="checkbox" checked style="width:15px;height:15px">${m}</label>`).join('')}
           <div class="sec-t" style="margin-top:14px">动作权限</div>
           <div class="tags">${['查看','新建','编辑','导出','记录联系','分配（否）','删除（否）'].map(t=>`<span class="tg">${t}</span>`).join('')}</div>

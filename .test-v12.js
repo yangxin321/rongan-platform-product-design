@@ -378,7 +378,9 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   await ev(() => huSetTab('resume'));
   await page.waitForTimeout(250);
   const zCityRs = await ev(() => {
-    const dd = Array.from(document.querySelectorAll('.kv > div')).find(x=>x.innerText.includes('愿意工作城市'));
+    /* 第九批：简历页求职意愿改成表格，不再是 dl.kv —— 表格行与旧 kv 行都认 */
+    const tr = Array.from(document.querySelectorAll('.tbl-wrap tbody tr')).find(x=>x.innerText.includes('愿意工作城市'));
+    const dd = tr || Array.from(document.querySelectorAll('.kv > div')).find(x=>x.innerText.includes('愿意工作城市'));
     return dd ? dd.innerText.replace(/\n+/g, ' ') : '';
   });
   ok('RG004-12 简历页城市同样按需求地点判（两页口径一致）',
