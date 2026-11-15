@@ -137,53 +137,41 @@ function r01Conversion(){
 function r01Confirms(){
   const rows = DEMANDS.map(d=>{
     const st = d.confirm==='已确认'?'g':d.confirm==='待客户确认'?'w':'r';
+    const av = activeVer(d), pv = pendingVer(d), lk = mainLink(d.id);
     return `<tr class="clk" onclick="openConfirm('${d.id}')">
-      <td><div class="t-name mono" style="font-size:13px">QR-${d.code.slice(3)}</div><div class="t-sub">v${d.confirm==='已确认'?'1.2':'1.0'}</div></td>
+      <td><div class="t-name mono" style="font-size:13px">QR-${d.code.slice(3)}</div>
+        <div class="t-sub">${av?av.v:'—'}${pv?' → '+pv.v:''}</div></td>
       <td><div class="sm">${esc(d.client)} · ${esc(d.project)}</div><div class="t-sub">${esc(d.post)}（${d.head} 人）</div></td>
-      <td><span class="b n">47 项因子</span></td>
-      <td class="sm">${d.confirm==='已确认'?'金诚 · 11-10 微信':'—'}</td>
+      <td><span class="b n">47 项</span></td>
+      <td class="sm">${av?`${esc(av.by)}<div class="t-sub">${esc(av.way)} · ${esc(av.at)}</div>`:'<span class="mut">未确认</span>'}</td>
+      <td>${lk?`<span class="b ${lk.state==='有效'?'g':'r'}">${esc(lk.state)}</span><div class="t-sub mono">${esc(lk.tok)}</div>`
+        :`<span class="b w">未生成</span>`}</td>
       <td><span class="mono sm">${esc(d.valid.split(' ~ ')[1])}</span></td>
-      <td><span class="b ${st}">${esc(d.confirm)}</span></td>
-      <td><span class="link">查看确认单</span></td>
+      <td><span class="b ${st}">${esc(d.confirm)}</span>
+        ${av?'':'<div class="t-sub" style="color:var(--bad)">不生效</div>'}</td>
+      <td><div class="acts"><span class="link">查看确认单</span>
+        <span class="link" onclick="event.stopPropagation();openVers('${d.id}')">版本</span></div></td>
     </tr>`;
   }).join('');
   return `<div class="page">
-    ${head('客户确认','一张确认单覆盖同一项目的多个岗位 · 客户线下确认后，由我方逐项登记', `<button class="btn pri" onclick="ndEnter()">＋ 新建确认单</button>`)}
+    ${head('客户确认','一张确认单覆盖同一项目的多个岗位 · 客户线下确认后，由我方逐项登记', `<button class="btn" onclick="go('clinks')">确认链接</button><button class="btn pri" onclick="ndEnter()">＋ 新建确认单</button>`)}
     ${stats([
       {lab:'确认单', val:DEMANDS.length, unit:'份'},
-      {lab:'已确认', val:DEMANDS.filter(d=>d.confirm==='已确认').length, unit:'份'},
-      {lab:'待确认', val:DEMANDS.filter(d=>d.confirm==='待客户确认').length, unit:'份', accent:true},
+      {lab:'已生效', val:DEMANDS.filter(d=>isEffective(d)).length, unit:'份'},
+      {lab:'待客户确认', val:DEMANDS.filter(d=>d.confirm==='待客户确认').length, unit:'份', accent:true},
       {lab:'变更待重确认', val:DEMANDS.filter(d=>d.confirm==='变更待重确认').length, unit:'份'},
     ])}
     ${toolbar({q:'搜索客户 / 项目 / 岗位', right:`<span class="sm mut">${DEMANDS.length} 份</span>`})}
     <div class="tbl-wrap"><table>
-      <thead><tr><th>确认单</th><th>项目 / 岗位</th><th>确认项</th><th>确认人 / 方式</th><th>有效期至</th><th>状态</th><th>操作</th></tr></thead>
+      <thead><tr><th>确认单</th><th>项目 / 岗位</th><th>确认项</th><th>确认人 / 方式</th><th>只读链接</th><th>有效期至</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
     ${pager(DEMANDS.length)}
+    <div class="note" style="margin-top:12px">「已确认」但无生效版本的按未生效处理；新版确认前旧版仍生效，但匹配需按新版重算（见 REVIEW.md §2）。</div>
   </div>`;
 }
 function openConfirm(id){
-  const d = D(id);
-  const items = FACTOR_GROUPS.slice(0,2).flatMap(g=>g.items.slice(0,4).map((x,i)=>({n:x, rule:['PASS','加分','灵活','仅信息'][i%4]})));
-  openDrawer(`<div class="dr-h"><div><h3>需求确认单 · ${esc(d.post)}</h3>
-    <div class="sub">${esc(d.client)} · ${esc(d.project)} · 47 项因子逐项确认</div></div>
-    <button class="dr-x" onclick="closeAll()">×</button></div>
-    <div class="dr-b">
-      <div class="note">客户不登录系统，我方按客户线下反馈（微信 / 会议 / 电话）逐项登记确认结果。关键内容变更后需重新确认。</div>
-      <div class="sec" style="margin-top:16px"><div class="sec-t">确认项（节选）</div>
-        <div class="tbl-wrap" style="border-radius:9px"><table>
-          <thead><tr><th>因子</th><th>我方建议</th><th>客户确认</th></tr></thead>
-          <tbody>${items.map(i=>`<tr><td class="sm">${esc(i.n)}</td><td><span class="b n">${i.rule}</span></td>
-            <td><span class="b g">同意</span></td></tr>`).join('')}</tbody></table></div>
-      </div>
-      <div class="sec"><div class="sec-t">时效</div>
-        <dl class="kv"><div><dt>需求有效期</dt><dd class="mono">${esc(d.valid)}</dd></div>
-        <div><dt>最迟到岗</dt><dd class="mono">${esc(d.deadline)}</dd></div>
-        <div><dt>确认状态</dt><dd>${confirmB(d.confirm)}</dd></div>
-        <div><dt>确认方式</dt><dd>微信 · 金诚</dd></div></dl></div>
-    </div>
-    <div class="dr-f"><button class="btn" onclick="closeAll()">关闭</button>
-      <button class="btn pri" onclick="closeAll();toast('已登记客户确认，状态更新为已确认')">登记确认结果</button></div>`);
+  /* v1.2：改为「需求确认单 · 代登记」，实现见 pages-vers.js */
+  return demandConfirmDrawer(id);
 }
 
 /* ===== 人才画像因子库：两个 Tab —— 通用因子 / 工种技能因子 ===== */

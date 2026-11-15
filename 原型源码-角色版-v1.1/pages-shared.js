@@ -179,7 +179,13 @@ function personsPage(){
     {label:'技能', r:p=>`<div class="tags">${p.skills.slice(0,2).map(s=>`<span class="tg">${esc(s)}</span>`).join('')}${p.skills.length>2?`<span class="tg">+${p.skills.length-2}</span>`:''}</div>`},
     {label:'所属需求 / 批次', r:p=>`<div class="sm">${esc(D(p.demandId).post)}</div><div class="t-sub mono">${p.batchId?B(p.batchId).code:'人才池捞入'}</div>`},
     {label:'当前节点', r:p=>nodeB(p.node)},
-    {label:'匹配档位', r:p=>`<div style="display:flex;align-items:center;gap:6px">${tierChip(p.tier)}<span class="mono sm">${p.score}</span></div>`},
+    {label:'硬条件', r:p=>{
+      const d = D(p.demandId), items = assessPerson(p, d), sum = triSum(items);
+      const bad = items.filter(i=>i.state!=='ok');
+      return `<div style="cursor:pointer" onclick="event.stopPropagation();openMatchDetail('${p.id}','${d.id}')" title="点开看逐项依据">
+        ${triS(sum)}<div class="t-sub">${bad.length?bad.length+' 项待核 / 不符':'全部已核实'}</div></div>`;
+    }},
+    {label:'匹配档位', r:p=>`<div style="display:flex;align-items:center;gap:6px">${tierChip(p.tier)}<span class="mono sm">${p.score}</span></div><div class="t-sub">演示评分</div>`},
     {label:'上次联系', r:p=>`<div class="sm mono">${p.lastContact==='—'?'—':p.lastContact.slice(5)}</div><div class="t-sub">${p.lastType==='—'?'未联系':esc(p.lastType)}</div>`},
     {label:'下次跟进', r:p=>{
       if(p.nextFollow==='—') return '<span class="mut">—</span>';
@@ -208,6 +214,7 @@ function personsPage(){
     ])}
     ${toolbar({q:'搜索姓名 / 电话 / 技能', filters:[
       {k:'nd',opts:[{v:'',label:'全部节点'},...NODES.map(n=>({v:n,label:n}))]},
+      {k:'tri',opts:[{v:'',label:'全部硬条件'},{v:'ok',label:'已核实符合'},{v:'pend',label:'信息待确认'},{v:'no',label:'已确认不符合'}]},
       {k:'dm',opts:[{v:'',label:'全部需求'},...DEMANDS.map(d=>({v:d.id,label:d.post}))]},
       ...(isR04?[]:[{k:'ow',opts:[{v:'',label:'全部负责人'},...['李文静','陈曦','王浩'].map(n=>({v:n,label:n}))]}])
     ], right:`<span class="sm mut">${rows.length} 人</span>`})}
@@ -438,6 +445,7 @@ function dmDetail(d){
   const noStd = !d.stdId && !d.jdId;
 
   return `
+    ${demandStateBar(d)}
     ${d.stdId
       ? `<div class="sec"><div class="sec-t">① 标准岗位标准（本单快照 · ${esc(d.stdVer||'—')} / 清单 ${esc(d.stdList||'—')}）
           <span class="xs mut" style="font-weight:400">口径：清单版本 +1 才触发重算，本单快照记 stdVer + listVer</span></div>${stdSection(d, true)}</div>`
@@ -1131,40 +1139,138 @@ function uploadNewBatchModal(){ return uploadModal(null, 'build'); }
 
 /* 新建需求已改为四步向导，实现在 pages-nd.js（选标准岗位标准 → 看并改 → 人/时间/钱 → 生成） */
 
-/* AI 匹配 */
-function runMatch(bid){
-  const ps = PERSONS.filter(p=>p.batchId===bid);
-  const cnt = {S:0,A:0,B:0,C:0,D:0};
-  ps.forEach(p=>cnt[p.tier]++);
+/* AI 匹配（v1.2：硬条件三态 + 加分只排序 + 绑定需求版本） */
+function runMatch(bid, forceScope){
+  const b = B(bid) || {};
+  const d = D(b.demandId);
+  if(!d){ toast('该批次未关联需求'); return; }
+  const scope = forceScope || S.f.mScope || 'demand';
+  S.f.mScope = scope;
+  const pool = PERSONS.filter(p => scope==='batch' ? p.batchId===bid : p.demandId===d.id);
+  const rows = pool.map(p=>{
+    const items = assessPerson(p, d);
+    return {p, items, sum: triSum(items), bonus: bonusOf(p,d).filter(x=>x.hit).length, score:p.score};
+  }).sort((x,y)=> (TRI_RANK[x.sum]-TRI_RANK[y.sum]) || (y.score-x.score));
+
+  const okN = rows.filter(r=>r.sum==='ok').length;
+  const pendN = rows.filter(r=>r.sum==='pend').length;
+  const noN = rows.filter(r=>r.sum==='no').length;
+  const av = activeVer(d);
+  const stale = matchNeedsUpdate(d);
+  const stamp = MATCH_STAMP[d.id] || {};
+
   openModal(`
-    <div class="md-h"><div><h3>AI 匹配结果</h3><p>${esc((B(bid)||{}).code||'当前批次')} · ${ps.length} 人 · 四步：硬门槛 → 一票否决 → 五项评分 → 价差核算</p></div>
+    <div class="md-h"><div><h3>AI 匹配结果 <span class="b n" style="font-size:10px;vertical-align:middle">演示逻辑</span></h3>
+      <p>${esc(pool.length?'':'')}依据需求 <span class="mono">${esc(d.code)}</span> · 生效版本 <span class="mono">${esc(av?av.v:'无')}</span> · 硬条件逐项判断</p></div>
       <button class="dr-x" onclick="closeAll()">×</button></div>
     <div class="md-b">
-      <div style="display:flex;gap:8px;margin-bottom:16px">
-        ${Object.entries(cnt).map(([k,v])=>`<div style="flex:1;text-align:center;background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px">
-          <div class="tier ${k}" style="margin:0 auto 6px">${k}</div><div class="mono" style="font-size:19px;font-weight:600">${v}</div>
-          <div class="xs mut">${TIERS[k].split(' · ')[1]}</div></div>`).join('')}
+
+      ${av? '' : `<div class="note r" style="margin-bottom:12px"><b>该需求没有生效版本</b>（${esc(d.confirm)}），本次结果仅作演示，不得作为推荐依据。</div>`}
+      ${stale? `<div class="note w" style="margin-bottom:12px"><b>匹配结果需更新</b>：需求条件已变更（结果基于 ${esc(stamp.ver||'—')}，当前生效 ${esc(av?av.v:'无')}）。
+        <button class="btn xs" style="margin-left:8px" onclick="refreshMatch('${bid}')">按当前版本重算</button></div>`:''}
+
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        ${[['ok',okN,'可推荐'],['pend',pendN,'待补依据'],['no',noN,'不可推荐']].map(([k,v,lab])=>`
+          <div style="flex:1;text-align:center;background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px">
+            <div class="xs mut">${esc(lab)}</div>
+            <div class="mono" style="font-size:22px;font-weight:600;color:${k==='ok'?'var(--good)':k==='pend'?'var(--warn)':'var(--bad)'}">${v}</div>
+            <div class="xs">${tri(k)}</div></div>`).join('')}
       </div>
-      ${ps.slice(0,6).map(p=>`<div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer" onclick="closeAll();openPerson('${p.id}')">
-        ${tierChip(p.tier)}<div style="flex:1"><div class="sm"><b>${esc(p.name)}</b> <span class="xs mut">${p.skills[0]}</span></div>
-          <div class="xs mut">${p.score} 分 · ${p.score>=80?'硬门槛全过，技能与经验双达标':'硬门槛通过，经验略欠'}</div></div>
-        <span class="link">看依据</span></div>`).join('')}
-      <div class="note" style="margin-top:12px">匹配结果会写入评分留档，需求变更或画像因子版本升级后自动失效并提示重算。</div>
+
+      <div class="toolbar" style="border:1px solid var(--line);border-radius:9px;margin-bottom:10px">
+        <span class="chip ${scope==='demand'?'on':''}" onclick="runMatch('${bid}','demand')">本需求全部 ${PERSONS.filter(p=>p.demandId===d.id).length} 人</span>
+        <span class="chip ${scope==='batch'?'on':''}" onclick="runMatch('${bid}','batch')">只看本批次 ${PERSONS.filter(p=>p.batchId===bid).length} 人</span>
+        <div class="sp"></div>
+        <span class="xs mut">S/A/B/C/D 与分数为演示口径，不参与符合性判断</span>
+      </div>
+
+      ${rows.map(r=>{
+        const bad = r.items.filter(i=>i.state!=='ok');
+        const why = bad.length
+          ? bad.map(i=>`${i.label.split(' / ')[0]}${i.state==='no'?'不符合':'待确认'}`).join(' · ')
+          : '全部硬条件已核实符合';
+        return `<div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:6px;cursor:pointer"
+            onclick="closeAll();openMatchDetail('${r.p.id}','${d.id}')">
+          ${triS(r.sum)}
+          <div style="flex:1"><div class="sm"><b>${esc(r.p.name)}</b> <span class="xs mut">${esc(r.p.skills[0]||'')} · ${r.p.age}岁 · ${esc(r.p.gender)}</span>
+            <span class="tier ${r.p.tier}" style="transform:scale(.85)">${r.p.tier}</span>
+            <span class="mono xs mut">${r.score} 分</span></div>
+            <div class="xs ${bad.length?'':'mut'}" style="color:${r.sum==='no'?'var(--bad)':r.sum==='pend'?'var(--warn)':''}">${esc(why)}</div></div>
+          <span class="link">看依据</span></div>`;
+      }).join('') || '<div class="empty">该范围内没有候选人</div>'}
+
+      <div class="note" style="margin-top:12px">判断口径：任一硬条件<b>已确认不符合</b> → 整体不可推荐；无明确不符合但存在<b>信息待确认</b> → 整体待确认；全部<b>已核实符合</b> → 才可推荐。
+        加分项只影响排序，<b>不得</b>覆盖 Pass 判断。资料缺失一律记「待确认」，不自动当作符合或不符合。</div>
     </div>
     <div class="md-f"><button class="btn" onclick="closeAll()">关闭</button>
-      <button class="btn pri" onclick="closeAll();toast('已把 S/A 档 '+${cnt.S+cnt.A}+' 人加入优先跟进')">加入优先跟进（${cnt.S+cnt.A} 人）</button></div>`);
+      ${stale?`<button class="btn" onclick="refreshMatch('${bid}')">按当前版本重算</button>`:''}
+      <button class="btn pri" onclick="closeAll();toast('已把 ${okN} 位「已核实符合」的人加入优先跟进')">加入优先跟进（${okN} 人）</button></div>`, 'md-xl');
+}
+function refreshMatch(bid){
+  const b = B(bid)||{}; const d = D(b.demandId); if(!d) return;
+  const av = activeVer(d);
+  MATCH_STAMP[d.id] = {ver: av?av.v:'—', at:'2026-11-14 08:30', stale:false};
+  runMatch(bid, S.f.mScope||'demand');
+  toast('已按 '+(av?av.v:'当前版本')+' 重新判断');
+}
+/* 单人匹配详情：逐项三态 + 依据，与列表口径一致 */
+function openMatchDetail(pid, did){
+  const p = P(pid), d = D(did);
+  const items = assessPerson(p, d);
+  const sum = triSum(items);
+  const av = activeVer(d);
+  const bonus = bonusOf(p, d);
+  openDrawerW(`<div class="dr-h"><div><h3>匹配依据 · ${esc(p.name)}</h3>
+    <div class="sub">${esc(d.client)} · ${esc(d.post)} · 依据版本 <span class="mono">${esc(av?av.v:'无生效版本')}</span></div></div>
+    <button class="dr-x" onclick="closeAll()">×</button></div>
+  <div class="dr-b">
+    <div class="card" style="margin-bottom:14px"><div class="card-b">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        ${tri(sum)}<span class="sm">${esc(TRI_SUM_TXT[sum])}</span>
+        <div class="sp" style="flex:1"></div>
+        <span class="xs mut">演示评分 ${p.score} 分 · 档位 ${p.tier}（仅排序参考）</span>
+      </div>
+    </div></div>
+
+    <div class="sec"><div class="sec-t">硬条件逐项判断（${items.length} 项）</div>
+      ${items.map(i=>`<div class="tri-row">
+        <div class="tr-l"><b>${esc(i.label.split(' / ')[0])}</b>
+          <div class="xs mut">#${i.no} · ${esc(i.grade||'')}</div>
+          <div class="xs mut">要求：${esc(i.need||'—')}</div></div>
+        <div class="tr-v">${tri(i.state)}<div class="sm" style="margin-top:3px">${esc(i.got||'—')}</div>
+          <div class="tr-n">来源：${esc(i.src||'—')}${i.ev?' · 原文：'+esc(i.ev):''}${i.at&&i.at!=='—'?' · 确认于 '+esc(i.at):''}
+          ${i.note?'<br>'+esc(i.note):''}</div></div>
+      </div>`).join('')}
+    </div>
+
+    <div class="sec"><div class="sec-t">加分项（只影响排序）</div>
+      ${bonus.map(b=>`<div class="sm" style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line2)">
+        <span>${esc(b.label)}</span><span>${b.hit?'<span class="b g">命中</span>':'<span class="b n">未命中</span>'}</span></div>`).join('')}
+      <div class="note" style="margin-top:9px">加分项不参与 Pass 判断：加分再高，只要有一项硬条件「已确认不符合」，整体仍不可推荐。</div>
+    </div>
+
+    <div class="sec"><div class="sec-t">需要补的信息</div>
+      ${items.filter(i=>i.state==='pend').length
+        ? items.filter(i=>i.state==='pend').map(i=>`<div class="sm" style="padding:5px 0;border-bottom:1px solid var(--line2)">
+            <span class="b w">待确认</span> ${esc(i.label.split(' / ')[0])} —— ${esc(i.note||'缺依据')}</div>`).join('')
+        : '<div class="sm mut">无缺口</div>'}
+    </div>
+  </div>
+  <div class="dr-f"><button class="btn" onclick="closeAll()">关闭</button>
+    <button class="btn" onclick="closeAll();openHuman('${p.personId}', 'verify')">看核实依据</button></div>`);
 }
 function matchOneModal(kid){
   const k = PEOPLE.find(x=>x.id===kid);
-  return `<div class="md-h"><div><h3>AI 匹配 · ${esc(k.name)}</h3><p>选择需求后计算档位、分值与逐维度依据</p></div>
+  return `<div class="md-h"><div><h3>AI 匹配 · ${esc(k.name)} <span class="b n" style="font-size:10px;vertical-align:middle">演示逻辑</span></h3>
+    <p>选择需求后给出档位与分值 —— 分数只用于排序，符合性以硬条件三态为准</p></div>
     <button class="dr-x" onclick="closeAll()">×</button></div>
   <div class="md-b">
     <div class="field"><label>匹配目标需求（非必填）</label>
       <select>${DEMANDS.map(d=>`<option>${d.post} · ${d.client}</option>`).join('')}</select>
-      <div class="hint">不选需求时按「核心技能 60 + 经验 20 + 证据 20」通用口径评分</div></div>
+      <div class="hint">不选需求时不产生 Pass 判断，仅给通用演示分</div></div>
     <div style="background:#fff;border:1px solid var(--line);border-radius:10px;padding:15px;margin-top:6px">
       <div style="display:flex;align-items:center;gap:12px">
-        <div style="text-align:center"><div class="mono" style="font-size:32px;font-weight:600;color:var(--good)">A</div><div class="xs mut">档位</div></div>
+        <div style="text-align:center"><div class="mono" style="font-size:32px;font-weight:600;color:var(--good)">A</div><div class="xs mut">演示档位</div></div>
         <div style="flex:1">
           <div class="barline"><span class="xs mut">综合</span><div class="bar g"><i style="width:84%"></i></div><b>84</b></div>
           <div class="barline" style="margin-top:6px"><span class="xs mut">技能</span><div class="bar"><i style="width:88%"></i></div><b>88</b></div>
@@ -1172,17 +1278,16 @@ function matchOneModal(kid){
         </div>
       </div>
       <div class="hr"></div>
-      <div class="sm"><b>匹配依据</b></div>
+      <div class="sm"><b>演示说明</b></div>
       <div class="xs mut" style="margin-top:5px;line-height:1.75">
-        · 核心技能命中 ${k.skills.join('、')}，与岗位要求一致<br>
-        · 设备品牌经验匹配（同类设备 3 年以上）<br>
-        · 期望薪资在需求区间内，价差 0<br>
-        · 可到岗时间满足最迟到岗要求
+        · 本页分值为演示口径，<b>尚未接入真实评分模型</b><br>
+        · 实际推荐以「已核实符合 / 信息待确认 / 已确认不符合」三态为准<br>
+        · 资料缺失时一律待确认，不按分数推断符合
       </div>
     </div>
   </div>
   <div class="md-f"><button class="btn" onclick="closeAll()">关闭</button>
-    <button class="btn pri" onclick="closeAll();toast('已保存评分留档')">保存评分</button></div>`;
+    <button class="btn pri" onclick="closeAll();toast('已保存演示评分留档')">保存演示评分</button></div>`;
 }
 function poolPickBatch(kid){
   return `<div class="md-h"><div><h3>捞入批次</h3><p>把池内人员加入某个进行中的批次</p></div>

@@ -82,9 +82,13 @@ function huHtml(){
   const ago = last ? days(last.time) : null;
   const appsN = apps.filter(a=>a.status==='跟进中').length;
 
-  const badge = {resume:'', portrait:'', apply: appsN||apps.length, talk: cs.length};
+  const vf = verifyOf(p.id);
+  const pendN = [vf.city&&vf.city.wantState!=='已确认', vf.arrive&&vf.arrive.state!=='已确认',
+    vf.night&&vf.night.state!=='已确认愿意', !(vf.certs||[]).some(c=>c.state==='ok')].filter(Boolean).length;
+  const badge = {resume:'', verify: pendN, portrait:'', apply: appsN||apps.length, talk: cs.length};
 
   const body = HU.tab==='resume' ? huResume(p)
+    : HU.tab==='verify' ? huVerify(p)
     : HU.tab==='portrait' ? huPortrait(p)
     : HU.tab==='apply' ? huApply(p)
     : huTalk(p, cs, apps);
@@ -137,13 +141,19 @@ function huResume(p){
       </dl>
     </div>
 
-    <div class="sec"><div class="sec-t">基础信息与意愿</div>
+    <div class="sec"><div class="sec-t">基础信息与意愿<span class="perm">城市与到岗需分别确认</span></div>
       <dl class="kv">
-        <div><dt>技能</dt><dd class="sm">${p.skills.map(esc).join(' / ')}</dd></div>
-        <div><dt>期望薪资 / 到岗</dt><dd class="sm">${esc(p.expect||'32-36 元/时')} · ${esc(p.arrive||'随时')}</dd></div>
-        <div><dt>现居 / 可驻场</dt><dd class="sm">${esc(p.city||'东莞·长安')} · ${p.stay===false?'不接受驻场':'可驻场'}</dd></div>
+        <div><dt>技能</dt><dd class="sm">${p.skills.map(esc).join(' / ')} <span class="xs mut">技能名不等于持证</span></dd></div>
+        <div><dt>期望薪资</dt><dd class="sm">${esc(p.expect||'32-36 元/时')}</dd></div>
+        <div><dt>现居地</dt><dd class="sm">${esc((verifyOf(p.id).city||{}).live || p.city || '—')}
+          <span class="xs mut">${esc((verifyOf(p.id).city||{}).liveState||'')}</span></dd></div>
+        <div><dt>愿意工作城市</dt><dd class="sm">${(()=>{ const c=verifyOf(p.id).city||{};
+          return (c.want||[]).length ? esc(c.want.join('、'))+' '+tri('ok') : '<span class="mut">未确认</span> '+tri('pend'); })()}</dd></div>
+        <div><dt>可到岗</dt><dd class="sm">${(()=>{ const v=verifyOf(p.id).arrive||{};
+          return v.date ? esc(v.date)+' '+tri('ok') : '<span class="mut">未确认</span> '+tri('pend'); })()}</dd></div>
         <div><dt>资料完整度</dt><dd><div class="barline" style="max-width:180px"><div class="bar ${p.complete>=85?'g':p.complete<65?'w':''}"><i style="width:${p.complete}%"></i></div><b>${p.complete}%</b></div></dd></div>
       </dl>
+      <div class="note" style="margin-top:8px">现居地不推断异地意愿，投递状态不推断可到岗 —— 详见「核实依据」页签。</div>
     </div>
 
     <div class="sec"><div class="sec-t">原始简历（${files.length} 版）<span class="perm">内部全员可见</span></div>
@@ -177,7 +187,77 @@ function huResume(p){
     </div>`;
 }
 
-/* ---------- 页签 2 · 人才画像 ---------- */
+/* ---------- 页签 2 · 核实依据（证书 / 城市 / 到岗 / 夜班） ---------- */
+/* 按姓名索引：同一手机号重复投递复用同一档案 id，硬编码 PE00X 会错位 */
+const VER_CONFLICT = {
+  '马长青':[{need:'电工特种作业操作证是否在有效期',
+          a:'简历技能栏写「电工证书」', b:'2026-11-13 电话：「证过期了，正在复审」'}],
+  '陈志强':[{need:'低压电工证证件信息是否可辨',
+          a:'简历附件上传了证书照片', b:'照片模糊，证件号与发证日期看不清'}],
+};
+function huVerify(p){
+  const v = verifyOf(p.id);
+  const certs = v.certs || [], c = v.city || {}, a = v.arrive || {}, n = v.night || {};
+  const certState = certs.some(x=>x.state==='ok') ? 'ok' : certs.some(x=>x.state==='no') ? 'no'
+    : certs.length ? 'pend' : 'pend';
+  const gaps = [];
+  if(c.wantState !== '已确认') gaps.push('愿意工作城市');
+  if(!(a.date && a.state==='已确认')) gaps.push('可到岗时间');
+  if(n.state !== '已确认愿意' && n.state !== '已确认不愿') gaps.push('夜班意愿');
+  if(!certs.some(x=>x.state==='ok')) gaps.push('已核验的证书');
+
+  const row = (label, state, need, got, src, ev, at, note) => `
+    <div class="tri-row">
+      <div class="tr-l"><b>${esc(label)}</b><div class="xs mut">要求：${esc(need)}</div></div>
+      <div class="tr-v">${tri(state)}<div class="sm" style="margin-top:3px">${esc(got)}</div>
+        <div class="tr-n">${src?`来源：${esc(src)}`:'来源：—'}${ev?` · 原文：${esc(ev)}`:''}${at&&at!=='—'?` · 确认于 ${esc(at)}`:''}
+        ${note?`<br>${esc(note)}`:''}</div></div>
+    </div>`;
+
+  return `
+  <div class="note" style="margin-bottom:14px">核实依据只记录<b>客户明示的硬条件</b>，每条都要有来源。技能关键词<b>不等于</b>持证；现居地<b>不推断</b>异地意愿；投递状态<b>不推断</b>可到岗。</div>
+
+  <div class="sec"><div class="sec-t">证书<span class="perm">独立字段 · 需核验</span></div>
+    ${certs.length ? certs.map(x=>row(x.name, x.state, '客户要求的有效证件', 
+        x.state==='ok'?'已核验证件有效':x.state==='no'?'候选人明确表示不满足':'待核验',
+        x.src, x.ev, x.at, x.state==='pend'?'证据不足，未核验前不得视为持证':'' )).join('')
+      : `<div class="tri-row"><div class="tr-l"><b>无证书记录</b><div class="xs mut">要求：按岗位</div></div>
+          <div class="tr-v">${tri('pend')}<div class="sm" style="margin-top:3px">没有可核验的证书</div>
+          <div class="tr-n">技能栏出现「电工」「电工证书」等词，<b>不得</b>据此判定持证；需索要证件照片并核验。</div></div></div>`}
+    ${v.certNote?`<div class="note w" style="margin-top:8px">${esc(v.certNote)}</div>`:''}
+  </div>
+
+  <div class="sec"><div class="sec-t">工作城市<span class="perm">现居 ≠ 愿意去</span></div>
+    ${row('现居地', c.liveState==='已核实'?'ok':'pend', '—', c.live||'—', c.src, '', c.at, '现居地本身不做匹配依据')}
+    ${row('愿意工作城市', c.wantState==='已确认'?'ok':'pend', '客户岗位所在城市',
+        (c.want||[]).length ? c.want.join('、') : '未确认',
+        c.src, '', c.at, c.wantState==='已确认'?'':'意愿缺失时一律待确认，不按现居地推断')}
+  </div>
+
+  <div class="sec"><div class="sec-t">可到岗时间<span class="perm">须候选人确认</span></div>
+    ${row('可到岗日期', a.state==='已确认'?'ok':'pend', '需求最晚报到日',
+        a.date ? a.date+' 起可到岗' : '未确认', a.src, '', a.at,
+        a.state==='已确认'?'':'没有候选人确认的时间就不算可到岗，与是否有进行中投递无关')}
+  </div>
+
+  <div class="sec"><div class="sec-t">夜班意愿</div>
+    ${row('夜班', n.state==='已确认愿意'?'ok':n.state==='已确认不愿'?'no':'pend', '客户班制',
+        n.state||'未确认', n.src, '', n.at, n.state==='已确认不愿'?'候选人明确拒绝，属已确认不符合':'')}
+  </div>
+
+  ${(VER_CONFLICT[p.name]||[]).length?`<div class="sec"><div class="sec-t">信息冲突<span class="perm">待核实</span></div>
+    ${VER_CONFLICT[p.name].map(x=>`<div class="note r"><b>${esc(x.need)}</b><br>
+      · ${esc(x.a)}<br>· ${esc(x.b)}<br><span class="xs">两条记录不一致，暂按「信息待确认」处理，不静默选取有利值。</span></div>`).join('')}
+  </div>`:''}
+
+  <div class="sec"><div class="sec-t">信息缺口（${gaps.length}）</div>
+    ${gaps.length ? `<div class="sm">${gaps.map(g=>`<span class="b w" style="margin:0 6px 6px 0">${esc(g)}</span>`).join('')}</div>
+      <div class="note" style="margin-top:8px">缺口不会被自动当作「符合」或「不符合」，在匹配里统一显示为<b>信息待确认</b>。</div>`
+      : `<div class="sm">硬条件依据齐全，可进入匹配判断。</div>`}
+  </div>`;
+}
+
+/* ---------- 页签 3 · 人才画像 ---------- */
 function huPortrait(p){
   const pts = ptOf(p.id);
   const dims = ['稳定性','意向','履约','适配','风险'];

@@ -314,7 +314,12 @@ function ndCreate(){
   });
   ndReset();
   closeAll();
-  toast(`需求已生成：${s.name} · ${st.people} 人 · 标准 ${s.ver}${ov.length?' · 本单调整 '+ov.length+' 项':''} · 待客户确认`);
+  /* v1.2：新需求=待客户确认，先立版本、再发受控只读链接；未确认前不生效 */
+  DEMAND_VERS[id] = [{v:'v1.0', status:'待客户确认', at:'2026-11-14 08:20',
+    by:(S.who||'李文静')+'（代客户登记）', way:'链接已发出', n:47, note:'新建需求，客户尚未反馈', changes:[]}];
+  MATCH_STAMP[id] = {ver:'—', at:'2026-11-14 08:20', stale:true};
+  const tok = genLink(id, 'v1.0', S.who||'李文静');
+  toast(`需求已生成：${s.name} · ${st.people} 人 · 标准 ${s.ver}${ov.length?' · 本单调整 '+ov.length+' 项':''} · 待客户确认 · 链接 ${tok}`);
   go('demands');
 }
 

@@ -740,3 +740,48 @@ select.ed-in{padding:0 4px;cursor:pointer}
 /* ---------- 岗位详情弹窗 ---------- */
 .modal.md-xl{width:min(1120px,96vw)}
 .pm-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+
+/* ========== v1.2：外部客户入口 / 角色矩阵 / 只读确认单 ========== */
+.cust-entry{width:100%;max-width:860px;margin-top:22px;padding:16px 18px;border:1px dashed var(--accent-line);border-radius:14px;
+  background:linear-gradient(180deg,#fff,var(--card2));display:flex;align-items:center;gap:18px;justify-content:space-between;flex-wrap:wrap}
+.cust-entry .ce-l{flex:1;min-width:320px}
+.cust-entry .ce-t{font-size:14px;font-weight:600;display:flex;align-items:center;gap:7px}
+.cust-entry p{font-size:12.5px;color:var(--ink3);margin-top:6px;line-height:1.7}
+.cust-entry .ce-r{display:flex;gap:8px;flex-wrap:wrap}
+
+.role-matrix{width:100%;max-width:860px;margin-top:18px;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.role-matrix .rm-h{padding:13px 18px;border-bottom:1px solid var(--line2);font-size:13.5px;font-weight:600}
+.role-matrix .tbl-wrap{border:none;border-radius:0}
+.role-matrix table{width:100%;border-collapse:collapse;font-size:12.5px}
+.role-matrix th{text-align:left;padding:9px 12px;background:var(--bg2);color:var(--ink3);font-weight:500;font-size:11.5px;letter-spacing:.3px;border-bottom:1px solid var(--line2)}
+.role-matrix td{padding:10px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+.role-matrix tr:last-child td{border-bottom:none}
+.role-matrix .rm-f{padding:11px 18px;font-size:11.5px;color:var(--ink4);border-top:1px solid var(--line2);background:var(--card2);line-height:1.7}
+
+.cust-wrap{min-height:100vh;background:var(--bg2);padding:26px 16px 60px;display:flex;justify-content:center}
+.cust-doc{width:100%;max-width:760px;background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 10px 40px rgba(30,25,20,.06)}
+.cust-back{display:flex;align-items:center;gap:10px;padding:12px 22px;background:var(--card2);border-bottom:1px solid var(--line2)}
+.cust-hd{display:flex;align-items:center;gap:12px;padding:18px 22px;border-bottom:1px solid var(--line2)}
+.cust-hd .logo{width:34px;height:34px}
+.cust-title{padding:20px 22px 4px}
+.cust-title h2{font-size:24px;font-weight:600;letter-spacing:-.3px}
+.cust-body{padding:0 22px 8px}
+.cust-doc .sec{padding:16px 22px;border-top:1px solid var(--line2)}
+.cust-doc .sec-t{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.cust-acts{display:flex;gap:9px;margin-top:14px}
+.cust-ft{padding:13px 22px;background:var(--card2);border-top:1px solid var(--line2);font-size:11.5px;color:var(--ink4)}
+.cust-doc .kv{display:grid;grid-template-columns:1fr 1fr;gap:9px 20px;font-size:13px}
+.cust-doc .kv dt{font-size:11.5px;color:var(--ink4)}
+.cust-doc .kv dd{margin:2px 0 0}
+
+/* 三态图例 */
+.tri-legend{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11.5px;color:var(--ink3)}
+.tri-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line2)}
+.tri-row:last-child{border-bottom:none}
+.tri-row .tr-l{width:132px;flex:0 0 132px;font-size:12.5px}
+.tri-row .tr-v{flex:1;font-size:12.5px}
+.tri-row .tr-n{font-size:11.5px;color:var(--ink4);margin-top:2px;line-height:1.6}
+
+/* 宽抽屉（确认单 / 版本 / 匹配详情） */
+.drawer.wide{width:min(980px,96vw)}
+
