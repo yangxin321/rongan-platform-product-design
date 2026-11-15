@@ -52,7 +52,8 @@ function archiveState(p){
 function openHuman(pid, tab, appId){
   const from = S.page;
   markScrollOut();                  /* 先记住来源列表滚到哪了，render 之后就是 0 了 */
-  if(HU.pid !== pid){
+  /* 浏览器后退回列表时 HU.pid 还留着，只比 ID 的话第二次进来会沿用第一次的筛选与滚动 */
+  if(HU.pid !== pid || from !== 'personDetail'){
     HU.back = { page: from, f: Object.assign({}, S.f), scroll: mainScroll() };
     HU.navKey = from;
   }

@@ -454,6 +454,53 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   } finally { await p2.close(); }
   await ev(() => { enter('R01'); });
 
+  /* 41：从档案页「这一单」进需求详情，页面内返回要还原完整记录地址（不是 #personDetail） */
+  const backFull = await ev2(() => {
+    enter('R01');
+    openPerson('P42'); huSetTab('apply');
+    const fromHash = location.hash;
+    const link = [...document.querySelectorAll('.main .arc-link')]
+      .find(el => /openDemand/.test(el.getAttribute('onclick') || ''));
+    if(!link) return { err:'档案投递页没有可点的岗位名' };
+    const post = link.innerText.trim();
+    link.click();
+    const onDemand = { page: S.page, hash: location.hash };
+    document.querySelector('.main .pg-back').click();      /* 页面内返回 */
+    const after = location.hash;
+    /* 刷新：只按地址恢复，模拟新标签页 */
+    const okHash = applyHash(); render();
+    const body = document.querySelector('.main').innerText;
+    return { fromHash, post, onDemand, after, page: S.page, okHash,
+      hitPerson: /PE001/.test(body), missing: /找不到该人员|该页面暂未开放/.test(body) };
+  });
+  ok('RG012-41 从档案进需求详情后返回，恢复的是完整档案地址',
+     !backFull.err && backFull.onDemand.page === 'demandDetail'
+     && /^#person\/PE001\/detail\?tab=apply/.test(backFull.after)
+     && backFull.page === 'personDetail' && backFull.hitPerson && !backFull.missing,
+     JSON.stringify(backFull));
+
+  /* 42：同一记录第二次进入，返回上下文要按「本次来源」更新，不能沿用第一次。
+     必须走浏览器后退（popstate）才会留下 DM.id —— 页面内返回会把 DM.id 清掉，测不出这条。 */
+  const ctx1 = await ev2(() => {
+    enter('R04'); go('demands');
+    setF('q', '电工');                       /* 第一次来源：筛选「电工」 */
+    openDemand(DEMANDS[0].id);
+    return { did: DEMANDS[0].id, firstCtx: DM.back ? DM.back.f.q : null, hash: location.hash };
+  });
+  await page.goBack(); await page.waitForTimeout(350);
+  const ctx2 = await ev2(() => ({ page: S.page, dmId: DM.id, q: S.f.q }));
+  const ctx3 = await ev2(() => {
+    setF('q', '焊工');                       /* 第二次来源：筛选改成「焊工」 */
+    openDemand(DM.id);                       /* 再进同一条需求（DM.id 还留着） */
+    return { usedQ: DM.back ? DM.back.f.q : null };
+  });
+  await ev2(() => dmBack());
+  const ctx4 = await ev2(() => ({ afterQ: S.f.q }));
+  ok('RG012-42 浏览器后退后二次进入同一记录，返回用本次来源的筛选',
+     !ctx1.err && ctx1.firstCtx === '电工' && ctx2.page === 'demands' && ctx2.dmId === ctx1.did
+     && ctx3.usedQ === '焊工' && ctx4.afterQ === '焊工',
+     JSON.stringify({ ctx1, ctx2, ctx3, ctx4 }));
+
   /* 全页渲染无错（详情页在路由里，需单独过一遍） */
   const pages = ['demands','batches','persons','pool','logs','custreq','confirms','clinks','dicts','factors','std','dash','conversion','perms','home'];
   let renderErr = '';

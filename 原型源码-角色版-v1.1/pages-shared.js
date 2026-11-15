@@ -275,7 +275,9 @@ function dmTabOk(t){ return DM_TABS.some(x=>x.k===t); }
 function openDemand(id, tab){
   const from = S.page;
   markScrollOut();                  /* 必须在 render 之前：之后列表已经滚到 0 */
-  if(DM.id !== id){
+  /* 只要不是「在本详情页内切页签」，就要刷新返回上下文：
+     浏览器后退回列表时 DM.id 还留着，只比 ID 的话第二次进来会沿用第一次的筛选与滚动。 */
+  if(DM.id !== id || from !== 'demandDetail'){
     DM.scope = 'mine';
     DM.back = { page: from, f: Object.assign({}, S.f), scroll: mainScroll() };
   }
@@ -306,12 +308,14 @@ function dmRender(push){
 function dmBack(){
   const b = DM.back;
   DM.id = null; DM.tab = 'detail'; DM.back = null;
-  if(b && b.page && PAGES[b.page]){
+  if(b && b.page && PAGES[b.page] && b.page !== 'demandDetail'){
     S.page = b.page;
     S.f = Object.assign({}, b.f || {});
     render();
     setMainScroll(b.scroll || 0);
-    navHash('#' + b.page, 'replace');
+    /* 来源可能是另一个详情页（如从档案页的「这一单」点进来），必须写完整记录地址；
+       只拼 '#'+page 会把 #person/PE001/detail?tab=apply&app=P42 退化成 #personDetail，刷新就找不到人 */
+    navHash(routeHash(), 'replace');
     return;
   }
   go('demands');
