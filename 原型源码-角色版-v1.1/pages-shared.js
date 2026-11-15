@@ -57,18 +57,21 @@ function batchesPage(){
   const isR04 = S.role==='R04';
   let rows = BATCHES.slice();
   if(isR04) rows = rows.filter(b=>b.owner===S.who);
-  const q=(S.f.q||'').trim(), st=S.f.st||'', ow=S.f.ow||'';
+  const q=(S.f.q||'').trim(), st=S.f.st||'', ow=S.f.ow||'', day=S.f.day||'';
   if(q) rows = rows.filter(b=>(b.code+D(b.demandId).post).includes(q));
   if(st) rows = rows.filter(b=>b.status===st);
   if(ow) rows = rows.filter(b=>b.owner===ow);
+  if(day==='today') rows = rows.filter(b=>b.date===TODAY);
+  if(day==='7d'){
+    const from = new Date(TODAY+'T00:00:00'); from.setDate(from.getDate()-6);
+    const key = from.toISOString().slice(0,10);
+    rows = rows.filter(b=>b.date>=key);
+  }
   rows.sort((a,b)=>b.date.localeCompare(a.date));
 
-  const today = rows.filter(b=>b.date===TODAY);
   const actions = `<button class="btn" onclick="go('pool')">从人才池捞人</button>
     <button class="btn pri" onclick="openModal(uploadNewBatchModal(),'md-lg')">↑ 传简历建批次</button>
     <button class="btn" onclick="openModal(newBatchModal())">补建批次</button>`;
-  const todayPs = PERSONS.filter(p=>{const b=B(p.batchId); return b.date===TODAY;});
-  const totCh = chSummary(todayPs);
 
   const cols = [
     {label:'批次名称', r:b=>`<div class="t-name mono arc-link" style="font-size:13.5px" onclick="event.stopPropagation();openBatch('${b.id}')">${esc(b.code)}</div><div class="t-sub">${b.date}${b.date===TODAY?' · <span style="color:var(--accent)">今天</span>':''}${sameDayCount(b)>1?' · 同日第 '+sameDaySeq(b)+' 批':''}</div>`},
@@ -89,21 +92,11 @@ function batchesPage(){
 
   return `<div class="page">
     ${head('批次列表', '批次 = 招聘专员每天的工作单元：一个需求一天一个批次（同日同需求可建多个）；不用手工建批，传简历 / 捞人时系统自动建', actions)}
-    ${stats([
-      {lab:'今日批次', val:today.length, unit:'个', foot:`新增简历 ${today.reduce((a,b)=>a+b.boss+b.manual+b.pool,0)} 份`},
-      {lab:'今日已触达', val:today.reduce((a,b)=>a+b.touched,0), unit:'人', foot:'目标 100%'},
-      {lab:'今日有意向', val:today.reduce((a,b)=>a+b.intent,0), unit:'人', accent:true},
-      {lab:'进行中批次', val:rows.filter(b=>b.status==='进行中').length, unit:'个'},
-    ])}
-    <div class="ch-strip">
-      <span class="cs-t">今日来源合计</span>
-      ${totCh.length? totCh.map(([n,c])=>`<span class="cs-i"><b>${esc(n)}</b> <span class="mono">${c}</span></span>`).join('') : '<span class="mut sm">今天还没有简历进来</span>'}
-      <span class="cs-note">来源跟人走，不跟批次走 —— 一个批次里天然有多个渠道</span>
-    </div>
     ${toolbar({q:'搜索批次号 / 岗位', filters:[
+      {k:'day',opts:[{v:'',label:'全部日期'},{v:'today',label:'今天'},{v:'7d',label:'近 7 天'}]},
       {k:'st',opts:[{v:'',label:'全部状态'},{v:'进行中',label:'进行中'},{v:'已关闭',label:'已关闭'}]},
       ...(isR04?[]:[{k:'ow',opts:[{v:'',label:'全部负责人'},...['李文静','陈曦','王浩'].map(n=>({v:n,label:n}))]}])
-    ], right:`<span class="sm mut">${rows.length} 个批次</span>`})}
+    ], right:`<span class="sm mut">共 ${rows.length} 个批次</span>`})}
     ${table(cols, rows)}
     ${pager(rows.length)}
   </div>`;
@@ -123,6 +116,22 @@ function personsPage(){
   /* 硬条件筛选：按「该人 × 该需求」的逐项判定汇总值过滤，
      口径与「硬条件」列完全同源（assessPerson + triSum），避免下拉框形同虚设。 */
   if(triF) rows = rows.filter(p=>triSum(assessPerson(p, D(p.demandId))) === triF);
+
+  /* 三态统计卡（在跟 / 待面试 / 待入职 / 已入职）已挪进工具栏当筛选（v1.3 · RG-012 第三批）。
+     原来卡片上的数字含「面试通过」，点下去却只筛 node==='待面试'，数字和列表对不上；
+     现在按组筛：待面试 = 待面试 + 面试通过，与数字同源。计数在分组筛选之前算，避免自己把自己筛没。 */
+  const ng = S.f.ng || '';
+  const base = rows.slice();
+  const cnt = {
+    follow: base.filter(p=>p.status==='跟进中').length,
+    itv:    base.filter(p=>['待面试','面试通过'].includes(p.node)).length,
+    onb:    base.filter(p=>p.node==='待入职').length,
+    hired:  base.filter(p=>p.node==='已入职').length,
+  };
+  if(ng==='follow') rows = rows.filter(p=>p.status==='跟进中');
+  if(ng==='itv')    rows = rows.filter(p=>['待面试','面试通过'].includes(p.node));
+  if(ng==='onb')    rows = rows.filter(p=>p.node==='待入职');
+  if(ng==='hired')  rows = rows.filter(p=>p.node==='已入职');
 
   const actions = `<button class="btn" onclick="toast('已导出当前筛选 '+${rows.length}+' 条')">导出</button>
     <button class="btn pri" onclick="openModal(addPersonModal())">＋ 加人</button>`;
@@ -156,22 +165,18 @@ function personsPage(){
 
   return `<div class="page">
     ${head('人员列表', (isR04? '我名下的人员' : '全部在跟人员') + ' · 一行 = 一次投递（人 × 需求）；同一个人投多个需求会出现多行，姓名旁标「同投 N」', actions)}
-    ${stats([
-      {lab:'在跟人员', val:rows.filter(p=>p.status==='跟进中').length, unit:'人',
-        foot:'点一下只看跟进中', on:`statFilter('st','跟进中')`, hot:S.f.st==='跟进中'},
-      {lab:'待面试', val:rows.filter(p=>['待面试','面试通过'].includes(p.node)).length, unit:'人', foot:'含面试通过',
-        on:`statFilter('nd','待面试')`, hot:S.f.nd==='待面试'},
-      {lab:'待入职', val:rows.filter(p=>p.node==='待入职').length, unit:'人',
-        on:`statFilter('nd','待入职')`, hot:S.f.nd==='待入职'},
-      {lab:'已入职', val:rows.filter(p=>p.node==='已入职').length, unit:'人', accent:true,
-        on:`statFilter('nd','已入职')`, hot:S.f.nd==='已入职'},
-    ])}
     ${toolbar({q:'搜索姓名 / 电话 / 技能', filters:[
       {k:'nd',opts:[{v:'',label:'全部节点'},...NODES.map(n=>({v:n,label:n}))]},
       {k:'tri',opts:[{v:'',label:'全部硬条件'},{v:'ok',label:'已核实符合'},{v:'pend',label:'信息待确认'},{v:'no',label:'已确认不符合'}]},
       {k:'dm',opts:[{v:'',label:'全部需求'},...DEMANDS.map(d=>({v:d.id,label:d.post}))]},
       ...(isR04?[]:[{k:'ow',opts:[{v:'',label:'全部负责人'},...['李文静','陈曦','王浩'].map(n=>({v:n,label:n}))]}])
-    ], right:`<span class="sm mut">${rows.length} 人</span>`})}
+    ], chips:[
+      {k:'ng',v:'',label:'全部'},
+      {k:'ng',v:'follow',label:`在跟中 ${cnt.follow}`},
+      {k:'ng',v:'itv',label:`待面试 ${cnt.itv}`},
+      {k:'ng',v:'onb',label:`待入职 ${cnt.onb}`},
+      {k:'ng',v:'hired',label:`已入职 ${cnt.hired}`},
+    ], right:`<span class="sm mut">共 ${rows.length} 人</span>`})}
     ${table(cols, rows)}
     ${pager(rows.length)}
   </div>`;
@@ -186,6 +191,7 @@ function poolPage(){
   if(src) rows = rows.filter(p=>p.channel===src);
   if(st==='free') rows = rows.filter(p=>ac(p)===0);
   if(st==='busy') rows = rows.filter(p=>ac(p)>0);
+  if(st==='full') rows = rows.filter(p=>p.complete>=85);        /* 原「资料完整」统计卡的筛选口径 */
   if(rel==='by') rows = rows.filter(p=>p.createdBy===S.who);      /* 我提供的 */
   if(rel==='fl') rows = rows.filter(p=>p.follower===S.who);       /* 我在跟的 */
 
@@ -207,18 +213,17 @@ function poolPage(){
   ];
 
   return `<div class="page">
-    ${head('人才池列表','全量人员档案（按手机号去重）· 一个人只有一份档案，投几次需求就有几条投递；点姓名看同一个「人详情」（简历 / 画像 / 本次投递 / 沟通）', `<button class="btn" onclick="toast('已给 12 位资料待补全的候选人发送补全链接（短信/微信）')">发补全链接</button><button class="btn" onclick="openModal(uploadPoolModal(),'md-lg')">↑ 上传简历入库</button><button class="btn pri" onclick="openModal(aiFindModal(),'md-lg')">AI 找候选人</button>`)}
-    ${stats([
-      {lab:'档案总数', val:PEOPLE.length, unit:'人', foot:'按手机号去重'},
-      {lab:'空闲可捞', val:PEOPLE.filter(p=>ac(p)===0).length, unit:'人', foot:'没有任何进行中的投递'},
-      {lab:'投递中', val:PEOPLE.filter(p=>ac(p)>0).length, unit:'人', foot:'至少在一个需求里'},
-      {lab:'资料完整', val:PEOPLE.filter(p=>p.complete>=85).length, unit:'人', accent:true, foot:'完整度 ≥85%'},
-    ])}
+    ${head('人才池列表','全量人员档案（按手机号去重）· 一个人只有一份档案，投几次需求就有几条投递；点姓名进档案独立页（简历 / 画像 / 本次投递 / 沟通）', `<button class="btn" onclick="toast('已给 12 位资料待补全的候选人发送补全链接（短信/微信）')">发补全链接</button><button class="btn" onclick="openModal(uploadPoolModal(),'md-lg')">↑ 上传简历入库</button><button class="btn pri" onclick="openModal(aiFindModal(),'md-lg')">AI 找候选人</button>`)}
     ${toolbar({q:'搜索姓名 / 技能 / 手机号', filters:[
-      {k:'st',opts:[{v:'',label:'全部状态'},{v:'free',label:'空闲可捞'},{v:'busy',label:'投递中'}]},
+      {k:'st',opts:[
+        {v:'',label:'全部状态'},
+        {v:'free',label:`空闲可捞 · ${PEOPLE.filter(p=>ac(p)===0).length}`},
+        {v:'busy',label:`投递中 · ${PEOPLE.filter(p=>ac(p)>0).length}`},
+        {v:'full',label:`资料完整 ≥85% · ${PEOPLE.filter(p=>p.complete>=85).length}`},
+      ]},
       {k:'src',opts:[{v:'',label:'全部渠道'},...CHANNELS.map(c=>({v:c.name,label:c.name}))]},
       {k:'rel',opts:[{v:'',label:'全部人'},{v:'by',label:'我提供的'},{v:'fl',label:'我在跟的'}]}
-    ], right:`<span class="sm mut">${rows.length} 人</span>`})}
+    ], right:`<span class="sm mut">共 ${rows.length} 人（档案 ${PEOPLE.length}）</span>`})}
     ${table(cols, rows)}
     ${pager(rows.length)}
   </div>`;

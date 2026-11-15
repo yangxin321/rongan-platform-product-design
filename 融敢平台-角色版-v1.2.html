@@ -3666,9 +3666,15 @@ function enter(role, silent){
   render();
   navHash(routeHash(), 'replace');
 }
-function exitRole(){ localStorage.removeItem('rg-role'); S.role=null; DM.id=null; document.getElementById('root').innerHTML = viewLanding(); }
+function exitRole(){
+  localStorage.removeItem('rg-role'); S.role=null;
+  DM.id=null; HU.pid=null; HU.appId=null; HU.back=null; CR.cid=null; CR.item=''; CR.back=null;
+  document.getElementById('root').innerHTML = viewLanding();
+}
 function go(page){
   if(page !== 'demandDetail') DM.id = null;
+  if(page !== 'personDetail'){ HU.pid = null; HU.appId = null; HU.back = null; }
+  if(page !== 'custreqRaw'){ CR.cid = null; CR.item = ''; CR.back = null; }
   S.page = page; S.f = {}; closeAll(); render();
   setMainScroll(0);
   navHash('#' + page, 'push');
@@ -3696,6 +3702,13 @@ function routeHash(){
   if(S.page === 'demandDetail'){
     const tab = (DM && dmTabOk(DM.tab)) ? DM.tab : 'detail';
     return `#demand/${encodeURIComponent(DM.id||'')}/detail?tab=${tab}`;
+  }
+  if(S.page === 'personDetail'){
+    const tab = (HU && huTabOk(HU.tab)) ? HU.tab : 'resume';
+    return `#person/${encodeURIComponent(HU.pid||'')}/detail?tab=${tab}`;
+  }
+  if(S.page === 'custreqRaw'){
+    return `#custreq/${encodeURIComponent(CR.cid||'')}/raw?item=${encodeURIComponent(CR.item||'')}`;
   }
   return '#' + (S.page || '');
 }
@@ -3725,6 +3738,19 @@ function applyHash(){
     S.page = 'demandDetail';
     return true;
   }
+  if(seg[0] === 'person' && seg[1]){
+    HU.pid = seg[1]; HU.appId = null;
+    const t = new URLSearchParams(qs || '').get('tab');
+    HU.tab = huTabOk(t) ? t : 'resume';
+    S.page = 'personDetail';
+    return true;
+  }
+  if(seg[0] === 'custreq' && seg[1]){
+    CR.cid = seg[1];
+    CR.item = new URLSearchParams(qs || '').get('item') || '';
+    S.page = 'custreqRaw';
+    return true;
+  }
   if(PAGES[seg[0]]){ S.page = seg[0]; return true; }
   return false;                     /* 无效地址：保持原页面，不静默跳转 */
 }
@@ -3742,7 +3768,11 @@ window.addEventListener('hashchange', onHashNav);
 
 function render(){
   const r = ROLES[S.role];
-  const navOn = S.page === 'demandDetail' ? 'demands' : S.page;   /* 详情页高亮所属列表 */
+  /* 详情页高亮所属列表：需求详情 → 需求列表；档案页 → 进来的那个列表（默认人员列表） */
+  const navOn = S.page === 'demandDetail' ? 'demands'
+    : S.page === 'personDetail' ? (HU.navKey && PAGES[HU.navKey] && HU.navKey!=='personDetail' ? HU.navKey : 'persons')
+    : S.page === 'custreqRaw' ? 'custreq'
+    : S.page;
   document.getElementById('root').innerHTML = `<div class="shell">
     <aside class="side">
       <div class="side-top">
@@ -3928,18 +3958,21 @@ function batchesPage(){
   const isR04 = S.role==='R04';
   let rows = BATCHES.slice();
   if(isR04) rows = rows.filter(b=>b.owner===S.who);
-  const q=(S.f.q||'').trim(), st=S.f.st||'', ow=S.f.ow||'';
+  const q=(S.f.q||'').trim(), st=S.f.st||'', ow=S.f.ow||'', day=S.f.day||'';
   if(q) rows = rows.filter(b=>(b.code+D(b.demandId).post).includes(q));
   if(st) rows = rows.filter(b=>b.status===st);
   if(ow) rows = rows.filter(b=>b.owner===ow);
+  if(day==='today') rows = rows.filter(b=>b.date===TODAY);
+  if(day==='7d'){
+    const from = new Date(TODAY+'T00:00:00'); from.setDate(from.getDate()-6);
+    const key = from.toISOString().slice(0,10);
+    rows = rows.filter(b=>b.date>=key);
+  }
   rows.sort((a,b)=>b.date.localeCompare(a.date));
 
-  const today = rows.filter(b=>b.date===TODAY);
   const actions = `<button class="btn" onclick="go('pool')">从人才池捞人</button>
     <button class="btn pri" onclick="openModal(uploadNewBatchModal(),'md-lg')">↑ 传简历建批次</button>
     <button class="btn" onclick="openModal(newBatchModal())">补建批次</button>`;
-  const todayPs = PERSONS.filter(p=>{const b=B(p.batchId); return b.date===TODAY;});
-  const totCh = chSummary(todayPs);
 
   const cols = [
     {label:'批次名称', r:b=>`<div class="t-name mono arc-link" style="font-size:13.5px" onclick="event.stopPropagation();openBatch('${b.id}')">${esc(b.code)}</div><div class="t-sub">${b.date}${b.date===TODAY?' · <span style="color:var(--accent)">今天</span>':''}${sameDayCount(b)>1?' · 同日第 '+sameDaySeq(b)+' 批':''}</div>`},
@@ -3960,21 +3993,11 @@ function batchesPage(){
 
   return `<div class="page">
     ${head('批次列表', '批次 = 招聘专员每天的工作单元：一个需求一天一个批次（同日同需求可建多个）；不用手工建批，传简历 / 捞人时系统自动建', actions)}
-    ${stats([
-      {lab:'今日批次', val:today.length, unit:'个', foot:`新增简历 ${today.reduce((a,b)=>a+b.boss+b.manual+b.pool,0)} 份`},
-      {lab:'今日已触达', val:today.reduce((a,b)=>a+b.touched,0), unit:'人', foot:'目标 100%'},
-      {lab:'今日有意向', val:today.reduce((a,b)=>a+b.intent,0), unit:'人', accent:true},
-      {lab:'进行中批次', val:rows.filter(b=>b.status==='进行中').length, unit:'个'},
-    ])}
-    <div class="ch-strip">
-      <span class="cs-t">今日来源合计</span>
-      ${totCh.length? totCh.map(([n,c])=>`<span class="cs-i"><b>${esc(n)}</b> <span class="mono">${c}</span></span>`).join('') : '<span class="mut sm">今天还没有简历进来</span>'}
-      <span class="cs-note">来源跟人走，不跟批次走 —— 一个批次里天然有多个渠道</span>
-    </div>
     ${toolbar({q:'搜索批次号 / 岗位', filters:[
+      {k:'day',opts:[{v:'',label:'全部日期'},{v:'today',label:'今天'},{v:'7d',label:'近 7 天'}]},
       {k:'st',opts:[{v:'',label:'全部状态'},{v:'进行中',label:'进行中'},{v:'已关闭',label:'已关闭'}]},
       ...(isR04?[]:[{k:'ow',opts:[{v:'',label:'全部负责人'},...['李文静','陈曦','王浩'].map(n=>({v:n,label:n}))]}])
-    ], right:`<span class="sm mut">${rows.length} 个批次</span>`})}
+    ], right:`<span class="sm mut">共 ${rows.length} 个批次</span>`})}
     ${table(cols, rows)}
     ${pager(rows.length)}
   </div>`;
@@ -3994,6 +4017,22 @@ function personsPage(){
   /* 硬条件筛选：按「该人 × 该需求」的逐项判定汇总值过滤，
      口径与「硬条件」列完全同源（assessPerson + triSum），避免下拉框形同虚设。 */
   if(triF) rows = rows.filter(p=>triSum(assessPerson(p, D(p.demandId))) === triF);
+
+  /* 三态统计卡（在跟 / 待面试 / 待入职 / 已入职）已挪进工具栏当筛选（v1.3 · RG-012 第三批）。
+     原来卡片上的数字含「面试通过」，点下去却只筛 node==='待面试'，数字和列表对不上；
+     现在按组筛：待面试 = 待面试 + 面试通过，与数字同源。计数在分组筛选之前算，避免自己把自己筛没。 */
+  const ng = S.f.ng || '';
+  const base = rows.slice();
+  const cnt = {
+    follow: base.filter(p=>p.status==='跟进中').length,
+    itv:    base.filter(p=>['待面试','面试通过'].includes(p.node)).length,
+    onb:    base.filter(p=>p.node==='待入职').length,
+    hired:  base.filter(p=>p.node==='已入职').length,
+  };
+  if(ng==='follow') rows = rows.filter(p=>p.status==='跟进中');
+  if(ng==='itv')    rows = rows.filter(p=>['待面试','面试通过'].includes(p.node));
+  if(ng==='onb')    rows = rows.filter(p=>p.node==='待入职');
+  if(ng==='hired')  rows = rows.filter(p=>p.node==='已入职');
 
   const actions = `<button class="btn" onclick="toast('已导出当前筛选 '+${rows.length}+' 条')">导出</button>
     <button class="btn pri" onclick="openModal(addPersonModal())">＋ 加人</button>`;
@@ -4027,22 +4066,18 @@ function personsPage(){
 
   return `<div class="page">
     ${head('人员列表', (isR04? '我名下的人员' : '全部在跟人员') + ' · 一行 = 一次投递（人 × 需求）；同一个人投多个需求会出现多行，姓名旁标「同投 N」', actions)}
-    ${stats([
-      {lab:'在跟人员', val:rows.filter(p=>p.status==='跟进中').length, unit:'人',
-        foot:'点一下只看跟进中', on:`statFilter('st','跟进中')`, hot:S.f.st==='跟进中'},
-      {lab:'待面试', val:rows.filter(p=>['待面试','面试通过'].includes(p.node)).length, unit:'人', foot:'含面试通过',
-        on:`statFilter('nd','待面试')`, hot:S.f.nd==='待面试'},
-      {lab:'待入职', val:rows.filter(p=>p.node==='待入职').length, unit:'人',
-        on:`statFilter('nd','待入职')`, hot:S.f.nd==='待入职'},
-      {lab:'已入职', val:rows.filter(p=>p.node==='已入职').length, unit:'人', accent:true,
-        on:`statFilter('nd','已入职')`, hot:S.f.nd==='已入职'},
-    ])}
     ${toolbar({q:'搜索姓名 / 电话 / 技能', filters:[
       {k:'nd',opts:[{v:'',label:'全部节点'},...NODES.map(n=>({v:n,label:n}))]},
       {k:'tri',opts:[{v:'',label:'全部硬条件'},{v:'ok',label:'已核实符合'},{v:'pend',label:'信息待确认'},{v:'no',label:'已确认不符合'}]},
       {k:'dm',opts:[{v:'',label:'全部需求'},...DEMANDS.map(d=>({v:d.id,label:d.post}))]},
       ...(isR04?[]:[{k:'ow',opts:[{v:'',label:'全部负责人'},...['李文静','陈曦','王浩'].map(n=>({v:n,label:n}))]}])
-    ], right:`<span class="sm mut">${rows.length} 人</span>`})}
+    ], chips:[
+      {k:'ng',v:'',label:'全部'},
+      {k:'ng',v:'follow',label:`在跟中 ${cnt.follow}`},
+      {k:'ng',v:'itv',label:`待面试 ${cnt.itv}`},
+      {k:'ng',v:'onb',label:`待入职 ${cnt.onb}`},
+      {k:'ng',v:'hired',label:`已入职 ${cnt.hired}`},
+    ], right:`<span class="sm mut">共 ${rows.length} 人</span>`})}
     ${table(cols, rows)}
     ${pager(rows.length)}
   </div>`;
@@ -4057,6 +4092,7 @@ function poolPage(){
   if(src) rows = rows.filter(p=>p.channel===src);
   if(st==='free') rows = rows.filter(p=>ac(p)===0);
   if(st==='busy') rows = rows.filter(p=>ac(p)>0);
+  if(st==='full') rows = rows.filter(p=>p.complete>=85);        /* 原「资料完整」统计卡的筛选口径 */
   if(rel==='by') rows = rows.filter(p=>p.createdBy===S.who);      /* 我提供的 */
   if(rel==='fl') rows = rows.filter(p=>p.follower===S.who);       /* 我在跟的 */
 
@@ -4078,18 +4114,17 @@ function poolPage(){
   ];
 
   return `<div class="page">
-    ${head('人才池列表','全量人员档案（按手机号去重）· 一个人只有一份档案，投几次需求就有几条投递；点姓名看同一个「人详情」（简历 / 画像 / 本次投递 / 沟通）', `<button class="btn" onclick="toast('已给 12 位资料待补全的候选人发送补全链接（短信/微信）')">发补全链接</button><button class="btn" onclick="openModal(uploadPoolModal(),'md-lg')">↑ 上传简历入库</button><button class="btn pri" onclick="openModal(aiFindModal(),'md-lg')">AI 找候选人</button>`)}
-    ${stats([
-      {lab:'档案总数', val:PEOPLE.length, unit:'人', foot:'按手机号去重'},
-      {lab:'空闲可捞', val:PEOPLE.filter(p=>ac(p)===0).length, unit:'人', foot:'没有任何进行中的投递'},
-      {lab:'投递中', val:PEOPLE.filter(p=>ac(p)>0).length, unit:'人', foot:'至少在一个需求里'},
-      {lab:'资料完整', val:PEOPLE.filter(p=>p.complete>=85).length, unit:'人', accent:true, foot:'完整度 ≥85%'},
-    ])}
+    ${head('人才池列表','全量人员档案（按手机号去重）· 一个人只有一份档案，投几次需求就有几条投递；点姓名进档案独立页（简历 / 画像 / 本次投递 / 沟通）', `<button class="btn" onclick="toast('已给 12 位资料待补全的候选人发送补全链接（短信/微信）')">发补全链接</button><button class="btn" onclick="openModal(uploadPoolModal(),'md-lg')">↑ 上传简历入库</button><button class="btn pri" onclick="openModal(aiFindModal(),'md-lg')">AI 找候选人</button>`)}
     ${toolbar({q:'搜索姓名 / 技能 / 手机号', filters:[
-      {k:'st',opts:[{v:'',label:'全部状态'},{v:'free',label:'空闲可捞'},{v:'busy',label:'投递中'}]},
+      {k:'st',opts:[
+        {v:'',label:'全部状态'},
+        {v:'free',label:`空闲可捞 · ${PEOPLE.filter(p=>ac(p)===0).length}`},
+        {v:'busy',label:`投递中 · ${PEOPLE.filter(p=>ac(p)>0).length}`},
+        {v:'full',label:`资料完整 ≥85% · ${PEOPLE.filter(p=>p.complete>=85).length}`},
+      ]},
       {k:'src',opts:[{v:'',label:'全部渠道'},...CHANNELS.map(c=>({v:c.name,label:c.name}))]},
       {k:'rel',opts:[{v:'',label:'全部人'},{v:'by',label:'我提供的'},{v:'fl',label:'我在跟的'}]}
-    ], right:`<span class="sm mut">${rows.length} 人</span>`})}
+    ], right:`<span class="sm mut">共 ${rows.length} 人（档案 ${PEOPLE.length}）</span>`})}
     ${table(cols, rows)}
     ${pager(rows.length)}
   </div>`;
@@ -5257,16 +5292,29 @@ PAGES.logs    = {R01:logsPage, R04:logsPage};
    页签记住上次停留（localStorage），他每天推进度，不想每次翻到第三个。
    ------------------------------------------------------------- */
 
+/* -------------------------------------------------------------
+   人档案：独立页面，五个页签（v1.3 · RG-012 第三批）
+   -------------------------------------------------------------
+   以前是一个右侧抽屉，四个页签。抽屉盖住列表、看不到系统导航、地址留不住，
+   在名单弹窗里点人名还会变成「弹窗上再叠一层抽屉」，点错和返回都很难受。
+   现在整页：地址 #person/<id>/detail?tab=<resume|verify|portrait|apply|talk>，
+   页签用英文稳定键（不用数字下标），刷新/前进后退都能落回原处。
+   「核实依据」原先只有内容、没有页签，只能从一个弹窗按钮进来，
+   而「简历明细」里又写着「详见核实依据页签」—— 悬空引用；这次补成第 2 个页签。
+   ------------------------------------------------------------- */
+
 const HU_TABS = [
   {k:'resume',  n:'简历明细', tip:'候选人自己给的'},
+  {k:'verify',  n:'核实依据', tip:'城市 / 到岗 / 证书逐项确认'},
   {k:'portrait',n:'人才画像', tip:'我们的判断 · 仅内部'},
   {k:'apply',   n:'本次投递', tip:'这一单谈到哪'},
   {k:'talk',    n:'沟通记录', tip:'跨投递合并'},
 ];
-let HU = {pid:null, appId:null, tab:'resume'};
+let HU = {pid:null, appId:null, tab:'resume', back:null, navKey:'persons'};
 
 function huMemGet(){ try{ return localStorage.getItem('rg-human-tab')||'resume'; }catch(e){ return 'resume'; } }
 function huMemSet(t){ try{ localStorage.setItem('rg-human-tab', t); }catch(e){} }
+function huTabOk(t){ return HU_TABS.some(x=>x.k===t); }
 
 /* 空态判断与状态标 */
 function archiveState(p){
@@ -5277,8 +5325,13 @@ function archiveState(p){
   return {label:'空闲可捞', tone:'g'};
 }
 
-/* 统一入口：openArchive(personId, tab) / openPerson(appId) 都到这里 */
+/* 统一入口：openArchive(personId, tab) / openPerson(appId) 都到这里 → 进独立页 */
 function openHuman(pid, tab, appId){
+  const from = S.page;
+  if(HU.pid !== pid){
+    HU.back = { page: from, f: Object.assign({}, S.f), scroll: mainScroll() };
+    HU.navKey = from;
+  }
   HU.pid = pid;
   if(appId) HU.appId = appId;
   const cur = HU.appId ? P(HU.appId) : null;
@@ -5286,12 +5339,40 @@ function openHuman(pid, tab, appId){
     const act = activeAppsOf(pid);
     HU.appId = (act[0]||appsOf(pid)[0]||{}).id || null;
   }
-  HU.tab = tab || huMemGet();
-  huPaint();
+  HU.tab = huTabOk(tab) ? tab : (tab ? 'resume' : huMemGet());
+  S.page = 'personDetail';
+  closeAll();                      /* 弹窗 / 抽屉先关掉，不在弹窗上叠页 */
+  render();
+  setMainScroll(0);
+  navHash(routeHash(), 'push');
 }
-function huPaint(){ openDrawer(huHtml()); }
-function huSetTab(t){ HU.tab = t; huMemSet(t); huPaint(); }
-function huAppTo(appId){ HU.appId = appId; HU.tab = 'apply'; huMemSet('apply'); huPaint(); }
+/* 只重画，不重建外壳：切页签时不闪导航 */
+function huRender(push){
+  const m = document.getElementById('main');
+  const sc = m ? m.scrollTop : 0;
+  render();
+  setMainScroll(push === false ? sc : 0);
+  navHash(routeHash(), push ? 'push' : 'replace');
+}
+function huPaint(){ huRender(false); }
+function huSetTab(t){
+  if(!huTabOk(t) || HU.tab === t) return;
+  HU.tab = t; huMemSet(t);
+  huRender(false);
+}
+function huAppTo(appId){ HU.appId = appId; HU.tab = 'apply'; huMemSet('apply'); huRender(false); }
+/* 页面内返回：回到进来时的列表，还原筛选与滚动 */
+function huBack(){
+  const b = HU.back;
+  HU.pid = null; HU.appId = null; HU.tab = 'resume'; HU.back = null;
+  if(b && b.page && b.page !== 'personDetail' && PAGES[b.page]){
+    S.page = b.page; S.f = Object.assign({}, b.f || {});
+    render(); setMainScroll(b.scroll || 0);
+    navHash(routeHash(), 'replace');
+    return;
+  }
+  go(HU.navKey === 'personDetail' ? 'persons' : (HU.navKey || 'persons'));
+}
 /* 兼容入口：全站所有「点人名」都收口到 openHuman */
 function openArchive(id, tab){ openHuman(id, tab); }
 function openPerson(id){
@@ -5318,6 +5399,7 @@ function fallbackCopy(txt){
 
 function huHtml(){
   const p = appPerson(HU.pid), st = archiveState(p);
+  if(p.id === '—') return huMissingHtml();
   const apps = appsOf(p.id), cs = contactsOf(p.id);
   const last = cs[0];
   const days = t => Math.round((new Date(TODAY+'T00:00:00') - new Date(t.slice(0,10)+'T00:00:00'))/86400000);
@@ -5335,36 +5417,56 @@ function huHtml(){
     : HU.tab==='apply' ? huApply(p)
     : huTalk(p, cs, apps);
 
-  return `
-    <div class="dr-h"><div>
-      <h3>${esc(p.name)} <span class="xs mut" style="font-weight:400">${p.gender} · ${p.age}岁 · ${esc(p.phone)}</span></h3>
-      <div class="sub">档案 <span class="arc-link mono" onclick="huCopy('${esc(p.id)}')">${esc(p.id)}</span>
-        · 当前跟进人 <b>${esc(p.follower||p.createdBy||'—')}</b>
-        · 进入 ${esc(p.createdAt)}（${days(p.createdAt)} 天前）</div></div>
-      <button class="dr-x" onclick="closeAll()">×</button></div>
-    <div class="dr-b">
-      <div class="arc-top">
-        <span class="b ${st.tone}">${esc(st.label)}</span>
-        <span class="b n">${esc(p.channel)}</span>
-        ${last?`<span class="sm ${ago>60?'arc-late':ago>30?'arc-warn':''}">最近沟通 ${last.time.slice(5)}（${ago} 天前）</span>`:'<span class="sm mut">尚无沟通记录</span>'}
-        <span class="sm mut">沟通 ${cs.length} 次</span>
-        <div class="sp"></div>
-        <span class="sm mut">点姓名到处都能进这一页</span>
-      </div>
+  const fromNav = {persons:'人员列表', pool:'人才池列表', demands:'需求列表', batches:'批次列表',
+    custreq:'客户需求确认', confirms:'客户确认', home:'我的首页', interviews:'面试管理'}[HU.navKey];
+  const backTxt = fromNav ? ('← 返回' + fromNav) : '← 返回上一页';
 
-      <div class="arc-tabs">
-        ${HU_TABS.map(t=>`<span class="arc-tab ${HU.tab===t.k?'on':''}" onclick="huSetTab('${t.k}')">
-          ${t.n}${badge[t.k]!==''?` <i class="vis n">${badge[t.k]}</i>`:''}
-          ${t.k==='portrait'?'<i class="vis no">仅内部</i>':t.k==='resume'?'<i class="vis ok">可对客户</i>':''}
-        </span>`).join('')}
-      </div>
+  return `<div class="page">
+    <div class="pg-back" onclick="huBack()">${backTxt}</div>
+    ${head(esc(p.name),
+      `<span class="xs mut">${p.gender} · ${p.age}岁 · ${esc(p.phone)}</span>
+       · 档案 <span class="arc-link mono" onclick="huCopy('${esc(p.id)}')">${esc(p.id)}</span>
+       · 当前跟进人 <b>${esc(p.follower||p.createdBy||'—')}</b>
+       · 进入 ${esc(p.createdAt)}（${days(p.createdAt)} 天前）`,
+      `<button class="btn" onclick="openModal(transferModal('${esc(p.id)}'))">转交跟进</button>
+       <button class="btn" onclick="openModal(followModal('${esc(p.id)}','archive'),'md-lg')">记录联系</button>
+       <button class="btn pri" onclick="openModal(poolPickBatch('${esc(HU.appId||p.id)}'))">捞入批次</button>`)}
 
-      ${body}
+    <div class="arc-top">
+      <span class="b ${st.tone}">${esc(st.label)}</span>
+      <span class="b n">${esc(p.channel)}</span>
+      ${last?`<span class="sm ${ago>60?'arc-late':ago>30?'arc-warn':''}">最近沟通 ${last.time.slice(5)}（${ago} 天前）</span>`:'<span class="sm mut">尚无沟通记录</span>'}
+      <span class="sm mut">沟通 ${cs.length} 次</span>
+      <div class="sp"></div>
+      <span class="xs mut mono">#person/${esc(p.id)}/detail?tab=${esc(HU.tab)}</span>
     </div>
-    <div class="dr-f"><button class="btn" onclick="closeAll()">关闭</button>
-      <button class="btn" onclick="openModal(transferModal('${esc(p.id)}'))">转交跟进</button>
-      <button class="btn" onclick="openModal(followModal('${esc(p.id)}','archive'),'md-lg')">记录联系</button>
-      <button class="btn pri" onclick="openModal(poolPickBatch('${esc(HU.appId||p.id)}'))">捞入批次</button></div>`;
+
+    <div class="arc-tabs">
+      ${HU_TABS.map(t=>`<span class="arc-tab ${HU.tab===t.k?'on':''}" title="${esc(t.tip)}" onclick="huSetTab('${t.k}')">
+        ${t.n}${badge[t.k]!==''?` <i class="vis n">${badge[t.k]}</i>`:''}
+        ${t.k==='portrait'?'<i class="vis no">仅内部</i>':t.k==='resume'?'<i class="vis ok">可对客户</i>':''}
+      </span>`).join('')}
+    </div>
+
+    ${body}
+  </div>`;
+}
+
+/* 三个角色都能开档案页（R01 全量、R02 客户侧、R04 我名下） */
+PAGES.personDetail = { any: huHtml };
+
+/* 地址里的档案不存在（刷新后演示数据重置 / 编号写错）：说清原因并给返回，不静默跳别的人 */
+function huMissingHtml(){
+  return `<div class="page">
+    <div class="pg-back" onclick="go('persons')">← 返回人员列表</div>
+    ${head('找不到这份档案','地址指向的人员不在当前演示数据里')}
+    <div class="note w">
+      <div><b>档案编号</b> <span class="mono">${esc(HU.pid||'—')}</span> 没有匹配到记录。</div>
+      <div style="margin-top:6px">常见原因：演示数据存在内存里，刷新后新增/改过的记录会回到初始状态；或者编号被改动过。</div>
+      <div style="margin-top:6px">这不是权限问题，系统也不会自动跳到别的候选人上。</div>
+    </div>
+    <div style="margin-top:12px"><button class="btn pri" onclick="go('persons')">返回人员列表</button></div>
+  </div>`;
 }
 
 /* ---------- 页签 1 · 简历明细 ---------- */
@@ -6331,9 +6433,22 @@ function r01Conversion(){
   </div>`;
 }
 
-/* 客户确认 */
+/* 客户确认
+   v1.3 · RG-012 第二批：去掉顶部四张统计卡（确认单 / 已生效 / 待客户确认 / 待内部审核）。
+   四个数字原来占掉首屏第一行，却和下面表格的「状态」列重复；
+   现在它们变成工具栏里的一个状态筛选，筛出来的就是那批记录，条数由「共 N 份」给。
+   顺手修掉一个老问题：工具栏的搜索框以前不生效（rows 直接拿 DEMANDS），现已接上。
+   不要在 head 和 toolbar 之间加回任何卡片 —— 要加先改 Issue #6 的 AC-1。 */
 function r01Confirms(){
-  const rows = DEMANDS.map(d=>{
+  const cf = S.f.cf || '', q = (S.f.q||'').trim();
+  const list = DEMANDS.filter(d=>{
+    if(cf==='effective' && !isEffective(d)) return false;
+    if(cf==='wait' && d.confirm!=='待客户确认') return false;
+    if(cf==='audit' && (openVer(d)||{}).status!=='待内部审核') return false;
+    if(q && !(d.client+d.project+d.post+d.code).includes(q)) return false;
+    return true;
+  });
+  const rows = list.map(d=>{
     const st = d.confirm==='已确认'?'g':d.confirm==='待客户确认'?'w':'r';
     const av = activeVer(d), pv = pendingVer(d), lk = mainLink(d.id);
     const rg = lastReg(d.id, av?av.v:(pv?pv.v:'v1.0'));
@@ -6358,17 +6473,18 @@ function r01Confirms(){
   const needAudit = DEMANDS.filter(d=>{ const v=openVer(d); return v && v.status==='待内部审核'; }).length;
   return `<div class="page">
     ${head('客户确认','客户线下确认 → 我方代登记 → 内部审核 → 生效；一张确认单覆盖同一项目的多个岗位', `<button class="btn" onclick="go('clinks')">确认链接</button><button class="btn pri" onclick="ndEnter()">＋ 新建确认单</button>`)}
-    ${stats([
-      {lab:'确认单', val:DEMANDS.length, unit:'份'},
-      {lab:'已生效', val:DEMANDS.filter(d=>isEffective(d)).length, unit:'份'},
-      {lab:'待客户确认', val:DEMANDS.filter(d=>d.confirm==='待客户确认').length, unit:'份'},
-      {lab:'待内部审核', val:needAudit, unit:'份', accent:true},
-    ])}
-    ${toolbar({q:'搜索客户 / 项目 / 岗位', right:`<span class="sm mut">${DEMANDS.length} 份</span>`})}
+    ${toolbar({q:'搜索客户 / 项目 / 岗位', filters:[
+      {k:'cf',opts:[
+        {v:'',label:`全部确认单 · ${DEMANDS.length}`},
+        {v:'effective',label:`已生效 · ${DEMANDS.filter(d=>isEffective(d)).length}`},
+        {v:'wait',label:`待客户确认 · ${DEMANDS.filter(d=>d.confirm==='待客户确认').length}`},
+        {v:'audit',label:`待内部审核 · ${needAudit}`},
+      ]}
+    ], right:`<span class="sm mut">共 ${list.length} 份</span>`})}
     <div class="tbl-wrap"><table>
       <thead><tr><th>确认单</th><th>项目 / 岗位</th><th>确认项</th><th>代登记（客户反馈人 / 我方登记人）</th><th>只读链接</th><th>有效期至</th><th>状态</th><th>操作</th></tr></thead>
-      <tbody>${rows}</tbody></table></div>
-    ${pager(DEMANDS.length)}
+      <tbody>${rows || '<tr><td colspan="8" class="empty">当前筛选下没有确认单</td></tr>'}</tbody></table></div>
+    ${pager(list.length)}
     <div class="note" style="margin-top:12px">「已确认」但无生效版本的按未生效处理；代登记后需<b>内部审核通过</b>才生效，退回的版本由我方补充客户依据后重新送审（见 REVIEW.md §2）。</div>
   </div>`;
 }
@@ -8092,137 +8208,180 @@ const PARSE_MORE = {
   },
 };
 
+/* ===== 客户需求确认 · 列表页 + 原话独立页（v1.3 · RG-012 · 2026-11-15）=====
+   以前是「左栏贴原话 + 右栏按维度纵向分组的解析卡片墙 + 顶部四张统计卡」。
+   客户的一句话被拆成十几张卡，扫不动、也没法按「还缺什么」排序。
+   现在：
+     列表 #custreq            一条需求项一行：需求项 / 客户原话摘要 / 整理后的条件 / 待确认内容 / 确认状态 / 操作
+     原文 #custreq/<id>/raw   某个需求项的原文与对应关系；多段原话按「时间 / 渠道 / 记录人 / 原文」列表；录入原话也收在这里
+   四态（明确 / 缺值 / 模糊 / 未提）沿用原有语义，只换表达，不改规则。
+   原话段落与需求项的对应关系只认字面包含，认不出的标「待关联」，不编造。 */
+
+const CR = { cid:null, item:'', back:null };
+
+function custById(id){ return Object.keys(CUST_FACTORS).map(k=>CUST_FACTORS[k]).find(c=>c.id===id) || null; }
+function custRank(it){ return it.st==='none' ? (it.req?0:3) : it.st==='vague' ? 1 : it.st==='miss' ? 2 : 9; }
+
+/* 进入某个需求项的原文页 */
+function openCustRaw(cid, item){
+  const from = S.page;
+  if(CR.cid !== cid) CR.back = { page: from, f: Object.assign({}, S.f), scroll: mainScroll() };
+  CR.cid = cid; CR.item = item || '';
+  S.page = 'custreqRaw';
+  closeAll(); render(); setMainScroll(0);
+  navHash(routeHash(), 'push');
+}
+/* 原文页返回：回到进来时的列表并还原客户与筛选 */
+function crBack(){
+  const b = CR.back;
+  CR.cid = null; CR.item = ''; CR.back = null;
+  if(b && b.page && PAGES[b.page]){
+    S.page = b.page; S.f = Object.assign({}, b.f || {});
+    render(); setMainScroll(b.scroll || 0);
+    navHash(routeHash(), 'replace');
+    return;
+  }
+  go('custreq');
+}
+
+/* ---------- 列表 ---------- */
 function r0xCustReq(){
   const name = S.f.cust || CUSTS[0];
   const c = custOf(name);
   const st = custStat(c);
-  const gaps = custGaps(c);
   const ST = CUST_ST;
 
-  const custChips = `<div class="toolbar" style="border-top:none">
-    <div style="display:flex;gap:6px;flex-wrap:wrap">
-      ${CUSTS.map(n=>{const x=custStat(custOf(n));
-        return `<span class="chip ${name===n?'on':''}" onclick="setCust('${n}')">${esc(n)} · ${x.ok}/${x.total} 明确</span>`;}).join('')}
-    </div>
-    <div class="sp"></div><span class="sm mut">客户因子 ${esc(c.id)} · ${esc(c.owner)} · ${esc(c.upd)}</span>
-  </div>`;
+  const q = (S.f.q||'').trim(), cst = S.f.cst || '', creq = S.f.creq || '';
+  let items = c.items.slice().sort((a,b)=>custRank(a)-custRank(b));   /* 没定的排前面 */
+  if(q) items = items.filter(i=>(i.k+i.dim+i.std+i.v+(i.q||'')).includes(q));
+  if(cst) items = items.filter(i=>i.st===cst);
+  if(creq) items = items.filter(i=>i.req && i.st!=='ok');
 
-  /* ---- 左：原话粘贴区 ---- */
-  const segs = c.segs.map((s,i)=>`<div class="seg">
-      <div class="seg-h"><span class="b n">第 ${i+1} 段</span><span class="xs mut">${esc(s.at)} · ${esc(s.src)}</span></div>
-      <div class="sm" style="line-height:1.7">${esc(s.txt)}</div>
-    </div>`).join('');
-
-  const left = `<div class="cc-col">
-    <div class="cc-card">
-      <div class="cc-t">客户原话 <span class="xs mut">微信原文 / 会议记录 / 语音转写都能贴</span></div>
-      <textarea class="cc-ta" placeholder="把客户说的话原样贴进来，可连续贴多段。一段会话说一次，不要自己先整理 —— 整理过的话，就查不出「哪些没问到」了。"></textarea>
-      <div class="cc-row">
-        <select class="sel" style="height:30px"><option>微信</option><option>电话</option><option>会议</option><option>语音转写</option></select>
-        <button class="btn sm" onclick="custParse('${esc(name)}')">AI 解析这一段</button>
-      </div>
-    </div>
-    ${segs}
-    <div class="note i">原话<b>永久保留</b>，标「证据 · 不参与评分」。90 天可归档不可删 —— 出纠纷时这是唯一凭据。</div>
-  </div>`;
-
-  /* ---- 右：解析结果 ---- */
-  const dims = [...new Set(c.items.map(i=>i.dim))];
-  const dimBlock = d => {
-    const rows = c.items.filter(i=>i.dim===d);
-    return `<div class="dimblk">
-      <div class="dim-t">${esc(d)} <span class="xs mut">${rows.length} 条 · ${rows.filter(r=>r.st==='ok').length} 明确</span></div>
-      ${rows.map(r=>{
-        const s = ST[r.st];
-        return `<div class="cc-item ${r.st}">
-          <div style="display:flex;align-items:flex-start;gap:8px">
-            <span class="stb ${s.c}">${s.i} ${s.n}</span>
-            <div style="flex:1;min-width:0">
-              <div class="sm"><b>${esc(r.k)}</b>${r.req?'<span class="xs mut"> · 必填</span>':''}</div>
-              <div class="xs" style="margin-top:2px;color:var(--ink2)">${esc(r.v)}</div>
-              <div class="xs mut" style="margin-top:3px">→ ${esc(r.std)}</div>
-              ${r.raw?`<div class="xs" style="margin-top:4px;padding-left:7px;border-left:2px solid var(--line)">原话：「${esc(r.raw)}」</div>`:''}
-            </div>
-            ${r.std2?'<span class="b g" title="已提升为因子库 / 要素池里的标准口径">已标准化</span>':''}
-          </div>
-        </div>`;
-      }).join('')}
-    </div>`;
-  };
-
-  const right = `<div class="cc-col">
-    <div class="cc-card">
-      <div class="cc-t">解析结果
-        <span class="xs mut">${st.total} 条 · 明确 ${st.ok} · 缺值 ${st.miss} · 模糊 ${st.vague} · 未提 ${st.none}</span></div>
-      ${dims.map(dimBlock).join('')}
-      <div class="note w" style="margin-top:10px">四态怎么读：<b>明确</b>有值可直接落库 · <b>缺值</b>知道要什么不知道多少 · <b>模糊</b>是不可判定词（"熟练""踏实""能吃苦"）· <b>未提</b>必填项压根没问。</div>
-    </div>
-  </div>`;
-
-  /* ---- 待补清单 ---- */
-  const gapRows = gaps.map((g,i)=>{
-    const s = ST[g.st];
-    const sev = g.st==='none'&&g.req ? '<span class="b r">最急 · 必填没问</span>'
-      : g.st==='vague' ? '<span class="b w">次急 · 判不了</span>'
-      : g.st==='miss' ? '<span class="b n">可后补 · 缺数值</span>' : '<span class="b n">可选</span>';
+  const brief = t => !t ? '' : (t.length > 22 ? t.slice(0,22) + '…' : t);
+  const rows = items.map(i=>{
+    const s = ST[i.st];
     return `<tr>
-      <td class="mono xs">${i+1}</td>
-      <td>${sev}</td>
-      <td class="sm"><b>${esc(g.k)}</b><div class="xs mut">${esc(g.dim)}</div></td>
-      <td class="sm">${esc(g.q||'—')}</td>
+      <td><div class="t-name"><b>${esc(i.k)}</b>${i.req?'<span class="b r" style="margin-left:6px">必填</span>':''}</div>
+        <div class="t-sub">${esc(i.dim)}</div></td>
+      <td class="sm">${i.raw
+        ? `<span title="${esc(i.raw)}">${esc(brief(i.raw))}</span>`
+        : '<span class="mut">未提 · 客户没说过</span>'}</td>
+      <td class="sm">${esc(i.std)}${i.std2?' <span class="b g">已标准化</span>':''}</td>
+      <td class="sm">${esc(i.q||'—')}</td>
+      <td><span class="stb ${s.c}">${s.i} ${s.n}</span></td>
+      <td><div class="acts">
+        <span class="link" onclick="openCustRaw('${esc(c.id)}','${esc(i.k)}')">查看原文</span>
+        ${i.st!=='ok'?`<span class="link" onclick="custScript('${esc(name)}')">问客户</span>`:''}
+      </div></td>
     </tr>`;
   }).join('');
 
   return `<div class="page">
     ${head('客户需求确认',
-      '先收话 → 再成单 → 后建需求 · 客户说的是方言，系统要的是普通话',
+      `放在 ${esc(c.customer)} 名下 · 先收话 → 再成单 → 后建需求 · 客户说的是方言，系统要的是普通话`,
       `<button class="btn" onclick="custScript('${esc(name)}')">生成问客户的话术</button>
-       <button class="btn pri" onclick="toast('已新建一条客户需求，等待贴原话')">＋ 新建客户需求</button>`)}
-    ${stats([
-      {lab:'要求条目', val:st.total, unit:'条', foot:`${esc(c.customer)} · ${esc(c.post)}`},
-      {lab:'已明确', val:st.ok, unit:'条', foot:'可直接落库进标准口径'},
-      {lab:'待补', val:st.total-st.ok, unit:'条', foot:`其中必填 ${st.blocked} 条`, accent:true},
-      {lab:'阻塞发布', val:st.blocked, unit:'条', foot:'不补完可以建草稿，不能发布'},
-    ])}
-    ${custChips}
-    <div class="cc-grid">${left}${right}</div>
-
-    <div class="sec" style="margin-top:18px"><div class="sec-t">待补清单 · 按严重度排（未提必填 > 模糊 > 缺值）
-      <span class="b r" style="margin-left:2px">${st.blocked} 条必填待补</span></div>
-      <div class="tbl-wrap"><table>
-        <thead><tr><th style="width:38px">#</th><th style="width:120px">严重度</th><th style="width:150px">要素</th><th>问客户的话</th></tr></thead>
-        <tbody>${gapRows||'<tr><td colspan="4" class="mut sm">全部明确，可以直接成单</td></tr>'}</tbody></table></div>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button class="btn" onclick="custScript('${esc(name)}')">一键生成话术（可复制发微信）</button>
-        <button class="btn" onclick="custPromote('${esc(name)}')">把明确项提升为标准口径</button>
-      </div>
+       <button class="btn" onclick="openCustRaw('${esc(c.id)}','')">＋ 贴客户原话</button>
+       <button class="btn pri" onclick="custToDemand('${esc(name)}')">建需求</button>`)}
+    ${toolbar({
+      q:'搜索需求项 / 原话 / 条件',
+      filters:[
+        {k:'cst',opts:[{v:'',label:'全部状态'},{v:'ok',label:'明确'},{v:'miss',label:'缺值'},{v:'vague',label:'模糊'},{v:'none',label:'未提'}]},
+        {k:'creq',opts:[{v:'',label:'全部条目'},{v:'req',label:'只看必填待补'}]},
+      ],
+      chips:CUSTS.map(n=>{ const x = custStat(custOf(n));
+        return {k:'cust', v:n, label:`${n} · ${x.ok}/${x.total} 明确`}; }),
+      right:`<span class="sm mut">共 ${items.length} 项 · 明确 ${st.ok} · 必填待补 ${st.blocked}</span>`
+    })}
+    <div class="tbl-wrap"><table>
+      <thead><tr><th style="width:170px">需求项</th><th>客户原话摘要</th><th>整理后的条件</th><th>待确认内容</th><th style="width:96px">确认状态</th><th style="width:150px">操作</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" class="empty">当前筛选下没有需求项</td></tr>'}</tbody></table></div>
+    ${pager(items.length)}
+    <div class="note" style="margin-top:12px">
+      <b>四态怎么读：</b>明确＝有值可直接落库 · 缺值＝知道要什么不知道多少 · 模糊＝不可判定词（"熟练""踏实""能吃苦"）· 未提＝必填项压根没问。
+      原话<b>永久保留</b>，标「证据 · 不参与评分」；90 天可归档不可删 —— 出纠纷时这是唯一凭据。
+      <b>挂客户，不挂项目</b>：一个客户的用人习惯跨项目一致。
     </div>
-
-    <div class="sec"><div class="sec-t">落库：客户因子</div>
-      <div style="background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px">
-        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
-          <div><div class="xs mut">客户因子</div><div class="mono sm">${esc(c.id)}</div></div>
-          <div><div class="xs mut">归属客户</div><div class="sm">${esc(c.customer)}</div></div>
-          <div><div class="xs mut">对应项目 / 岗位</div><div class="sm">${esc(c.project)} · ${esc(c.post)}</div></div>
-          <div><div class="xs mut">记录人</div><div class="sm">${esc(c.owner)}</div></div>
-          <div style="flex:1"></div>
-          <span class="b ${st.blocked?'w':'g'}">${st.blocked?`${st.blocked} 条必填待补 · 只能存草稿`:'口径完整 · 可发布'}</span>
-        </div>
-        <div class="note i" style="margin-top:12px">
-          <b>挂客户，不挂项目</b>（W1）：一个客户的用人习惯跨项目一致。挂项目的话，同一个客户三个项目要填三遍。<br>
-          <b>原话留痕</b>（W3）：每一条都存了客户原话当证据，但原话<b>不进评分</b> —— 评分只认映射出来的标准口径。
-        </div>
-      </div>
-    </div>
-
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn" onclick="custPromote('${esc(name)}')">把明确项提升为标准口径</button>
       <button class="btn" onclick="custToConfirm('${esc(name)}')">生成确认单（打印用）</button>
-      <button class="btn pri" onclick="custToDemand('${esc(name)}')">建需求（带岗位描述）</button>
     </div>
   </div>`;
 }
 
 function setCust(n){ S.f.cust = n; refreshTable(); }
+
+/* ---------- 原话独立页 ---------- */
+function custRawPage(){
+  const c = custById(CR.cid);
+  if(!c) return `<div class="page">
+    <div class="pg-back" onclick="go('custreq')">← 返回客户需求确认</div>
+    ${head('找不到这条客户需求','地址指向的客户因子不在当前演示数据里')}
+    <div class="note w">客户因子 <span class="mono">${esc(CR.cid||'—')}</span> 没有匹配到记录。演示数据存在内存里，刷新后会回到初始状态。
+      系统不会自动跳到别的客户需求上。</div>
+    <div style="margin-top:12px"><button class="btn pri" onclick="go('custreq')">返回客户需求确认</button></div>
+  </div>`;
+
+  const ST = CUST_ST;
+  const item = CR.item ? c.items.find(x=>x.k===CR.item) : null;
+  const segs = c.segs.map(s=>{
+    /* 只认字面：原话被整段包含才算对应，认不出就是「待关联」 */
+    const hit = !!(item && item.raw && s.txt.includes(item.raw));
+    let tag;
+    if(!item) tag = '<span class="mut sm">—</span>';
+    else if(hit) tag = '<span class="b g">对应本项</span>';
+    else if(!item.raw) tag = '<span class="b w">该项未提 · 无原文</span>';
+    else tag = '<span class="b w">待关联</span>';
+    return `<tr>
+      <td class="mono sm">${esc(s.at)}</td>
+      <td><span class="b n">${esc(s.src)}</span></td>
+      <td class="sm">${esc(c.owner)}<div class="t-sub">我方登记</div></td>
+      <td class="sm" style="line-height:1.7">${esc(s.txt)}</td>
+      <td>${tag}</td>
+    </tr>`;
+  }).join('');
+
+  const headBlock = item ? (()=>{
+    const s = ST[item.st];
+    return `<div class="sec" style="padding-top:0"><div class="sec-t">这一项 · ${esc(item.k)}
+        <span class="stb ${s.c}" style="margin-left:6px">${s.i} ${s.n}</span>
+        ${item.req?'<span class="b r" style="margin-left:6px">必填</span>':''}</div>
+      <dl class="kv">
+        <div><dt>维度</dt><dd>${esc(item.dim)}</dd></div>
+        <div><dt>客户说的</dt><dd class="sm">${esc(item.v)}</dd></div>
+        <div><dt>整理后的条件</dt><dd class="sm">${esc(item.std)}${item.std2?' <span class="b g">已标准化</span>':''}</dd></div>
+        <div><dt>还要问什么</dt><dd class="sm">${esc(item.q||'—')}</dd></div>
+      </dl>
+      ${item.raw?`<div class="note" style="margin-top:9px">原话：「${esc(item.raw)}」 <span class="xs mut">（证据 · 不参与评分）</span></div>`
+        :`<div class="note w" style="margin-top:9px">这一项客户没提过，没有原文可看；下面列的是该客户所有原话段，供你判断要不要补问。</div>`}
+    </div>`;
+  })() : `<div class="note i" style="margin-top:0">下面是 ${esc(c.customer)} 的全部原话段，按发生时间列出。从列表点「查看原文」可只看某一项。</div>`;
+
+  return `<div class="page">
+    <div class="pg-back" onclick="crBack()">← 返回客户需求确认</div>
+    ${head(item ? ('客户原话 · ' + esc(item.k)) : '客户原话',
+      `${esc(c.customer)} · ${esc(c.project)} · ${esc(c.post)} · 客户因子 <span class="mono">${esc(c.id)}</span>`,
+      `<button class="btn" onclick="custScript('${esc(c.customer)}')">生成问客户的话术</button>`)}
+    ${headBlock}
+
+    <div class="sec"><div class="sec-t">原话段（${c.segs.length} 段 · 不覆盖、不删除）</div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th style="width:104px">时间</th><th style="width:76px">渠道</th><th style="width:104px">记录人</th><th>原文</th><th style="width:132px">与本项关系</th></tr></thead>
+        <tbody>${segs || '<tr><td colspan="5" class="empty">还没有原话，下面可以贴第一段</td></tr>'}</tbody></table></div>
+      <div class="note" style="margin-top:10px">「对应本项」只按字面判断：原话里完整出现了这一项的原话才算。判断不了的标「待关联」，不硬凑。</div>
+    </div>
+
+    <div class="sec"><div class="sec-t">录入新的一段原话</div>
+      <div class="cc-card">
+        <textarea class="cc-ta" placeholder="把客户说的话原样贴进来，一段会话说一次。不要自己先整理 —— 整理过的话，就查不出「哪些没问到」了。"></textarea>
+        <div class="cc-row">
+          <select class="sel" style="height:30px"><option>微信</option><option>电话</option><option>会议</option><option>语音转写</option></select>
+          <button class="btn sm" onclick="custParse('${esc(c.customer)}')">AI 解析这一段</button>
+          <span class="sm mut">解析结果并回列表：同一条覆盖、新条追加、已明确的不会被冲掉</span>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
 
 /* 增量合并：同一条覆盖、新条追加、已 ✔ 的不许被冲掉（V19） */
 function custParse(name){
@@ -8308,12 +8467,22 @@ function custToJd(name){
 }
 
 PAGES.custreq = { R01:r0xCustReq, R02:r0xCustReq };
+PAGES.custreqRaw = { R01:custRawPage, R02:custRawPage };
 
 
 /* ===== R02 客户负责人 ===== */
 
 function r02Interviews(){
-  const rows = PERSONS.filter(p=>['待面试','面试通过'].includes(p.node) || p.itvFail);
+  /* v1.3 · RG-012 第二批：去掉「待面试 / 面试通过 / 面试未通过 / 待我确认」四张统计卡。
+     第四张与第二张其实是同一个数（都数 node==='面试通过'），本来就重复；
+     现在统一改成工具栏的「简历结果」筛选，筛出来的就是那批人，条数由「共 N 人」给。
+     搜索框以前也不生效（rows 直接拿 PERSONS），这次一并接上。 */
+  const q = (S.f.q||'').trim(), res = S.f.res || '';
+  let rows = PERSONS.filter(p=>['待面试','面试通过'].includes(p.node) || p.itvFail);
+  if(q) rows = rows.filter(p=>(p.name+D(p.demandId).post+D(p.demandId).client).includes(q));
+  if(res==='wait') rows = rows.filter(p=>p.node!=='面试通过' && !p.itvFail);
+  if(res==='pass') rows = rows.filter(p=>p.node==='面试通过');
+  if(res==='fail') rows = rows.filter(p=>!!p.itvFail);
   const list = rows.map(p=>{
     const ok = p.node==='面试通过';
     const fail = !!p.itvFail;
@@ -8339,16 +8508,17 @@ function r02Interviews(){
   const nFail = PERSONS.filter(p=>p.itvFail).length;
   return `<div class="page">
     ${head('面试管理','线下面试留痕 · 结果分「通过 / 未通过」，客户确认后对工人公开', `<button class="btn" onclick="toast('已导出面试排期')">导出排期</button>`)}
-    ${stats([
-      {lab:'待面试',val:nWait,unit:'人'},
-      {lab:'面试通过',val:nOk,unit:'人'},
-      {lab:'面试未通过',val:nFail,unit:'人'},
-      {lab:'待我确认',val:nOk,unit:'人',accent:true},
-    ])}
-    ${toolbar({q:'搜索姓名 / 岗位', right:`<span class="sm mut">${rows.length} 人</span>`})}
+    ${toolbar({q:'搜索姓名 / 岗位', filters:[
+      {k:'res',opts:[
+        {v:'',label:`全部面试 · ${nWait+nOk+nFail}`},
+        {v:'wait',label:`待面 · ${nWait}`},
+        {v:'pass',label:`通过 · ${nOk}（待我确认 ${nOk}）`},
+        {v:'fail',label:`未通过 · ${nFail}`},
+      ]}
+    ], right:`<span class="sm mut">共 ${rows.length} 人</span>`})}
     <div class="tbl-wrap"><table>
       <thead><tr><th>候选人</th><th>需求</th><th>面试时间</th><th>招聘专员</th><th>结果</th><th>客户确认</th><th>操作</th></tr></thead>
-      <tbody>${list || '<tr><td colspan="7"><div class="empty">暂无待面试人员</div></td></tr>'}</tbody></table></div>
+      <tbody>${list || '<tr><td colspan="7"><div class="empty">当前筛选下没有面试记录</div></td></tr>'}</tbody></table></div>
     ${pager(rows.length)}
   </div>`;
 }
@@ -8590,7 +8760,7 @@ function demandConfirmDrawer(id){
         :`<div class="xs" style="margin-top:8px;color:var(--bad)">尚未生成只读链接，客户手上没有可核对的确认单</div>`}
     </div></div>
 
-    ${regBlock(d, pv||av)}
+    ${regBlock(d, pv||av, !pv)}
 
 
     <div class="sec" style="padding-top:0"><div class="sec-t">条件来源：标准 ≠ 客户级 ≠ 本单调整</div>
@@ -8618,8 +8788,8 @@ function demandConfirmDrawer(id){
     ${pv&&pv.status==='已退回'?`<button class="btn pri" onclick="regDrawer('${d.id}')">补充反馈并重新送审</button>`:''}
     ${pv&&(pv.status==='待客户确认'||pv.status==='待重新确认')
       ? `<button class="btn pri" onclick="regDrawer('${d.id}')">代登记客户反馈（${esc(pv.v)}）</button>`:''}
-    ${!pv?`<button class="btn pri" onclick="regDrawer('${d.id}')">代登记客户反馈</button>`:''}
-    ${(d.confirm==='已确认'||av)&&!pv?`<button class="btn" onclick="confirmReg('${d.id}','change')">标记条件已变更</button>`:''}
+    ${(d.confirm==='已确认'||av)&&!pv?`<button class="btn pri" onclick="confirmReg('${d.id}','change')">标记条件已变更 → 新版本</button>
+      <span class="xs mut" style="align-self:center;max-width:320px">已生效、没有待处理版本：不对生效版本重复登记送审，先开新版本再登记</span>`:''}
   </div>`);
 }
 
@@ -8653,15 +8823,19 @@ function regTable(r){
     </tbody></table></div>
     ${miss.length?`<div class="note r" style="margin-top:9px">缺 ${miss.length} 项：${miss.map(esc).join('、')}。<b>缺项不允许送审。</b></div>`:''}`;
 }
-function regBlock(d, v){
+function regBlock(d, v, isEffective){
   if(!v) return '';
   const r = lastReg(d.id, v.v), hist = regsOfVer(d.id, v.v);
   const tone = v.audit==='已通过'?'g':v.audit==='已退回'?'r':v.audit==='待审核'?'w':'n';
+  /* R1-3：已生效且没有待处理版本时，这里只做只读回看，不再引导「再登记一次送审」 */
+  const empty = isEffective
+    ? `<div class="note">该版本已是生效版本，<b>不再对生效版本重复登记送审</b>。客户有新反馈时，走「标记条件已变更 → 生成新版本 → 代登记 → 内部审核」。</div>`
+    : `<div class="note w">该版本还没有代登记记录。客户口头反馈回来后，点「代登记客户反馈」逐项录入，才能送内部审核。</div>`;
   return `<div class="sec" style="padding-top:0"><div class="sec-t">客户反馈代登记 · ${esc(v.v)}
       <span class="b ${tone}">${esc(v.audit||'未送审')}</span>
       <span class="sp" style="flex:1"></span>
       <span class="xs mut">共 ${hist.length} 条记录</span></div>
-    ${r?regTable(r):`<div class="note w">该版本还没有代登记记录。客户口头反馈回来后，点「代登记客户反馈」逐项录入，才能送内部审核。</div>`}
+    ${r?regTable(r):empty}
     ${v.auditNote?`<div class="note ${v.audit==='已退回'?'r':'i'}" style="margin-top:9px"><b>${v.audit==='已退回'?'退回意见':'审核意见'}</b>：${esc(v.auditNote)}${v.auditBy?`　— ${esc(v.auditBy)} · ${esc(v.auditAt||'')}`:''}</div>`:''}
     ${auditsOf(v).length>1?auditHistHtml(v, true):''}
   </div>`;

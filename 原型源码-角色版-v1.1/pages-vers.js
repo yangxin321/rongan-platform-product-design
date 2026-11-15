@@ -118,7 +118,7 @@ function demandConfirmDrawer(id){
         :`<div class="xs" style="margin-top:8px;color:var(--bad)">尚未生成只读链接，客户手上没有可核对的确认单</div>`}
     </div></div>
 
-    ${regBlock(d, pv||av)}
+    ${regBlock(d, pv||av, !pv)}
 
 
     <div class="sec" style="padding-top:0"><div class="sec-t">条件来源：标准 ≠ 客户级 ≠ 本单调整</div>
@@ -146,8 +146,8 @@ function demandConfirmDrawer(id){
     ${pv&&pv.status==='已退回'?`<button class="btn pri" onclick="regDrawer('${d.id}')">补充反馈并重新送审</button>`:''}
     ${pv&&(pv.status==='待客户确认'||pv.status==='待重新确认')
       ? `<button class="btn pri" onclick="regDrawer('${d.id}')">代登记客户反馈（${esc(pv.v)}）</button>`:''}
-    ${!pv?`<button class="btn pri" onclick="regDrawer('${d.id}')">代登记客户反馈</button>`:''}
-    ${(d.confirm==='已确认'||av)&&!pv?`<button class="btn" onclick="confirmReg('${d.id}','change')">标记条件已变更</button>`:''}
+    ${(d.confirm==='已确认'||av)&&!pv?`<button class="btn pri" onclick="confirmReg('${d.id}','change')">标记条件已变更 → 新版本</button>
+      <span class="xs mut" style="align-self:center;max-width:320px">已生效、没有待处理版本：不对生效版本重复登记送审，先开新版本再登记</span>`:''}
   </div>`);
 }
 
@@ -181,15 +181,19 @@ function regTable(r){
     </tbody></table></div>
     ${miss.length?`<div class="note r" style="margin-top:9px">缺 ${miss.length} 项：${miss.map(esc).join('、')}。<b>缺项不允许送审。</b></div>`:''}`;
 }
-function regBlock(d, v){
+function regBlock(d, v, isEffective){
   if(!v) return '';
   const r = lastReg(d.id, v.v), hist = regsOfVer(d.id, v.v);
   const tone = v.audit==='已通过'?'g':v.audit==='已退回'?'r':v.audit==='待审核'?'w':'n';
+  /* R1-3：已生效且没有待处理版本时，这里只做只读回看，不再引导「再登记一次送审」 */
+  const empty = isEffective
+    ? `<div class="note">该版本已是生效版本，<b>不再对生效版本重复登记送审</b>。客户有新反馈时，走「标记条件已变更 → 生成新版本 → 代登记 → 内部审核」。</div>`
+    : `<div class="note w">该版本还没有代登记记录。客户口头反馈回来后，点「代登记客户反馈」逐项录入，才能送内部审核。</div>`;
   return `<div class="sec" style="padding-top:0"><div class="sec-t">客户反馈代登记 · ${esc(v.v)}
       <span class="b ${tone}">${esc(v.audit||'未送审')}</span>
       <span class="sp" style="flex:1"></span>
       <span class="xs mut">共 ${hist.length} 条记录</span></div>
-    ${r?regTable(r):`<div class="note w">该版本还没有代登记记录。客户口头反馈回来后，点「代登记客户反馈」逐项录入，才能送内部审核。</div>`}
+    ${r?regTable(r):empty}
     ${v.auditNote?`<div class="note ${v.audit==='已退回'?'r':'i'}" style="margin-top:9px"><b>${v.audit==='已退回'?'退回意见':'审核意见'}</b>：${esc(v.auditNote)}${v.auditBy?`　— ${esc(v.auditBy)} · ${esc(v.auditAt||'')}`:''}</div>`:''}
     ${auditsOf(v).length>1?auditHistHtml(v, true):''}
   </div>`;

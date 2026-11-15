@@ -1,7 +1,16 @@
 /* ===== R02 客户负责人 ===== */
 
 function r02Interviews(){
-  const rows = PERSONS.filter(p=>['待面试','面试通过'].includes(p.node) || p.itvFail);
+  /* v1.3 · RG-012 第二批：去掉「待面试 / 面试通过 / 面试未通过 / 待我确认」四张统计卡。
+     第四张与第二张其实是同一个数（都数 node==='面试通过'），本来就重复；
+     现在统一改成工具栏的「简历结果」筛选，筛出来的就是那批人，条数由「共 N 人」给。
+     搜索框以前也不生效（rows 直接拿 PERSONS），这次一并接上。 */
+  const q = (S.f.q||'').trim(), res = S.f.res || '';
+  let rows = PERSONS.filter(p=>['待面试','面试通过'].includes(p.node) || p.itvFail);
+  if(q) rows = rows.filter(p=>(p.name+D(p.demandId).post+D(p.demandId).client).includes(q));
+  if(res==='wait') rows = rows.filter(p=>p.node!=='面试通过' && !p.itvFail);
+  if(res==='pass') rows = rows.filter(p=>p.node==='面试通过');
+  if(res==='fail') rows = rows.filter(p=>!!p.itvFail);
   const list = rows.map(p=>{
     const ok = p.node==='面试通过';
     const fail = !!p.itvFail;
@@ -27,16 +36,17 @@ function r02Interviews(){
   const nFail = PERSONS.filter(p=>p.itvFail).length;
   return `<div class="page">
     ${head('面试管理','线下面试留痕 · 结果分「通过 / 未通过」，客户确认后对工人公开', `<button class="btn" onclick="toast('已导出面试排期')">导出排期</button>`)}
-    ${stats([
-      {lab:'待面试',val:nWait,unit:'人'},
-      {lab:'面试通过',val:nOk,unit:'人'},
-      {lab:'面试未通过',val:nFail,unit:'人'},
-      {lab:'待我确认',val:nOk,unit:'人',accent:true},
-    ])}
-    ${toolbar({q:'搜索姓名 / 岗位', right:`<span class="sm mut">${rows.length} 人</span>`})}
+    ${toolbar({q:'搜索姓名 / 岗位', filters:[
+      {k:'res',opts:[
+        {v:'',label:`全部面试 · ${nWait+nOk+nFail}`},
+        {v:'wait',label:`待面 · ${nWait}`},
+        {v:'pass',label:`通过 · ${nOk}（待我确认 ${nOk}）`},
+        {v:'fail',label:`未通过 · ${nFail}`},
+      ]}
+    ], right:`<span class="sm mut">共 ${rows.length} 人</span>`})}
     <div class="tbl-wrap"><table>
       <thead><tr><th>候选人</th><th>需求</th><th>面试时间</th><th>招聘专员</th><th>结果</th><th>客户确认</th><th>操作</th></tr></thead>
-      <tbody>${list || '<tr><td colspan="7"><div class="empty">暂无待面试人员</div></td></tr>'}</tbody></table></div>
+      <tbody>${list || '<tr><td colspan="7"><div class="empty">当前筛选下没有面试记录</div></td></tr>'}</tbody></table></div>
     ${pager(rows.length)}
   </div>`;
 }

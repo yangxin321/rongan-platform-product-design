@@ -133,9 +133,22 @@ function r01Conversion(){
   </div>`;
 }
 
-/* 客户确认 */
+/* 客户确认
+   v1.3 · RG-012 第二批：去掉顶部四张统计卡（确认单 / 已生效 / 待客户确认 / 待内部审核）。
+   四个数字原来占掉首屏第一行，却和下面表格的「状态」列重复；
+   现在它们变成工具栏里的一个状态筛选，筛出来的就是那批记录，条数由「共 N 份」给。
+   顺手修掉一个老问题：工具栏的搜索框以前不生效（rows 直接拿 DEMANDS），现已接上。
+   不要在 head 和 toolbar 之间加回任何卡片 —— 要加先改 Issue #6 的 AC-1。 */
 function r01Confirms(){
-  const rows = DEMANDS.map(d=>{
+  const cf = S.f.cf || '', q = (S.f.q||'').trim();
+  const list = DEMANDS.filter(d=>{
+    if(cf==='effective' && !isEffective(d)) return false;
+    if(cf==='wait' && d.confirm!=='待客户确认') return false;
+    if(cf==='audit' && (openVer(d)||{}).status!=='待内部审核') return false;
+    if(q && !(d.client+d.project+d.post+d.code).includes(q)) return false;
+    return true;
+  });
+  const rows = list.map(d=>{
     const st = d.confirm==='已确认'?'g':d.confirm==='待客户确认'?'w':'r';
     const av = activeVer(d), pv = pendingVer(d), lk = mainLink(d.id);
     const rg = lastReg(d.id, av?av.v:(pv?pv.v:'v1.0'));
@@ -160,17 +173,18 @@ function r01Confirms(){
   const needAudit = DEMANDS.filter(d=>{ const v=openVer(d); return v && v.status==='待内部审核'; }).length;
   return `<div class="page">
     ${head('客户确认','客户线下确认 → 我方代登记 → 内部审核 → 生效；一张确认单覆盖同一项目的多个岗位', `<button class="btn" onclick="go('clinks')">确认链接</button><button class="btn pri" onclick="ndEnter()">＋ 新建确认单</button>`)}
-    ${stats([
-      {lab:'确认单', val:DEMANDS.length, unit:'份'},
-      {lab:'已生效', val:DEMANDS.filter(d=>isEffective(d)).length, unit:'份'},
-      {lab:'待客户确认', val:DEMANDS.filter(d=>d.confirm==='待客户确认').length, unit:'份'},
-      {lab:'待内部审核', val:needAudit, unit:'份', accent:true},
-    ])}
-    ${toolbar({q:'搜索客户 / 项目 / 岗位', right:`<span class="sm mut">${DEMANDS.length} 份</span>`})}
+    ${toolbar({q:'搜索客户 / 项目 / 岗位', filters:[
+      {k:'cf',opts:[
+        {v:'',label:`全部确认单 · ${DEMANDS.length}`},
+        {v:'effective',label:`已生效 · ${DEMANDS.filter(d=>isEffective(d)).length}`},
+        {v:'wait',label:`待客户确认 · ${DEMANDS.filter(d=>d.confirm==='待客户确认').length}`},
+        {v:'audit',label:`待内部审核 · ${needAudit}`},
+      ]}
+    ], right:`<span class="sm mut">共 ${list.length} 份</span>`})}
     <div class="tbl-wrap"><table>
       <thead><tr><th>确认单</th><th>项目 / 岗位</th><th>确认项</th><th>代登记（客户反馈人 / 我方登记人）</th><th>只读链接</th><th>有效期至</th><th>状态</th><th>操作</th></tr></thead>
-      <tbody>${rows}</tbody></table></div>
-    ${pager(DEMANDS.length)}
+      <tbody>${rows || '<tr><td colspan="8" class="empty">当前筛选下没有确认单</td></tr>'}</tbody></table></div>
+    ${pager(list.length)}
     <div class="note" style="margin-top:12px">「已确认」但无生效版本的按未生效处理；代登记后需<b>内部审核通过</b>才生效，退回的版本由我方补充客户依据后重新送审（见 REVIEW.md §2）。</div>
   </div>`;
 }

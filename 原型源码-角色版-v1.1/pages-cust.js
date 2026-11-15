@@ -28,137 +28,180 @@ const PARSE_MORE = {
   },
 };
 
+/* ===== 客户需求确认 · 列表页 + 原话独立页（v1.3 · RG-012 · 2026-11-15）=====
+   以前是「左栏贴原话 + 右栏按维度纵向分组的解析卡片墙 + 顶部四张统计卡」。
+   客户的一句话被拆成十几张卡，扫不动、也没法按「还缺什么」排序。
+   现在：
+     列表 #custreq            一条需求项一行：需求项 / 客户原话摘要 / 整理后的条件 / 待确认内容 / 确认状态 / 操作
+     原文 #custreq/<id>/raw   某个需求项的原文与对应关系；多段原话按「时间 / 渠道 / 记录人 / 原文」列表；录入原话也收在这里
+   四态（明确 / 缺值 / 模糊 / 未提）沿用原有语义，只换表达，不改规则。
+   原话段落与需求项的对应关系只认字面包含，认不出的标「待关联」，不编造。 */
+
+const CR = { cid:null, item:'', back:null };
+
+function custById(id){ return Object.keys(CUST_FACTORS).map(k=>CUST_FACTORS[k]).find(c=>c.id===id) || null; }
+function custRank(it){ return it.st==='none' ? (it.req?0:3) : it.st==='vague' ? 1 : it.st==='miss' ? 2 : 9; }
+
+/* 进入某个需求项的原文页 */
+function openCustRaw(cid, item){
+  const from = S.page;
+  if(CR.cid !== cid) CR.back = { page: from, f: Object.assign({}, S.f), scroll: mainScroll() };
+  CR.cid = cid; CR.item = item || '';
+  S.page = 'custreqRaw';
+  closeAll(); render(); setMainScroll(0);
+  navHash(routeHash(), 'push');
+}
+/* 原文页返回：回到进来时的列表并还原客户与筛选 */
+function crBack(){
+  const b = CR.back;
+  CR.cid = null; CR.item = ''; CR.back = null;
+  if(b && b.page && PAGES[b.page]){
+    S.page = b.page; S.f = Object.assign({}, b.f || {});
+    render(); setMainScroll(b.scroll || 0);
+    navHash(routeHash(), 'replace');
+    return;
+  }
+  go('custreq');
+}
+
+/* ---------- 列表 ---------- */
 function r0xCustReq(){
   const name = S.f.cust || CUSTS[0];
   const c = custOf(name);
   const st = custStat(c);
-  const gaps = custGaps(c);
   const ST = CUST_ST;
 
-  const custChips = `<div class="toolbar" style="border-top:none">
-    <div style="display:flex;gap:6px;flex-wrap:wrap">
-      ${CUSTS.map(n=>{const x=custStat(custOf(n));
-        return `<span class="chip ${name===n?'on':''}" onclick="setCust('${n}')">${esc(n)} · ${x.ok}/${x.total} 明确</span>`;}).join('')}
-    </div>
-    <div class="sp"></div><span class="sm mut">客户因子 ${esc(c.id)} · ${esc(c.owner)} · ${esc(c.upd)}</span>
-  </div>`;
+  const q = (S.f.q||'').trim(), cst = S.f.cst || '', creq = S.f.creq || '';
+  let items = c.items.slice().sort((a,b)=>custRank(a)-custRank(b));   /* 没定的排前面 */
+  if(q) items = items.filter(i=>(i.k+i.dim+i.std+i.v+(i.q||'')).includes(q));
+  if(cst) items = items.filter(i=>i.st===cst);
+  if(creq) items = items.filter(i=>i.req && i.st!=='ok');
 
-  /* ---- 左：原话粘贴区 ---- */
-  const segs = c.segs.map((s,i)=>`<div class="seg">
-      <div class="seg-h"><span class="b n">第 ${i+1} 段</span><span class="xs mut">${esc(s.at)} · ${esc(s.src)}</span></div>
-      <div class="sm" style="line-height:1.7">${esc(s.txt)}</div>
-    </div>`).join('');
-
-  const left = `<div class="cc-col">
-    <div class="cc-card">
-      <div class="cc-t">客户原话 <span class="xs mut">微信原文 / 会议记录 / 语音转写都能贴</span></div>
-      <textarea class="cc-ta" placeholder="把客户说的话原样贴进来，可连续贴多段。一段会话说一次，不要自己先整理 —— 整理过的话，就查不出「哪些没问到」了。"></textarea>
-      <div class="cc-row">
-        <select class="sel" style="height:30px"><option>微信</option><option>电话</option><option>会议</option><option>语音转写</option></select>
-        <button class="btn sm" onclick="custParse('${esc(name)}')">AI 解析这一段</button>
-      </div>
-    </div>
-    ${segs}
-    <div class="note i">原话<b>永久保留</b>，标「证据 · 不参与评分」。90 天可归档不可删 —— 出纠纷时这是唯一凭据。</div>
-  </div>`;
-
-  /* ---- 右：解析结果 ---- */
-  const dims = [...new Set(c.items.map(i=>i.dim))];
-  const dimBlock = d => {
-    const rows = c.items.filter(i=>i.dim===d);
-    return `<div class="dimblk">
-      <div class="dim-t">${esc(d)} <span class="xs mut">${rows.length} 条 · ${rows.filter(r=>r.st==='ok').length} 明确</span></div>
-      ${rows.map(r=>{
-        const s = ST[r.st];
-        return `<div class="cc-item ${r.st}">
-          <div style="display:flex;align-items:flex-start;gap:8px">
-            <span class="stb ${s.c}">${s.i} ${s.n}</span>
-            <div style="flex:1;min-width:0">
-              <div class="sm"><b>${esc(r.k)}</b>${r.req?'<span class="xs mut"> · 必填</span>':''}</div>
-              <div class="xs" style="margin-top:2px;color:var(--ink2)">${esc(r.v)}</div>
-              <div class="xs mut" style="margin-top:3px">→ ${esc(r.std)}</div>
-              ${r.raw?`<div class="xs" style="margin-top:4px;padding-left:7px;border-left:2px solid var(--line)">原话：「${esc(r.raw)}」</div>`:''}
-            </div>
-            ${r.std2?'<span class="b g" title="已提升为因子库 / 要素池里的标准口径">已标准化</span>':''}
-          </div>
-        </div>`;
-      }).join('')}
-    </div>`;
-  };
-
-  const right = `<div class="cc-col">
-    <div class="cc-card">
-      <div class="cc-t">解析结果
-        <span class="xs mut">${st.total} 条 · 明确 ${st.ok} · 缺值 ${st.miss} · 模糊 ${st.vague} · 未提 ${st.none}</span></div>
-      ${dims.map(dimBlock).join('')}
-      <div class="note w" style="margin-top:10px">四态怎么读：<b>明确</b>有值可直接落库 · <b>缺值</b>知道要什么不知道多少 · <b>模糊</b>是不可判定词（"熟练""踏实""能吃苦"）· <b>未提</b>必填项压根没问。</div>
-    </div>
-  </div>`;
-
-  /* ---- 待补清单 ---- */
-  const gapRows = gaps.map((g,i)=>{
-    const s = ST[g.st];
-    const sev = g.st==='none'&&g.req ? '<span class="b r">最急 · 必填没问</span>'
-      : g.st==='vague' ? '<span class="b w">次急 · 判不了</span>'
-      : g.st==='miss' ? '<span class="b n">可后补 · 缺数值</span>' : '<span class="b n">可选</span>';
+  const brief = t => !t ? '' : (t.length > 22 ? t.slice(0,22) + '…' : t);
+  const rows = items.map(i=>{
+    const s = ST[i.st];
     return `<tr>
-      <td class="mono xs">${i+1}</td>
-      <td>${sev}</td>
-      <td class="sm"><b>${esc(g.k)}</b><div class="xs mut">${esc(g.dim)}</div></td>
-      <td class="sm">${esc(g.q||'—')}</td>
+      <td><div class="t-name"><b>${esc(i.k)}</b>${i.req?'<span class="b r" style="margin-left:6px">必填</span>':''}</div>
+        <div class="t-sub">${esc(i.dim)}</div></td>
+      <td class="sm">${i.raw
+        ? `<span title="${esc(i.raw)}">${esc(brief(i.raw))}</span>`
+        : '<span class="mut">未提 · 客户没说过</span>'}</td>
+      <td class="sm">${esc(i.std)}${i.std2?' <span class="b g">已标准化</span>':''}</td>
+      <td class="sm">${esc(i.q||'—')}</td>
+      <td><span class="stb ${s.c}">${s.i} ${s.n}</span></td>
+      <td><div class="acts">
+        <span class="link" onclick="openCustRaw('${esc(c.id)}','${esc(i.k)}')">查看原文</span>
+        ${i.st!=='ok'?`<span class="link" onclick="custScript('${esc(name)}')">问客户</span>`:''}
+      </div></td>
     </tr>`;
   }).join('');
 
   return `<div class="page">
     ${head('客户需求确认',
-      '先收话 → 再成单 → 后建需求 · 客户说的是方言，系统要的是普通话',
+      `放在 ${esc(c.customer)} 名下 · 先收话 → 再成单 → 后建需求 · 客户说的是方言，系统要的是普通话`,
       `<button class="btn" onclick="custScript('${esc(name)}')">生成问客户的话术</button>
-       <button class="btn pri" onclick="toast('已新建一条客户需求，等待贴原话')">＋ 新建客户需求</button>`)}
-    ${stats([
-      {lab:'要求条目', val:st.total, unit:'条', foot:`${esc(c.customer)} · ${esc(c.post)}`},
-      {lab:'已明确', val:st.ok, unit:'条', foot:'可直接落库进标准口径'},
-      {lab:'待补', val:st.total-st.ok, unit:'条', foot:`其中必填 ${st.blocked} 条`, accent:true},
-      {lab:'阻塞发布', val:st.blocked, unit:'条', foot:'不补完可以建草稿，不能发布'},
-    ])}
-    ${custChips}
-    <div class="cc-grid">${left}${right}</div>
-
-    <div class="sec" style="margin-top:18px"><div class="sec-t">待补清单 · 按严重度排（未提必填 > 模糊 > 缺值）
-      <span class="b r" style="margin-left:2px">${st.blocked} 条必填待补</span></div>
-      <div class="tbl-wrap"><table>
-        <thead><tr><th style="width:38px">#</th><th style="width:120px">严重度</th><th style="width:150px">要素</th><th>问客户的话</th></tr></thead>
-        <tbody>${gapRows||'<tr><td colspan="4" class="mut sm">全部明确，可以直接成单</td></tr>'}</tbody></table></div>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button class="btn" onclick="custScript('${esc(name)}')">一键生成话术（可复制发微信）</button>
-        <button class="btn" onclick="custPromote('${esc(name)}')">把明确项提升为标准口径</button>
-      </div>
+       <button class="btn" onclick="openCustRaw('${esc(c.id)}','')">＋ 贴客户原话</button>
+       <button class="btn pri" onclick="custToDemand('${esc(name)}')">建需求</button>`)}
+    ${toolbar({
+      q:'搜索需求项 / 原话 / 条件',
+      filters:[
+        {k:'cst',opts:[{v:'',label:'全部状态'},{v:'ok',label:'明确'},{v:'miss',label:'缺值'},{v:'vague',label:'模糊'},{v:'none',label:'未提'}]},
+        {k:'creq',opts:[{v:'',label:'全部条目'},{v:'req',label:'只看必填待补'}]},
+      ],
+      chips:CUSTS.map(n=>{ const x = custStat(custOf(n));
+        return {k:'cust', v:n, label:`${n} · ${x.ok}/${x.total} 明确`}; }),
+      right:`<span class="sm mut">共 ${items.length} 项 · 明确 ${st.ok} · 必填待补 ${st.blocked}</span>`
+    })}
+    <div class="tbl-wrap"><table>
+      <thead><tr><th style="width:170px">需求项</th><th>客户原话摘要</th><th>整理后的条件</th><th>待确认内容</th><th style="width:96px">确认状态</th><th style="width:150px">操作</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" class="empty">当前筛选下没有需求项</td></tr>'}</tbody></table></div>
+    ${pager(items.length)}
+    <div class="note" style="margin-top:12px">
+      <b>四态怎么读：</b>明确＝有值可直接落库 · 缺值＝知道要什么不知道多少 · 模糊＝不可判定词（"熟练""踏实""能吃苦"）· 未提＝必填项压根没问。
+      原话<b>永久保留</b>，标「证据 · 不参与评分」；90 天可归档不可删 —— 出纠纷时这是唯一凭据。
+      <b>挂客户，不挂项目</b>：一个客户的用人习惯跨项目一致。
     </div>
-
-    <div class="sec"><div class="sec-t">落库：客户因子</div>
-      <div style="background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px">
-        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
-          <div><div class="xs mut">客户因子</div><div class="mono sm">${esc(c.id)}</div></div>
-          <div><div class="xs mut">归属客户</div><div class="sm">${esc(c.customer)}</div></div>
-          <div><div class="xs mut">对应项目 / 岗位</div><div class="sm">${esc(c.project)} · ${esc(c.post)}</div></div>
-          <div><div class="xs mut">记录人</div><div class="sm">${esc(c.owner)}</div></div>
-          <div style="flex:1"></div>
-          <span class="b ${st.blocked?'w':'g'}">${st.blocked?`${st.blocked} 条必填待补 · 只能存草稿`:'口径完整 · 可发布'}</span>
-        </div>
-        <div class="note i" style="margin-top:12px">
-          <b>挂客户，不挂项目</b>（W1）：一个客户的用人习惯跨项目一致。挂项目的话，同一个客户三个项目要填三遍。<br>
-          <b>原话留痕</b>（W3）：每一条都存了客户原话当证据，但原话<b>不进评分</b> —— 评分只认映射出来的标准口径。
-        </div>
-      </div>
-    </div>
-
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn" onclick="custPromote('${esc(name)}')">把明确项提升为标准口径</button>
       <button class="btn" onclick="custToConfirm('${esc(name)}')">生成确认单（打印用）</button>
-      <button class="btn pri" onclick="custToDemand('${esc(name)}')">建需求（带岗位描述）</button>
     </div>
   </div>`;
 }
 
 function setCust(n){ S.f.cust = n; refreshTable(); }
+
+/* ---------- 原话独立页 ---------- */
+function custRawPage(){
+  const c = custById(CR.cid);
+  if(!c) return `<div class="page">
+    <div class="pg-back" onclick="go('custreq')">← 返回客户需求确认</div>
+    ${head('找不到这条客户需求','地址指向的客户因子不在当前演示数据里')}
+    <div class="note w">客户因子 <span class="mono">${esc(CR.cid||'—')}</span> 没有匹配到记录。演示数据存在内存里，刷新后会回到初始状态。
+      系统不会自动跳到别的客户需求上。</div>
+    <div style="margin-top:12px"><button class="btn pri" onclick="go('custreq')">返回客户需求确认</button></div>
+  </div>`;
+
+  const ST = CUST_ST;
+  const item = CR.item ? c.items.find(x=>x.k===CR.item) : null;
+  const segs = c.segs.map(s=>{
+    /* 只认字面：原话被整段包含才算对应，认不出就是「待关联」 */
+    const hit = !!(item && item.raw && s.txt.includes(item.raw));
+    let tag;
+    if(!item) tag = '<span class="mut sm">—</span>';
+    else if(hit) tag = '<span class="b g">对应本项</span>';
+    else if(!item.raw) tag = '<span class="b w">该项未提 · 无原文</span>';
+    else tag = '<span class="b w">待关联</span>';
+    return `<tr>
+      <td class="mono sm">${esc(s.at)}</td>
+      <td><span class="b n">${esc(s.src)}</span></td>
+      <td class="sm">${esc(c.owner)}<div class="t-sub">我方登记</div></td>
+      <td class="sm" style="line-height:1.7">${esc(s.txt)}</td>
+      <td>${tag}</td>
+    </tr>`;
+  }).join('');
+
+  const headBlock = item ? (()=>{
+    const s = ST[item.st];
+    return `<div class="sec" style="padding-top:0"><div class="sec-t">这一项 · ${esc(item.k)}
+        <span class="stb ${s.c}" style="margin-left:6px">${s.i} ${s.n}</span>
+        ${item.req?'<span class="b r" style="margin-left:6px">必填</span>':''}</div>
+      <dl class="kv">
+        <div><dt>维度</dt><dd>${esc(item.dim)}</dd></div>
+        <div><dt>客户说的</dt><dd class="sm">${esc(item.v)}</dd></div>
+        <div><dt>整理后的条件</dt><dd class="sm">${esc(item.std)}${item.std2?' <span class="b g">已标准化</span>':''}</dd></div>
+        <div><dt>还要问什么</dt><dd class="sm">${esc(item.q||'—')}</dd></div>
+      </dl>
+      ${item.raw?`<div class="note" style="margin-top:9px">原话：「${esc(item.raw)}」 <span class="xs mut">（证据 · 不参与评分）</span></div>`
+        :`<div class="note w" style="margin-top:9px">这一项客户没提过，没有原文可看；下面列的是该客户所有原话段，供你判断要不要补问。</div>`}
+    </div>`;
+  })() : `<div class="note i" style="margin-top:0">下面是 ${esc(c.customer)} 的全部原话段，按发生时间列出。从列表点「查看原文」可只看某一项。</div>`;
+
+  return `<div class="page">
+    <div class="pg-back" onclick="crBack()">← 返回客户需求确认</div>
+    ${head(item ? ('客户原话 · ' + esc(item.k)) : '客户原话',
+      `${esc(c.customer)} · ${esc(c.project)} · ${esc(c.post)} · 客户因子 <span class="mono">${esc(c.id)}</span>`,
+      `<button class="btn" onclick="custScript('${esc(c.customer)}')">生成问客户的话术</button>`)}
+    ${headBlock}
+
+    <div class="sec"><div class="sec-t">原话段（${c.segs.length} 段 · 不覆盖、不删除）</div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th style="width:104px">时间</th><th style="width:76px">渠道</th><th style="width:104px">记录人</th><th>原文</th><th style="width:132px">与本项关系</th></tr></thead>
+        <tbody>${segs || '<tr><td colspan="5" class="empty">还没有原话，下面可以贴第一段</td></tr>'}</tbody></table></div>
+      <div class="note" style="margin-top:10px">「对应本项」只按字面判断：原话里完整出现了这一项的原话才算。判断不了的标「待关联」，不硬凑。</div>
+    </div>
+
+    <div class="sec"><div class="sec-t">录入新的一段原话</div>
+      <div class="cc-card">
+        <textarea class="cc-ta" placeholder="把客户说的话原样贴进来，一段会话说一次。不要自己先整理 —— 整理过的话，就查不出「哪些没问到」了。"></textarea>
+        <div class="cc-row">
+          <select class="sel" style="height:30px"><option>微信</option><option>电话</option><option>会议</option><option>语音转写</option></select>
+          <button class="btn sm" onclick="custParse('${esc(c.customer)}')">AI 解析这一段</button>
+          <span class="sm mut">解析结果并回列表：同一条覆盖、新条追加、已明确的不会被冲掉</span>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
 
 /* 增量合并：同一条覆盖、新条追加、已 ✔ 的不许被冲掉（V19） */
 function custParse(name){
@@ -244,3 +287,4 @@ function custToJd(name){
 }
 
 PAGES.custreq = { R01:r0xCustReq, R02:r0xCustReq };
+PAGES.custreqRaw = { R01:custRawPage, R02:custRawPage };

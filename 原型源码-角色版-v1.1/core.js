@@ -236,9 +236,15 @@ function enter(role, silent){
   render();
   navHash(routeHash(), 'replace');
 }
-function exitRole(){ localStorage.removeItem('rg-role'); S.role=null; DM.id=null; document.getElementById('root').innerHTML = viewLanding(); }
+function exitRole(){
+  localStorage.removeItem('rg-role'); S.role=null;
+  DM.id=null; HU.pid=null; HU.appId=null; HU.back=null; CR.cid=null; CR.item=''; CR.back=null;
+  document.getElementById('root').innerHTML = viewLanding();
+}
 function go(page){
   if(page !== 'demandDetail') DM.id = null;
+  if(page !== 'personDetail'){ HU.pid = null; HU.appId = null; HU.back = null; }
+  if(page !== 'custreqRaw'){ CR.cid = null; CR.item = ''; CR.back = null; }
   S.page = page; S.f = {}; closeAll(); render();
   setMainScroll(0);
   navHash('#' + page, 'push');
@@ -266,6 +272,13 @@ function routeHash(){
   if(S.page === 'demandDetail'){
     const tab = (DM && dmTabOk(DM.tab)) ? DM.tab : 'detail';
     return `#demand/${encodeURIComponent(DM.id||'')}/detail?tab=${tab}`;
+  }
+  if(S.page === 'personDetail'){
+    const tab = (HU && huTabOk(HU.tab)) ? HU.tab : 'resume';
+    return `#person/${encodeURIComponent(HU.pid||'')}/detail?tab=${tab}`;
+  }
+  if(S.page === 'custreqRaw'){
+    return `#custreq/${encodeURIComponent(CR.cid||'')}/raw?item=${encodeURIComponent(CR.item||'')}`;
   }
   return '#' + (S.page || '');
 }
@@ -295,6 +308,19 @@ function applyHash(){
     S.page = 'demandDetail';
     return true;
   }
+  if(seg[0] === 'person' && seg[1]){
+    HU.pid = seg[1]; HU.appId = null;
+    const t = new URLSearchParams(qs || '').get('tab');
+    HU.tab = huTabOk(t) ? t : 'resume';
+    S.page = 'personDetail';
+    return true;
+  }
+  if(seg[0] === 'custreq' && seg[1]){
+    CR.cid = seg[1];
+    CR.item = new URLSearchParams(qs || '').get('item') || '';
+    S.page = 'custreqRaw';
+    return true;
+  }
   if(PAGES[seg[0]]){ S.page = seg[0]; return true; }
   return false;                     /* 无效地址：保持原页面，不静默跳转 */
 }
@@ -312,7 +338,11 @@ window.addEventListener('hashchange', onHashNav);
 
 function render(){
   const r = ROLES[S.role];
-  const navOn = S.page === 'demandDetail' ? 'demands' : S.page;   /* 详情页高亮所属列表 */
+  /* 详情页高亮所属列表：需求详情 → 需求列表；档案页 → 进来的那个列表（默认人员列表） */
+  const navOn = S.page === 'demandDetail' ? 'demands'
+    : S.page === 'personDetail' ? (HU.navKey && PAGES[HU.navKey] && HU.navKey!=='personDetail' ? HU.navKey : 'persons')
+    : S.page === 'custreqRaw' ? 'custreq'
+    : S.page;
   document.getElementById('root').innerHTML = `<div class="shell">
     <aside class="side">
       <div class="side-top">

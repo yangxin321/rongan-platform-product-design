@@ -15,16 +15,29 @@
    页签记住上次停留（localStorage），他每天推进度，不想每次翻到第三个。
    ------------------------------------------------------------- */
 
+/* -------------------------------------------------------------
+   人档案：独立页面，五个页签（v1.3 · RG-012 第三批）
+   -------------------------------------------------------------
+   以前是一个右侧抽屉，四个页签。抽屉盖住列表、看不到系统导航、地址留不住，
+   在名单弹窗里点人名还会变成「弹窗上再叠一层抽屉」，点错和返回都很难受。
+   现在整页：地址 #person/<id>/detail?tab=<resume|verify|portrait|apply|talk>，
+   页签用英文稳定键（不用数字下标），刷新/前进后退都能落回原处。
+   「核实依据」原先只有内容、没有页签，只能从一个弹窗按钮进来，
+   而「简历明细」里又写着「详见核实依据页签」—— 悬空引用；这次补成第 2 个页签。
+   ------------------------------------------------------------- */
+
 const HU_TABS = [
   {k:'resume',  n:'简历明细', tip:'候选人自己给的'},
+  {k:'verify',  n:'核实依据', tip:'城市 / 到岗 / 证书逐项确认'},
   {k:'portrait',n:'人才画像', tip:'我们的判断 · 仅内部'},
   {k:'apply',   n:'本次投递', tip:'这一单谈到哪'},
   {k:'talk',    n:'沟通记录', tip:'跨投递合并'},
 ];
-let HU = {pid:null, appId:null, tab:'resume'};
+let HU = {pid:null, appId:null, tab:'resume', back:null, navKey:'persons'};
 
 function huMemGet(){ try{ return localStorage.getItem('rg-human-tab')||'resume'; }catch(e){ return 'resume'; } }
 function huMemSet(t){ try{ localStorage.setItem('rg-human-tab', t); }catch(e){} }
+function huTabOk(t){ return HU_TABS.some(x=>x.k===t); }
 
 /* 空态判断与状态标 */
 function archiveState(p){
@@ -35,8 +48,13 @@ function archiveState(p){
   return {label:'空闲可捞', tone:'g'};
 }
 
-/* 统一入口：openArchive(personId, tab) / openPerson(appId) 都到这里 */
+/* 统一入口：openArchive(personId, tab) / openPerson(appId) 都到这里 → 进独立页 */
 function openHuman(pid, tab, appId){
+  const from = S.page;
+  if(HU.pid !== pid){
+    HU.back = { page: from, f: Object.assign({}, S.f), scroll: mainScroll() };
+    HU.navKey = from;
+  }
   HU.pid = pid;
   if(appId) HU.appId = appId;
   const cur = HU.appId ? P(HU.appId) : null;
@@ -44,12 +62,40 @@ function openHuman(pid, tab, appId){
     const act = activeAppsOf(pid);
     HU.appId = (act[0]||appsOf(pid)[0]||{}).id || null;
   }
-  HU.tab = tab || huMemGet();
-  huPaint();
+  HU.tab = huTabOk(tab) ? tab : (tab ? 'resume' : huMemGet());
+  S.page = 'personDetail';
+  closeAll();                      /* 弹窗 / 抽屉先关掉，不在弹窗上叠页 */
+  render();
+  setMainScroll(0);
+  navHash(routeHash(), 'push');
 }
-function huPaint(){ openDrawer(huHtml()); }
-function huSetTab(t){ HU.tab = t; huMemSet(t); huPaint(); }
-function huAppTo(appId){ HU.appId = appId; HU.tab = 'apply'; huMemSet('apply'); huPaint(); }
+/* 只重画，不重建外壳：切页签时不闪导航 */
+function huRender(push){
+  const m = document.getElementById('main');
+  const sc = m ? m.scrollTop : 0;
+  render();
+  setMainScroll(push === false ? sc : 0);
+  navHash(routeHash(), push ? 'push' : 'replace');
+}
+function huPaint(){ huRender(false); }
+function huSetTab(t){
+  if(!huTabOk(t) || HU.tab === t) return;
+  HU.tab = t; huMemSet(t);
+  huRender(false);
+}
+function huAppTo(appId){ HU.appId = appId; HU.tab = 'apply'; huMemSet('apply'); huRender(false); }
+/* 页面内返回：回到进来时的列表，还原筛选与滚动 */
+function huBack(){
+  const b = HU.back;
+  HU.pid = null; HU.appId = null; HU.tab = 'resume'; HU.back = null;
+  if(b && b.page && b.page !== 'personDetail' && PAGES[b.page]){
+    S.page = b.page; S.f = Object.assign({}, b.f || {});
+    render(); setMainScroll(b.scroll || 0);
+    navHash(routeHash(), 'replace');
+    return;
+  }
+  go(HU.navKey === 'personDetail' ? 'persons' : (HU.navKey || 'persons'));
+}
 /* 兼容入口：全站所有「点人名」都收口到 openHuman */
 function openArchive(id, tab){ openHuman(id, tab); }
 function openPerson(id){
@@ -76,6 +122,7 @@ function fallbackCopy(txt){
 
 function huHtml(){
   const p = appPerson(HU.pid), st = archiveState(p);
+  if(p.id === '—') return huMissingHtml();
   const apps = appsOf(p.id), cs = contactsOf(p.id);
   const last = cs[0];
   const days = t => Math.round((new Date(TODAY+'T00:00:00') - new Date(t.slice(0,10)+'T00:00:00'))/86400000);
@@ -93,36 +140,56 @@ function huHtml(){
     : HU.tab==='apply' ? huApply(p)
     : huTalk(p, cs, apps);
 
-  return `
-    <div class="dr-h"><div>
-      <h3>${esc(p.name)} <span class="xs mut" style="font-weight:400">${p.gender} · ${p.age}岁 · ${esc(p.phone)}</span></h3>
-      <div class="sub">档案 <span class="arc-link mono" onclick="huCopy('${esc(p.id)}')">${esc(p.id)}</span>
-        · 当前跟进人 <b>${esc(p.follower||p.createdBy||'—')}</b>
-        · 进入 ${esc(p.createdAt)}（${days(p.createdAt)} 天前）</div></div>
-      <button class="dr-x" onclick="closeAll()">×</button></div>
-    <div class="dr-b">
-      <div class="arc-top">
-        <span class="b ${st.tone}">${esc(st.label)}</span>
-        <span class="b n">${esc(p.channel)}</span>
-        ${last?`<span class="sm ${ago>60?'arc-late':ago>30?'arc-warn':''}">最近沟通 ${last.time.slice(5)}（${ago} 天前）</span>`:'<span class="sm mut">尚无沟通记录</span>'}
-        <span class="sm mut">沟通 ${cs.length} 次</span>
-        <div class="sp"></div>
-        <span class="sm mut">点姓名到处都能进这一页</span>
-      </div>
+  const fromNav = {persons:'人员列表', pool:'人才池列表', demands:'需求列表', batches:'批次列表',
+    custreq:'客户需求确认', confirms:'客户确认', home:'我的首页', interviews:'面试管理'}[HU.navKey];
+  const backTxt = fromNav ? ('← 返回' + fromNav) : '← 返回上一页';
 
-      <div class="arc-tabs">
-        ${HU_TABS.map(t=>`<span class="arc-tab ${HU.tab===t.k?'on':''}" onclick="huSetTab('${t.k}')">
-          ${t.n}${badge[t.k]!==''?` <i class="vis n">${badge[t.k]}</i>`:''}
-          ${t.k==='portrait'?'<i class="vis no">仅内部</i>':t.k==='resume'?'<i class="vis ok">可对客户</i>':''}
-        </span>`).join('')}
-      </div>
+  return `<div class="page">
+    <div class="pg-back" onclick="huBack()">${backTxt}</div>
+    ${head(esc(p.name),
+      `<span class="xs mut">${p.gender} · ${p.age}岁 · ${esc(p.phone)}</span>
+       · 档案 <span class="arc-link mono" onclick="huCopy('${esc(p.id)}')">${esc(p.id)}</span>
+       · 当前跟进人 <b>${esc(p.follower||p.createdBy||'—')}</b>
+       · 进入 ${esc(p.createdAt)}（${days(p.createdAt)} 天前）`,
+      `<button class="btn" onclick="openModal(transferModal('${esc(p.id)}'))">转交跟进</button>
+       <button class="btn" onclick="openModal(followModal('${esc(p.id)}','archive'),'md-lg')">记录联系</button>
+       <button class="btn pri" onclick="openModal(poolPickBatch('${esc(HU.appId||p.id)}'))">捞入批次</button>`)}
 
-      ${body}
+    <div class="arc-top">
+      <span class="b ${st.tone}">${esc(st.label)}</span>
+      <span class="b n">${esc(p.channel)}</span>
+      ${last?`<span class="sm ${ago>60?'arc-late':ago>30?'arc-warn':''}">最近沟通 ${last.time.slice(5)}（${ago} 天前）</span>`:'<span class="sm mut">尚无沟通记录</span>'}
+      <span class="sm mut">沟通 ${cs.length} 次</span>
+      <div class="sp"></div>
+      <span class="xs mut mono">#person/${esc(p.id)}/detail?tab=${esc(HU.tab)}</span>
     </div>
-    <div class="dr-f"><button class="btn" onclick="closeAll()">关闭</button>
-      <button class="btn" onclick="openModal(transferModal('${esc(p.id)}'))">转交跟进</button>
-      <button class="btn" onclick="openModal(followModal('${esc(p.id)}','archive'),'md-lg')">记录联系</button>
-      <button class="btn pri" onclick="openModal(poolPickBatch('${esc(HU.appId||p.id)}'))">捞入批次</button></div>`;
+
+    <div class="arc-tabs">
+      ${HU_TABS.map(t=>`<span class="arc-tab ${HU.tab===t.k?'on':''}" title="${esc(t.tip)}" onclick="huSetTab('${t.k}')">
+        ${t.n}${badge[t.k]!==''?` <i class="vis n">${badge[t.k]}</i>`:''}
+        ${t.k==='portrait'?'<i class="vis no">仅内部</i>':t.k==='resume'?'<i class="vis ok">可对客户</i>':''}
+      </span>`).join('')}
+    </div>
+
+    ${body}
+  </div>`;
+}
+
+/* 三个角色都能开档案页（R01 全量、R02 客户侧、R04 我名下） */
+PAGES.personDetail = { any: huHtml };
+
+/* 地址里的档案不存在（刷新后演示数据重置 / 编号写错）：说清原因并给返回，不静默跳别的人 */
+function huMissingHtml(){
+  return `<div class="page">
+    <div class="pg-back" onclick="go('persons')">← 返回人员列表</div>
+    ${head('找不到这份档案','地址指向的人员不在当前演示数据里')}
+    <div class="note w">
+      <div><b>档案编号</b> <span class="mono">${esc(HU.pid||'—')}</span> 没有匹配到记录。</div>
+      <div style="margin-top:6px">常见原因：演示数据存在内存里，刷新后新增/改过的记录会回到初始状态；或者编号被改动过。</div>
+      <div style="margin-top:6px">这不是权限问题，系统也不会自动跳到别的候选人上。</div>
+    </div>
+    <div style="margin-top:12px"><button class="btn pri" onclick="go('persons')">返回人员列表</button></div>
+  </div>`;
 }
 
 /* ---------- 页签 1 · 简历明细 ---------- */

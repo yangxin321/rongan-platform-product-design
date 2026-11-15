@@ -300,7 +300,7 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   /* ---- RG-004 ---- */
   await ev(() => { enter('R04'); go('persons'); openPerson('P1'); huSetTab('verify'); });
   await page.waitForTimeout(400);
-  const hv = await txt('#drawer');
+  const hv = await txt('.main');            /* v1.3：档案改独立页，内容在主内容区 */
   ok('RG004-1 有电工技能但无证书显示待确认', hv.includes('无证书记录') && hv.includes('信息待确认'));
   ok('RG004-2 明确技能名不等于持证', hv.includes('不得') && hv.includes('持证'));
   ok('RG004-3 城市分现居与愿意', hv.includes('现居地') && hv.includes('愿意工作城市'));
@@ -309,12 +309,12 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   await ev(() => closeAll());
 
   await ev(() => openPerson(PERSONS.find(x=>x.name==='马长青').id)); await page.waitForTimeout(200); await ev(() => huSetTab('verify'));
-  const hv9 = await txt('#drawer');
+  const hv9 = await txt('.main');
   ok('RG004-6 冲突信息可见且待核实', hv9.includes('信息冲突') && hv9.includes('待核实'));
   await ev(() => closeAll());
 
   await ev(() => openPerson(PERSONS.find(x=>x.name==='王秀兰').id)); await page.waitForTimeout(200); await ev(() => huSetTab('verify'));
-  const hv2 = await txt('#drawer');
+  const hv2 = await txt('.main');
   ok('RG004-7 已核验证书显示已核实符合', hv2.includes('已核实符合') && hv2.includes('已核验证件有效'));
   ok('RG004-8 声明职称不等于作业证书', hv2.includes('职称') && hv2.includes('不等于'));
   const lateCheck = await ev(() => {
@@ -688,8 +688,8 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     });
     ap.demandId = 'DT12';
     enter('R04'); openHuman(pe.id, 'verify', ap.id);
-    const drawer = document.querySelector('#drawer');
-    const txt = drawer ? drawer.innerText : '';
+    const mainEl = document.querySelector('.main');            /* v1.3：档案页，不再读抽屉 */
+    const txt = mainEl ? mainEl.innerText : '';
     const g = gateOf(D('DT12'));
     const byAssess = (assessPerson(person, D('DT12')).find(x=>x.key==='arrive') || {}).state;
     const out = {

@@ -13,7 +13,11 @@
 !截图-v1.2/
 !截图-v1.2/**
 !.test-v12.js
+!.test-v13.js
 !.shot-v12.js
+!截图-rg012/
+!截图-rg012/**
+!RG012-页面入口核对表.md
 !AGENTS.md
 !.pr-sync.mjs
 .pr-sync-state.json
