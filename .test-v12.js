@@ -761,8 +761,11 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     const pend = run([{ name:'低压电工证', state:'pend', src:'电话确认', ev:'待补原件', at:'2026-11-14 10:00' }]);
     const no = run([{ name:'低压电工证', state:'no', src:'候选人确认', ev:'「没考」', at:'2026-11-14 10:00' }]);
     const okc = run([{ name:'低压电工证', state:'ok', src:'原件核验', ev:'x', at:'2026-11-14 10:00' }]);
+    /* 直接验证 soft 排除：加分证即使明确不满足/待确认，也不能把 Pass 汇总拉成 no/pend */
+    const softNo = triSum([{ key:'city', state:'ok' }, { key:'cert', state:'no', soft:true }]);
+    const softPend = triSum([{ key:'city', state:'ok' }, { key:'cert', state:'pend', soft:true }]);
     DEMAND_GATE.D1 = keepGate; VERIFY[p.personId] = keep;
-    return { miss, pend, no, okc };
+    return { miss, pend, no, okc, softNo, softPend };
   });
   ok('RG002-58 全加分证仍按真实证据给出核验状态',
      allOptCert.miss.state === 'pend' && allOptCert.miss.soft === true
@@ -772,7 +775,9 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      && allOptCert.miss.inHard === false
      /* 加分项不进汇总：证书证据好坏不得改变 triSum 结果 */
      && allOptCert.miss.sum === allOptCert.okc.sum
-     && allOptCert.no.sum === allOptCert.okc.sum,
+     && allOptCert.no.sum === allOptCert.okc.sum
+     /* 更直接的区分力：soft 的 no/pend 都不能动 Pass 汇总 */
+     && allOptCert.softNo === 'ok' && allOptCert.softPend === 'ok',
      JSON.stringify(allOptCert));
 
   /* ---- 匹配模式切换 ---- */
