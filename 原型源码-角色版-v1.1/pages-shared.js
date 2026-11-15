@@ -162,11 +162,16 @@ function personsPage(){
      以前按 p.owner 筛，而演示数据里同一单的 owner 是常量，会把同事跟进的人一起算进来。 */
   if(isR04) rows = rows.filter(p=>dmWhoFollows(p)===S.who);
   const q=(S.f.q||'').trim(), nd=S.f.nd||'', dm=S.f.dm||'', ow=S.f.ow||'', stt=S.f.st||'', triF=S.f.tri||'';
-  if(q) rows = rows.filter(p=>(p.name+p.phone+p.skills.join('')).includes(q));
+  const eduF=S.f.edu||'', yrF=S.f.yr||'';
+  if(q) rows = rows.filter(p=>(p.name+p.phone+p.skills.join('')+((hrOf(p.personId)||{}).wantJob||'')).includes(q));
   if(stt) rows = rows.filter(p=>p.status===stt);
   if(nd) rows = rows.filter(p=>p.node===nd);
   if(dm) rows = rows.filter(p=>p.demandId===dm);
   if(ow) rows = rows.filter(p=>p.owner===ow);
+  /* 学历 / 总工作年限：候选人自己的基本信息（不核实、不参与硬条件），
+     但技工岗定岗就看这两项，所以列表上给筛选入口，口径与列里显示同源。 */
+  if(eduF) rows = rows.filter(p=>((hrOf(p.personId)||{}).edu||'')===eduF);
+  if(yrF)  rows = rows.filter(p=>{ const y = (hrOf(p.personId)||{}).years; return !!y && y >= +yrF; });
   /* 硬条件筛选：按「该人 × 该需求」的逐项判定汇总值过滤，
      口径与「硬条件」列完全同源（assessPerson + triSum），避免下拉框形同虚设。 */
   if(triF) rows = rows.filter(p=>triSum(assessPerson(p, D(p.demandId))) === triF);
@@ -203,6 +208,9 @@ function personsPage(){
     {label:'姓名', r:p=>{const n=otherApps(p).length;
       return `<div class="t-name"><span class="arc-link" onclick="event.stopPropagation();openPerson('${p.id}')">${esc(p.name)}</span> <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span>${n?` <span class="b a" title="该人还有 ${n} 条投递">同投 ${n+1}</span>`:''}</div><div class="t-sub mono">${esc(p.phone)}</div>`;}},
     {label:'技能', r:p=>`<div class="tags">${p.skills.slice(0,2).map(s=>`<span class="tg">${esc(s)}</span>`).join('')}${p.skills.length>2?`<span class="tg">+${p.skills.length-2}</span>`:''}</div>`},
+    /* 年限与学历是技工岗定岗时先看的两项（中专 / 大专 / 本科差一档就换个岗），
+       所以摆在主行；意向岗位放副行 —— 它是候选人的话，不是这一单的岗位。 */
+    {label:'年限 / 学历', r:p=>hrCell(hrOf(p.personId))},
     {label:'所属需求 / 批次', r:p=>`<div class="sm">${esc(D(p.demandId).post)}</div><div class="t-sub mono">${p.batchId?B(p.batchId).code:'人才池捞入'}</div>`},
     {label:'当前节点', r:p=>nodeB(p.node)},
     {label:'硬条件', r:p=>{
@@ -248,8 +256,10 @@ function personsPage(){
 
   return `<div class="page">
     ${head('招聘人员列表', (isR04? '我名下的投递' : '全部在跟投递') + ' · 一行 = 一次投递（人 × 需求）；同一人投多个需求会出现多行，各自独立跟进', actions)}
-    ${toolbar({q:'搜索姓名 / 电话 / 技能', filters:[
+    ${toolbar({q:'搜索姓名 / 电话 / 技能 / 意向岗位', filters:[
       {k:'fu',opts:[{v:'',label:'全部跟进'},{v:'today',label:'今天待跟进'},{v:'late',label:'已逾期'}]},
+      {k:'edu',opts:[{v:'',label:'全部学历'},{v:'中专',label:'中专'},{v:'大专',label:'大专'},{v:'本科',label:'本科'}]},
+      {k:'yr',opts:[{v:'',label:'全部年限'},{v:'3',label:'3 年以上'},{v:'5',label:'5 年以上'},{v:'10',label:'10 年以上'}]},
       {k:'nd',opts:[{v:'',label:'全部节点'},...NODES.map(n=>({v:n,label:n}))]},
       {k:'tri',opts:[{v:'',label:'全部硬条件'},{v:'ok',label:'已核实符合'},{v:'pend',label:'信息待确认'},{v:'no',label:'已确认不符合'}]},
       {k:'dm',opts:[{v:'',label:'全部需求'},...DEMANDS.map(d=>({v:d.id,label:d.post}))]},
@@ -311,7 +321,7 @@ function poolPage(){
   const ac = p => activeAppsOf(p.id).length;
   let rows = PEOPLE.slice();
   const q=(S.f.q||'').trim(), src=S.f.src||'', st=S.f.st||'', rel=S.f.rel||'', forD=S.f.for||'';
-  if(q) rows = rows.filter(p=>(p.name+p.skills.join('')+p.phone).includes(q));
+  if(q) rows = rows.filter(p=>(p.name+p.skills.join('')+p.phone+(p.wantJob||'')).includes(q));
   if(src) rows = rows.filter(p=>p.channel===src);
   if(st==='free') rows = rows.filter(p=>ac(p)===0);
   if(st==='busy') rows = rows.filter(p=>ac(p)>0);
@@ -320,7 +330,7 @@ function poolPage(){
   if(rel==='fl') rows = rows.filter(p=>p.follower===S.who);       /* 我在跟的 */
 
   const cols = [
-    {label:'姓名', r:p=>{const n=ac(p);return `<div class="t-name"><span class="arc-link" onclick="event.stopPropagation();openArchive('${p.id}','resume')">${esc(p.name)}</span> <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span></div><div class="t-sub mono">${esc(p.phone)} · ${p.id}</div>`;}},
+    {label:'姓名', r:p=>{const n=ac(p);return `<div class="t-name"><span class="arc-link" onclick="event.stopPropagation();openArchive('${p.id}','resume')">${esc(p.name)}</span> <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span></div><div class="t-sub mono">${esc(p.phone)} · ${p.id}</div><div class="t-sub">${p.years?p.years+' 年':'<span class="mut">年限未填</span>'}${p.edu?' · '+esc(p.edu):''}${p.wantJob?' · 意向 '+esc(p.wantJob):''}</div>`;}},
     {label:'技能', r:p=>`<div class="tags">${p.skills.slice(0,3).map(s=>`<span class="tg">${esc(s)}</span>`).join('')}${p.skills.length>3?`<span class="tg">+${p.skills.length-3}</span>`:''}</div>`},
     {label:'来源 / 活跃', r:p=>`<div class="sm"><span class="b n">${esc(p.channel||p.source)}</span></div><div class="t-sub mono">${p.lastActive.slice(5)}</div>`},
     {label:'当前跟进人', r:p=>`<div class="sm">${esc(p.follower||p.createdBy||'—')}</div><div class="t-sub">${p.follower&&p.follower!==p.createdBy?'由 '+esc(p.createdBy)+' 转交':'建档人'}</div>`},
@@ -732,14 +742,18 @@ function appListHtml(o){
   const key = o.key, st = lfState(key);
   let rows = o.rows.slice();
   const q = (st.q||'').trim();
-  if(q) rows = rows.filter(p=>(p.name+p.phone+(p.skills||[]).join('')).includes(q));
+  if(q) rows = rows.filter(p=>(p.name+p.phone+(p.skills||[]).join('')+((hrOf(p.personId)||{}).wantJob||'')).includes(q));
   if(st.node) rows = rows.filter(p=>p.node===st.node);
   if(st.st) rows = rows.filter(p=>p.status===st.st);
+  /* 同一口径的学历 / 年限筛选：这一页看的是「这一单的人」，筛的也是人自己的信息 */
+  if(st.edu) rows = rows.filter(p=>((hrOf(p.personId)||{}).edu||'')===st.edu);
+  if(st.yr) rows = rows.filter(p=>{ const y = (hrOf(p.personId)||{}).years; return !!y && y >= +st.yr; });
 
   const cols = [
     {label:'姓名', r:p=>`<div class="t-name"><span class="arc-link" onclick="openHuman('${p.personId}','resume','${p.id}','${p.demandId}')">${esc(p.name)}</span>
         <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span></div><div class="t-sub mono">${esc(p.phone)}</div>`},
     {label:'技能', r:p=>`<div class="tags">${p.skills.slice(0,2).map(s=>`<span class="tg">${esc(s)}</span>`).join('')}${p.skills.length>2?`<span class="tg">+${p.skills.length-2}</span>`:''}</div>`},
+    {label:'年限 / 学历', r:p=>hrCell(hrOf(p.personId))},
     {label:'来源 / 批次', r:p=>`<div class="sm">${esc(p.channel||'—')}</div><div class="t-sub mono">${p.batchId?esc(B(p.batchId).code):'人才池捞入'}</div>`},
     {label:'当前节点', r:p=>nodeB(p.node)},
     {label:'匹配结果', r:p=>`<div style="display:flex;align-items:center;gap:6px">${tierChip(p.tier)}<span class="mono sm">${p.score}</span></div>`},
@@ -779,6 +793,14 @@ function appListHtml(o){
     <select class="sel" onchange="lfSet('${key}','st',this.value)">
       <option value="">全部结果</option>
       ${['跟进中','已入职','无意向'].map(v=>`<option value="${esc(v)}" ${st.st===v?'selected':''}>${esc(v)}</option>`).join('')}
+    </select>
+    <select class="sel" onchange="lfSet('${key}','edu',this.value)">
+      <option value="">全部学历</option>
+      ${['中专','大专','本科'].map(v=>`<option value="${esc(v)}" ${st.edu===v?'selected':''}>${esc(v)}</option>`).join('')}
+    </select>
+    <select class="sel" onchange="lfSet('${key}','yr',this.value)">
+      <option value="">全部年限</option>
+      ${[['3','3 年以上'],['5','5 年以上'],['10','10 年以上']].map(([v,l])=>`<option value="${v}" ${st.yr===v?'selected':''}>${l}</option>`).join('')}
     </select>
     <div class="sp"></div>
     <span class="sm mut">共 ${rows.length} 人</span>

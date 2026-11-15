@@ -1314,6 +1314,115 @@ const batchChannels = b => {
   return out;
 };
 
+/* =======================================================================
+   候选人基本信息：学历 / 院校 / 专业 / 意向岗位 / 总工作年限 / 微信 / 邮箱
+   -----------------------------------------------------------------------
+   这几项是简历头部候选人自己填的资料，不是我们的判断：
+     · 不参与硬条件，不进资料核实，不给「符合 / 不符合」；
+     · 缺就显示「未填」，不替他补，也不按年龄倒推学历。
+   真实简历里本来就参差：学历约七成、邮箱约一半、微信只是一部分人有 ——
+   演示数据照这个分布来，否则「未填」这个状态在页面上永远看不到。
+   ======================================================================= */
+function hrSeed(s){
+  let h = 2166136261;
+  const t = String(s || '');
+  for(let i=0;i<t.length;i++){ h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return Math.abs(h);
+}
+/* 学历与院校、专业成套出现 —— 简历里不会只有学历没有学校 */
+const HR_EDU = {
+  '中专':[
+    ['东莞市技师学院','机电一体化技术'],
+    ['广东省机械技师学院','机械设备装配与自动控制'],
+    ['惠州市工程技术学校','机电技术应用'],
+    ['深圳市第二高级技工学校','电气自动化设备安装与维修'],
+    ['东莞市轻工业学校','数控技术应用'],
+  ],
+  '大专':[
+    ['广东机电职业技术学院','机电一体化技术'],
+    ['东莞职业技术学院','数控技术'],
+    ['深圳信息职业技术学院','电子信息工程技术'],
+    ['广东工贸职业技术学院','工业机器人技术'],
+    ['广东交通职业技术学院','电气自动化技术'],
+  ],
+  '本科':[
+    ['广东工业大学','机械设计制造及其自动化'],
+    ['东莞理工学院','机械电子工程'],
+    ['华南理工大学广州学院','电气工程及其自动化'],
+    ['广东技术师范大学','机械设计制造及其自动化'],
+  ],
+};
+/* 学历门槛按岗位实际用人的常见情况估，不是评分：技工岗中专/大专为主，少量本科 */
+function hrEduLine(skills){
+  const s = (skills||[]).join(',');
+  if(/售后|客服|文员/.test(s)) return '大专';
+  if(/CNC|IQC|检验|激光|光路|PLC|调试|电子/.test(s)) return '大专';
+  return '中专';
+}
+/* 意向岗位：简历头部那句「求职意向」。按现有技能推，组内轮换，不新造岗位名 */
+const HR_JOBS = [
+  [/CNC|对刀|加工中心/, ['CNC 操作工','加工中心操作工','数控车工']],
+  [/钳工/,                ['装配钳工','机修钳工']],
+  [/电工|电气|PLC/,       ['维修电工','设备电气调试员']],
+  [/焊/,                  ['氩弧焊工','二保焊工']],
+  [/船舶|舾装|船厂/,      ['船舶电工','舾装工']],
+  [/激光|光路|光电/,      ['激光装配调试员','光路调试员']],
+  [/IQC|检验|品质/,       ['IQC 检验员','品质检验员']],
+  [/售后|客服/,           ['售后运维工程师','客户现场服务工程师']],
+  [/总装|装配|流水线|组装/,['装配工','总装操作工']],
+  [/电子/,                ['电子装配工']],
+  [/机修/,                ['机修工']],
+  [/文员/,                ['生产文员']],
+];
+function hrWantJob(skills, seed){
+  const pick = t => { for(const [re, list] of HR_JOBS) if(re.test(t)) return list[seed % list.length]; return null; };
+  /* 先按主技能定，再退回整串技能 —— 简历上的「求职意向」通常就是主技能那一行，
+     一味按整串匹配，会把「会一点 CNC 的电气调试工」写成数控车工。 */
+  for(const s of (skills||[])){ const hit = pick(s); if(hit) return hit; }
+  return pick((skills||[]).join(',')) || '普工 / 操作工';
+}
+function hrFill(pe){
+  const k = hrSeed(pe.id + pe.name + pe.phone);
+  const line = hrEduLine(pe.skills);
+  /* 约一成读到本科；另有一小撮简历只写经历不写学历 —— 留出「未填」样本，
+     这样「未填」是数据里真会出现的状态，不是只在代码里存在的分支。 */
+  const noEdu = (k % 23 === 0);
+  const edu = noEdu ? '' : ((k % 10 === 0 && line !== '本科') ? (line === '中专' ? '大专' : '本科') : line);
+  const pair = edu ? HR_EDU[edu][k % HR_EDU[edu].length] : null;
+  const start = {'中专':19,'大专':21,'本科':22}[edu] || 20;
+  const years = Math.max(1, Math.min(35, pe.age - start - (k % 2)));
+  const tail = String(pe.phone).replace(/\D/g,'').slice(-8);
+  pe.edu = edu;
+  pe.school = pair ? pair[0] : '';
+  pe.major = pair ? pair[1] : '';
+  pe.wantJob = hrWantJob(pe.skills, k);
+  pe.years = years;
+  /* 微信：招聘场景最常用，但简历里不是人人留；留的人多数就是手机号 */
+  pe.wechat = (k % 10 < 7) ? ({same:true, id:pe.phone}) : null;
+  if(k % 10 === 0) pe.wechat = {same:false, id:'wxid_' + (k % 9973).toString(36) + tail.slice(-3)};
+  /* 邮箱：约一半人有，QQ 邮箱号多为 8 位数字，跟手机尾号不重合也合理 */
+  pe.email = (k % 100 < 48) ? (tail + (k % 2 ? '@qq.com' : '@163.com')) : null;
+  return pe;
+}
+PEOPLE.forEach(hrFill);
+/* 学历层级：用于筛选与排序，不参与匹配 */
+const EDU_LV = {'高中':1,'中专':2,'大专':3,'本科':4};
+const hrOf = pid => { const p = appPerson(pid); return p && p.id !== '—' ? p : null; };
+
+/* ---------- 候选人基本信息的展示口径（2026-11-15） ----------
+   学历 / 院校 / 专业 / 意向岗位 / 总工作年限 / 微信 / 邮箱，都是「人」自己的基本信息：
+   简历上怎么写就怎么录。平台**不核实**、不进硬条件、不产生「符合 / 不符合」，
+   也不因为这个人投了某个岗位就改写成岗位名。
+   缺项一律写「未填」，不按年龄、技能或投递岗位倒推。 */
+const HR_NA = '<span class="mut">未填</span>';
+function hrV(v){ return (v===undefined || v===null || String(v).trim()==='') ? HR_NA : esc(String(v)); }
+/* 列表一行读完：年限 + 学历在上（筛选先看这两项），意向岗位在下 */
+function hrCell(p){
+  if(!p) return HR_NA;
+  return `<div class="sm">${p.years?`<b>${p.years}</b> 年`:'<span class="mut">年限未填</span>'}${p.edu?' · '+esc(p.edu):''}</div>
+    <div class="t-sub">${hrV(p.wantJob)}</div>`;
+}
+
 
 /* ===== 数据字典 v2：工种技能因子 + 岗位能力卡 ===== */
 /* 结构说明：
@@ -4398,11 +4507,16 @@ function personsPage(){
      以前按 p.owner 筛，而演示数据里同一单的 owner 是常量，会把同事跟进的人一起算进来。 */
   if(isR04) rows = rows.filter(p=>dmWhoFollows(p)===S.who);
   const q=(S.f.q||'').trim(), nd=S.f.nd||'', dm=S.f.dm||'', ow=S.f.ow||'', stt=S.f.st||'', triF=S.f.tri||'';
-  if(q) rows = rows.filter(p=>(p.name+p.phone+p.skills.join('')).includes(q));
+  const eduF=S.f.edu||'', yrF=S.f.yr||'';
+  if(q) rows = rows.filter(p=>(p.name+p.phone+p.skills.join('')+((hrOf(p.personId)||{}).wantJob||'')).includes(q));
   if(stt) rows = rows.filter(p=>p.status===stt);
   if(nd) rows = rows.filter(p=>p.node===nd);
   if(dm) rows = rows.filter(p=>p.demandId===dm);
   if(ow) rows = rows.filter(p=>p.owner===ow);
+  /* 学历 / 总工作年限：候选人自己的基本信息（不核实、不参与硬条件），
+     但技工岗定岗就看这两项，所以列表上给筛选入口，口径与列里显示同源。 */
+  if(eduF) rows = rows.filter(p=>((hrOf(p.personId)||{}).edu||'')===eduF);
+  if(yrF)  rows = rows.filter(p=>{ const y = (hrOf(p.personId)||{}).years; return !!y && y >= +yrF; });
   /* 硬条件筛选：按「该人 × 该需求」的逐项判定汇总值过滤，
      口径与「硬条件」列完全同源（assessPerson + triSum），避免下拉框形同虚设。 */
   if(triF) rows = rows.filter(p=>triSum(assessPerson(p, D(p.demandId))) === triF);
@@ -4439,6 +4553,9 @@ function personsPage(){
     {label:'姓名', r:p=>{const n=otherApps(p).length;
       return `<div class="t-name"><span class="arc-link" onclick="event.stopPropagation();openPerson('${p.id}')">${esc(p.name)}</span> <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span>${n?` <span class="b a" title="该人还有 ${n} 条投递">同投 ${n+1}</span>`:''}</div><div class="t-sub mono">${esc(p.phone)}</div>`;}},
     {label:'技能', r:p=>`<div class="tags">${p.skills.slice(0,2).map(s=>`<span class="tg">${esc(s)}</span>`).join('')}${p.skills.length>2?`<span class="tg">+${p.skills.length-2}</span>`:''}</div>`},
+    /* 年限与学历是技工岗定岗时先看的两项（中专 / 大专 / 本科差一档就换个岗），
+       所以摆在主行；意向岗位放副行 —— 它是候选人的话，不是这一单的岗位。 */
+    {label:'年限 / 学历', r:p=>hrCell(hrOf(p.personId))},
     {label:'所属需求 / 批次', r:p=>`<div class="sm">${esc(D(p.demandId).post)}</div><div class="t-sub mono">${p.batchId?B(p.batchId).code:'人才池捞入'}</div>`},
     {label:'当前节点', r:p=>nodeB(p.node)},
     {label:'硬条件', r:p=>{
@@ -4484,8 +4601,10 @@ function personsPage(){
 
   return `<div class="page">
     ${head('招聘人员列表', (isR04? '我名下的投递' : '全部在跟投递') + ' · 一行 = 一次投递（人 × 需求）；同一人投多个需求会出现多行，各自独立跟进', actions)}
-    ${toolbar({q:'搜索姓名 / 电话 / 技能', filters:[
+    ${toolbar({q:'搜索姓名 / 电话 / 技能 / 意向岗位', filters:[
       {k:'fu',opts:[{v:'',label:'全部跟进'},{v:'today',label:'今天待跟进'},{v:'late',label:'已逾期'}]},
+      {k:'edu',opts:[{v:'',label:'全部学历'},{v:'中专',label:'中专'},{v:'大专',label:'大专'},{v:'本科',label:'本科'}]},
+      {k:'yr',opts:[{v:'',label:'全部年限'},{v:'3',label:'3 年以上'},{v:'5',label:'5 年以上'},{v:'10',label:'10 年以上'}]},
       {k:'nd',opts:[{v:'',label:'全部节点'},...NODES.map(n=>({v:n,label:n}))]},
       {k:'tri',opts:[{v:'',label:'全部硬条件'},{v:'ok',label:'已核实符合'},{v:'pend',label:'信息待确认'},{v:'no',label:'已确认不符合'}]},
       {k:'dm',opts:[{v:'',label:'全部需求'},...DEMANDS.map(d=>({v:d.id,label:d.post}))]},
@@ -4547,7 +4666,7 @@ function poolPage(){
   const ac = p => activeAppsOf(p.id).length;
   let rows = PEOPLE.slice();
   const q=(S.f.q||'').trim(), src=S.f.src||'', st=S.f.st||'', rel=S.f.rel||'', forD=S.f.for||'';
-  if(q) rows = rows.filter(p=>(p.name+p.skills.join('')+p.phone).includes(q));
+  if(q) rows = rows.filter(p=>(p.name+p.skills.join('')+p.phone+(p.wantJob||'')).includes(q));
   if(src) rows = rows.filter(p=>p.channel===src);
   if(st==='free') rows = rows.filter(p=>ac(p)===0);
   if(st==='busy') rows = rows.filter(p=>ac(p)>0);
@@ -4556,7 +4675,7 @@ function poolPage(){
   if(rel==='fl') rows = rows.filter(p=>p.follower===S.who);       /* 我在跟的 */
 
   const cols = [
-    {label:'姓名', r:p=>{const n=ac(p);return `<div class="t-name"><span class="arc-link" onclick="event.stopPropagation();openArchive('${p.id}','resume')">${esc(p.name)}</span> <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span></div><div class="t-sub mono">${esc(p.phone)} · ${p.id}</div>`;}},
+    {label:'姓名', r:p=>{const n=ac(p);return `<div class="t-name"><span class="arc-link" onclick="event.stopPropagation();openArchive('${p.id}','resume')">${esc(p.name)}</span> <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span></div><div class="t-sub mono">${esc(p.phone)} · ${p.id}</div><div class="t-sub">${p.years?p.years+' 年':'<span class="mut">年限未填</span>'}${p.edu?' · '+esc(p.edu):''}${p.wantJob?' · 意向 '+esc(p.wantJob):''}</div>`;}},
     {label:'技能', r:p=>`<div class="tags">${p.skills.slice(0,3).map(s=>`<span class="tg">${esc(s)}</span>`).join('')}${p.skills.length>3?`<span class="tg">+${p.skills.length-3}</span>`:''}</div>`},
     {label:'来源 / 活跃', r:p=>`<div class="sm"><span class="b n">${esc(p.channel||p.source)}</span></div><div class="t-sub mono">${p.lastActive.slice(5)}</div>`},
     {label:'当前跟进人', r:p=>`<div class="sm">${esc(p.follower||p.createdBy||'—')}</div><div class="t-sub">${p.follower&&p.follower!==p.createdBy?'由 '+esc(p.createdBy)+' 转交':'建档人'}</div>`},
@@ -4968,14 +5087,18 @@ function appListHtml(o){
   const key = o.key, st = lfState(key);
   let rows = o.rows.slice();
   const q = (st.q||'').trim();
-  if(q) rows = rows.filter(p=>(p.name+p.phone+(p.skills||[]).join('')).includes(q));
+  if(q) rows = rows.filter(p=>(p.name+p.phone+(p.skills||[]).join('')+((hrOf(p.personId)||{}).wantJob||'')).includes(q));
   if(st.node) rows = rows.filter(p=>p.node===st.node);
   if(st.st) rows = rows.filter(p=>p.status===st.st);
+  /* 同一口径的学历 / 年限筛选：这一页看的是「这一单的人」，筛的也是人自己的信息 */
+  if(st.edu) rows = rows.filter(p=>((hrOf(p.personId)||{}).edu||'')===st.edu);
+  if(st.yr) rows = rows.filter(p=>{ const y = (hrOf(p.personId)||{}).years; return !!y && y >= +st.yr; });
 
   const cols = [
     {label:'姓名', r:p=>`<div class="t-name"><span class="arc-link" onclick="openHuman('${p.personId}','resume','${p.id}','${p.demandId}')">${esc(p.name)}</span>
         <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span></div><div class="t-sub mono">${esc(p.phone)}</div>`},
     {label:'技能', r:p=>`<div class="tags">${p.skills.slice(0,2).map(s=>`<span class="tg">${esc(s)}</span>`).join('')}${p.skills.length>2?`<span class="tg">+${p.skills.length-2}</span>`:''}</div>`},
+    {label:'年限 / 学历', r:p=>hrCell(hrOf(p.personId))},
     {label:'来源 / 批次', r:p=>`<div class="sm">${esc(p.channel||'—')}</div><div class="t-sub mono">${p.batchId?esc(B(p.batchId).code):'人才池捞入'}</div>`},
     {label:'当前节点', r:p=>nodeB(p.node)},
     {label:'匹配结果', r:p=>`<div style="display:flex;align-items:center;gap:6px">${tierChip(p.tier)}<span class="mono sm">${p.score}</span></div>`},
@@ -5015,6 +5138,14 @@ function appListHtml(o){
     <select class="sel" onchange="lfSet('${key}','st',this.value)">
       <option value="">全部结果</option>
       ${['跟进中','已入职','无意向'].map(v=>`<option value="${esc(v)}" ${st.st===v?'selected':''}>${esc(v)}</option>`).join('')}
+    </select>
+    <select class="sel" onchange="lfSet('${key}','edu',this.value)">
+      <option value="">全部学历</option>
+      ${['中专','大专','本科'].map(v=>`<option value="${esc(v)}" ${st.edu===v?'selected':''}>${esc(v)}</option>`).join('')}
+    </select>
+    <select class="sel" onchange="lfSet('${key}','yr',this.value)">
+      <option value="">全部年限</option>
+      ${[['3','3 年以上'],['5','5 年以上'],['10','10 年以上']].map(([v,l])=>`<option value="${v}" ${st.yr===v?'selected':''}>${l}</option>`).join('')}
     </select>
     <div class="sp"></div>
     <span class="sm mut">共 ${rows.length} 人</span>
@@ -6187,6 +6318,14 @@ function huOpenMap(pid, apps){
   return HU.open.ids;
 }
 function huCopy(id){ toast('档案编号 ' + id + ' 已复制'); }
+/* 手机号 / 微信 / 邮箱一键复制：招聘时加微信、发邮件是高频动作，
+   以前只能看着屏幕手抄一遍。复制失败也不报错，退回手选。 */
+function hrCopy(v, tip){
+  const done = () => toast(tip + '已复制：' + v);
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(v).then(done).catch(()=>{ fallbackCopy(v); done(); });
+  } else { fallbackCopy(v); done(); }
+}
 
 /* 页面内返回：回到进来时的列表 / 详情页，还原记录、筛选与滚动 */
 function huBack(){
@@ -6310,9 +6449,23 @@ function huResume(p){
     : s==='no' ? '<span class="b r">已确认无证</span>' : '<span class="b w">待核验</span>';
 
   /* 基本资料：紧凑字段表（一项一行），不再是两列 dl 堆叠 */
+  /* 联系方式与学历三项直接来自候选人档案（hrFill 派生），这一页只负责照录。
+     微信有的就是手机号，标「与手机同号」，不重复编一个假的。 */
+  const hr = hrOf(pid) || {};
+  const wx = hr.wechat;
+  const wxTxt = !wx ? HR_NA
+    : `<span class="mono">${esc(wx.id)}</span>${wx.same?' <span class="xs mut">与手机同号</span>':''}`;
+  const cp = (v,t) => (v===undefined||v===null||v==='') ? ''
+    : ` <span class="link xs" onclick="hrCopy('${esc(String(v))}','${t}')">复制</span>`;
   const base = [
     ['姓名', `${esc(p.name)} <span class="xs mut">${esc(p.gender)} · ${p.age} 岁</span>`],
-    ['手机号', `<span class="mono">${esc(p.phone)}</span>`],
+    ['手机号', `<span class="mono">${esc(p.phone)}</span>${cp(p.phone,'手机号')}`],
+    ['微信', `${wxTxt}${wx?cp(wx.id,'微信号'):''}`],
+    ['邮箱', `${hrV(hr.email)}${cp(hr.email,'邮箱')}`],
+    ['学历', hrV(hr.edu)],
+    ['毕业院校', hrV(hr.school)],
+    ['专业', hrV(hr.major)],
+    ['总工作年限', hr.years?`<b>${hr.years}</b> 年`:'<span class="mut">年限未填</span>'],
     ['现居地', `${esc((vf.city||{}).live || p.city || '—')} <span class="xs mut">人员资料，不作为工作意愿</span>`],
     ['来源渠道', `${esc(p.channel)} <span class="xs mut">${esc((CH(p.channel)||{}).type||'')}</span>`],
     ['资料完整度', `<div class="barline" style="max-width:180px"><div class="bar ${p.complete>=85?'g':p.complete<65?'w':''}"><i style="width:${p.complete}%"></i></div><b>${p.complete}%</b></div>`],
@@ -6322,6 +6475,8 @@ function huResume(p){
 
   /* 求职意愿：候选人自述 + 核实状态（是否满足岗位见资料核实，不在这里下结论） */
   const wants = [
+    /* 简历头部那句「求职意向」—— 他想干什么。和「他投的这一单」不是一回事，所以单独一行标明不核实。 */
+    ['意向岗位', `${hrV(hr.wantJob)} <span class="xs mut">简历上的「求职意向」</span>`, '<span class="xs mut">不核实</span>'],
     ['期望薪资', esc(p.expect||'32-36 元/时'), '候选人自述'],
     ['愿意工作城市', esc(cs.want.length?cs.want.join('、'):'未确认'), `${tri(cs.st)} <span class="xs mut">是否满足岗位见资料核实</span>`],
     ['可到岗', `${esc(a.date || '未确认')} ${a.state!=='已确认'&&a.date?'<span class="xs mut">日期有值但未经候选人确认</span>':''}`, tri((a.state==='已确认' && a.date) ? 'ok' : 'pend')],
@@ -6355,11 +6510,13 @@ function huResume(p){
   ], files, '暂无原件（BOSS 导出的数据行不含附件）');
 
   return `
-    <div class="sec"><div class="sec-t">基本资料</div>${baseTbl}</div>
+    <div class="sec"><div class="sec-t">基本资料</div>${baseTbl}
+      <div class="xs mut" style="margin-top:6px">学历 / 院校 / 专业 / 总工作年限 / 微信 / 邮箱都是简历上候选人自己写的，平台只记录、<b>不核实</b>，也不进硬条件；没写的显示「未填」，不按年龄或投递岗位倒推。</div>
+    </div>
 
     <div class="sec"><div class="sec-t">求职意愿<span class="perm">候选人自述 · 是否满足岗位见「资料核实」</span></div>
       ${wantTbl}
-      <div class="xs mut" style="margin-top:6px">这一栏是候选人自己说的。现居地<b>不</b>推断异地意愿，投递状态<b>不</b>推断可到岗。</div>
+      <div class="xs mut" style="margin-top:6px">这一栏是候选人自己说的。意向岗位是<b>他想干什么</b>，不等于他在投的这一单；现居地<b>不</b>推断异地意愿，投递状态<b>不</b>推断可到岗。</div>
     </div>
 
     <div class="sec"><div class="sec-t">能力经历</div>${skillTbl}</div>

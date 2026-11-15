@@ -202,6 +202,28 @@ RG-009 完整匹配证据与缺口任务 / RG-010 招聘漏斗与 AI 效果。
 会拼出 `#person//apply`。用 `openHuman(pid,'apply',appId,demandId)` 收口。
 
 
+## 4.11 候选人基本信息（2026-11-15 第十一批定）
+
+**一、这七项属于「人」，不属于「这一单」。** 学历 / 毕业院校 / 专业 / 意向岗位 / 总工作年限 / 微信 / 邮箱
+来自候选人简历自述，挂在人员档案（`PEOPLE`）上，不挂投递（`PERSONS`）。同一人投三个需求，
+这三条投递看到的是同一套基本信息 —— **不跟着需求改写**（尤其不许把「意向岗位」写成投递的岗位名）。
+
+**二、不核实、不进硬条件。** 用户原话：「那是客户/用户的一个基本信息，不用核实，和需求没关系。」
+所以：不进 `assessPerson` 的判定项、不进资料核实表（那张表只有证书 / 城市 / 到岗 / 夜班四类）、
+不出「符合 / 不符合」、不进匹配评分。简历页「求职意愿」里意向岗位的核实状态写「不核实」。
+
+**三、缺项写「未填」，不推断。** 没有学历就写「未填」，不许按年龄、技能或投递岗位倒推；
+没有微信就写「未填」，不许拿手机号冒充（微信与手机同号时写「与手机同号」，那是事实，不是推测）。
+
+**四、展示位置固定。** 简历页「基本资料」：手机号 / 微信 / 邮箱 / 学历 / 毕业院校 / 专业 / 总工作年限，
+手机号、微信、邮箱带「复制」；「求职意愿」第一行是意向岗位。
+列表（招聘人员列表 / 需求简历明细 / 批次人员）用同一列「年限 / 学历」：主行 `8 年 · 大专`，副行意向岗位；
+人才池把这三项并进姓名副行。列表的学历 / 年限筛选与列同源，筛完不会出现反例。
+
+**五、派生数据的口径。** 演示数据用 `hrSeed(id+name+phone)` 确定性生成，`hrFill()` 一次写入 `PEOPLE`；
+`hrCell()` / `hrV()` 是唯一展示入口，新增页面也必须走它，别各写一套。
+
+
 ## 5. 怎么提问题（输出格式）
 
 每条按下面写，缺信息的问题一律不成立（无法复现就不算缺陷）：
@@ -227,16 +249,18 @@ RG-009 完整匹配证据与缺口任务 / RG-010 招聘漏斗与 AI 效果。
 ```bash
 # 1) 语法
 cat 原型源码-角色版-v1.1/*.js > /tmp/all.js && node --check /tmp/all.js
-# 2) DOM 断言（v1.2 回归 112 + RG-012 专项 69 + 人员五页 27 + 第三版 26 = 234 条，当前应全 PASS、0 JS 错误）
+# 2) DOM 断言（v1.2 回归 112 + RG-012 专项 69 + 人员五页 27 + 第三版 26 + 候选人信息 24 = 258 条，当前应全 PASS、0 JS 错误）
 cd .. && NODE_PATH=~/.workbuddy/binaries/node/workspace/node_modules \
   node .test-v12.js && NODE_PATH=~/.workbuddy/binaries/node/workspace/node_modules node .test-v13.js
 NODE_PATH=~/.workbuddy/binaries/node/workspace/node_modules node .test-v14.js
 NODE_PATH=~/.workbuddy/binaries/node/workspace/node_modules node .test-v15.js
+NODE_PATH=~/.workbuddy/binaries/node/workspace/node_modules node .test-v16.js
 # 3) 线上冒烟（部署后必须跑这条，只看本地不算通过）
 TARGET=http://106.3.136.150:8095/ node .test-v12.js
 TARGET=http://106.3.136.150:8095/ node .test-v13.js
 TARGET=http://106.3.136.150:8095/ node .test-v14.js
 TARGET=http://106.3.136.150:8095/ node .test-v15.js
+TARGET=http://106.3.136.150:8095/ node .test-v16.js
 ```
 
 新增 AC 覆盖时请同步在对应测试文件加断言，断言命名保持 `RG00X-N 中文描述`；

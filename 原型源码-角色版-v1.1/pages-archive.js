@@ -166,6 +166,14 @@ function huOpenMap(pid, apps){
   return HU.open.ids;
 }
 function huCopy(id){ toast('档案编号 ' + id + ' 已复制'); }
+/* 手机号 / 微信 / 邮箱一键复制：招聘时加微信、发邮件是高频动作，
+   以前只能看着屏幕手抄一遍。复制失败也不报错，退回手选。 */
+function hrCopy(v, tip){
+  const done = () => toast(tip + '已复制：' + v);
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(v).then(done).catch(()=>{ fallbackCopy(v); done(); });
+  } else { fallbackCopy(v); done(); }
+}
 
 /* 页面内返回：回到进来时的列表 / 详情页，还原记录、筛选与滚动 */
 function huBack(){
@@ -289,9 +297,23 @@ function huResume(p){
     : s==='no' ? '<span class="b r">已确认无证</span>' : '<span class="b w">待核验</span>';
 
   /* 基本资料：紧凑字段表（一项一行），不再是两列 dl 堆叠 */
+  /* 联系方式与学历三项直接来自候选人档案（hrFill 派生），这一页只负责照录。
+     微信有的就是手机号，标「与手机同号」，不重复编一个假的。 */
+  const hr = hrOf(pid) || {};
+  const wx = hr.wechat;
+  const wxTxt = !wx ? HR_NA
+    : `<span class="mono">${esc(wx.id)}</span>${wx.same?' <span class="xs mut">与手机同号</span>':''}`;
+  const cp = (v,t) => (v===undefined||v===null||v==='') ? ''
+    : ` <span class="link xs" onclick="hrCopy('${esc(String(v))}','${t}')">复制</span>`;
   const base = [
     ['姓名', `${esc(p.name)} <span class="xs mut">${esc(p.gender)} · ${p.age} 岁</span>`],
-    ['手机号', `<span class="mono">${esc(p.phone)}</span>`],
+    ['手机号', `<span class="mono">${esc(p.phone)}</span>${cp(p.phone,'手机号')}`],
+    ['微信', `${wxTxt}${wx?cp(wx.id,'微信号'):''}`],
+    ['邮箱', `${hrV(hr.email)}${cp(hr.email,'邮箱')}`],
+    ['学历', hrV(hr.edu)],
+    ['毕业院校', hrV(hr.school)],
+    ['专业', hrV(hr.major)],
+    ['总工作年限', hr.years?`<b>${hr.years}</b> 年`:'<span class="mut">年限未填</span>'],
     ['现居地', `${esc((vf.city||{}).live || p.city || '—')} <span class="xs mut">人员资料，不作为工作意愿</span>`],
     ['来源渠道', `${esc(p.channel)} <span class="xs mut">${esc((CH(p.channel)||{}).type||'')}</span>`],
     ['资料完整度', `<div class="barline" style="max-width:180px"><div class="bar ${p.complete>=85?'g':p.complete<65?'w':''}"><i style="width:${p.complete}%"></i></div><b>${p.complete}%</b></div>`],
@@ -301,6 +323,8 @@ function huResume(p){
 
   /* 求职意愿：候选人自述 + 核实状态（是否满足岗位见资料核实，不在这里下结论） */
   const wants = [
+    /* 简历头部那句「求职意向」—— 他想干什么。和「他投的这一单」不是一回事，所以单独一行标明不核实。 */
+    ['意向岗位', `${hrV(hr.wantJob)} <span class="xs mut">简历上的「求职意向」</span>`, '<span class="xs mut">不核实</span>'],
     ['期望薪资', esc(p.expect||'32-36 元/时'), '候选人自述'],
     ['愿意工作城市', esc(cs.want.length?cs.want.join('、'):'未确认'), `${tri(cs.st)} <span class="xs mut">是否满足岗位见资料核实</span>`],
     ['可到岗', `${esc(a.date || '未确认')} ${a.state!=='已确认'&&a.date?'<span class="xs mut">日期有值但未经候选人确认</span>':''}`, tri((a.state==='已确认' && a.date) ? 'ok' : 'pend')],
@@ -334,11 +358,13 @@ function huResume(p){
   ], files, '暂无原件（BOSS 导出的数据行不含附件）');
 
   return `
-    <div class="sec"><div class="sec-t">基本资料</div>${baseTbl}</div>
+    <div class="sec"><div class="sec-t">基本资料</div>${baseTbl}
+      <div class="xs mut" style="margin-top:6px">学历 / 院校 / 专业 / 总工作年限 / 微信 / 邮箱都是简历上候选人自己写的，平台只记录、<b>不核实</b>，也不进硬条件；没写的显示「未填」，不按年龄或投递岗位倒推。</div>
+    </div>
 
     <div class="sec"><div class="sec-t">求职意愿<span class="perm">候选人自述 · 是否满足岗位见「资料核实」</span></div>
       ${wantTbl}
-      <div class="xs mut" style="margin-top:6px">这一栏是候选人自己说的。现居地<b>不</b>推断异地意愿，投递状态<b>不</b>推断可到岗。</div>
+      <div class="xs mut" style="margin-top:6px">这一栏是候选人自己说的。意向岗位是<b>他想干什么</b>，不等于他在投的这一单；现居地<b>不</b>推断异地意愿，投递状态<b>不</b>推断可到岗。</div>
     </div>
 
     <div class="sec"><div class="sec-t">能力经历</div>${skillTbl}</div>
