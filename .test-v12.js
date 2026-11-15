@@ -184,12 +184,19 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   ok('RG002-32 审核留痕记录审核人', await ev(() => {
       const v = versOf(D('D7')).find(x=>x.v==='v1.1'); return v.audit === '已通过' && !!v.auditBy && !!v.auditAt; }));
 
-  /* 版本历史 */
-  await ev(() => openVers('D1')); await page.waitForTimeout(200);
-  const vh = await txt('#drawer');
+  /* 版本历史：v1.3 起从右侧抽屉改成独立页 #demand/<id>/history，
+     内容读 .main（不再是 #drawer）；地址也要跟着变，否则刷新/后退对不上。 */
+  await ev(() => openVers('D1')); await page.waitForTimeout(250);
+  const vh = await txt('.main');
   ok('RG002-33 版本历史含变更差异', vh.includes('变更') && vh.includes('32-38'));
   ok('RG002-34 版本历史保留旧版记录', vh.includes('已被取代'));
-  ok('RG002-35 版本历史显示审核状态与记录条数', vh.includes('审核：') && vh.includes('代登记记录'));
+  ok('RG002-35 版本历史显示审核状态与记录条数', vh.includes('审核 ') && vh.includes('代登记记录'));
+  ok('RG002-33b 版本历史落在独立地址而非抽屉',
+    (await ev(() => location.hash)) === '#demand/D1/history'
+    && (await ev(() => document.querySelector('#drawer') ? document.querySelector('#drawer').classList.contains('on') : false)) === false);
+  await ev(() => { if(typeof dmHistoryBack === 'function') dmHistoryBack(); }); await page.waitForTimeout(150);
+  ok('RG002-33c 从版本历史返回后地址回到需求明细',
+    /^#demand\/D1\/detail\?tab=detail$/.test(await ev(() => location.hash)));
   await ev(() => closeAll());
 
   /* ---- 第三轮 ⑨：新建需求必须当场生成条件快照 ---- */
@@ -265,9 +272,10 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   ok('RG002-40 审核结论回写代登记记录', hist.regN === 2 && hist.regAudit.every(a=>a === '已退回'));
 
   await ev(() => openVers('DZ')); await page.waitForTimeout(250);
-  const dzv = await txt('#drawer');
+  const dzv = await txt('.main');                 /* 变更历史已是独立页，内容在 .main */
   ok('RG002-41 版本历史逐轮展示审核记录',
     dzv.includes('审核记录') && dzv.includes('第一轮退回') && dzv.includes('第二轮退回'));
+  await ev(() => { if(typeof dmHistoryBack === 'function') dmHistoryBack(); }); await page.waitForTimeout(150);
 
   /* ---- 第三轮 ⑪：两个时间按值比，不按字符串比 ---- */
   const ord1 = await ev(() => {

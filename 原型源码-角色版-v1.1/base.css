@@ -383,6 +383,32 @@ tbody td .mono,tbody td .acts,tbody td .link,tbody td .b,tbody td .tier,tbody td
 .app-row:hover{border-color:var(--accent-line);background:var(--card2)}
 .app-row.dim{opacity:.72}
 
+/* ---------- 需求明细：版本线 + 条件清单（2026-11-15） ----------
+   招聘专员打开这一页只看两件事：这一单现在算哪一版、要什么样的人。
+   版本差异、审核过程、代登记记录都移到 #demand/<id>/history，不再挤在这一页。 */
+.ver-line{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:10px 14px;
+  background:#fff;border:1px solid var(--line);border-radius:10px;margin-bottom:14px}
+.ver-line .btn.xs{flex:none}
+.req-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 30px;align-items:start}
+@media (max-width:1180px){.req-grid{grid-template-columns:1fr}}
+.req-grp{margin-bottom:8px;min-width:0}
+.req-grp-h{font-size:13.5px;color:var(--ink3);font-weight:500;letter-spacing:.3px;
+  padding:3px 0 6px;border-bottom:1px solid var(--line);margin-bottom:2px}
+.req-dl{margin:0}
+.req-dl>div{display:grid;grid-template-columns:124px minmax(0,1fr);gap:10px;align-items:baseline;
+  padding:6px 0;border-bottom:1px dashed var(--line2)}
+.req-dl>div:last-child{border-bottom:none}
+.req-dl dt{font-size:14px;color:var(--ink3);white-space:nowrap}
+.req-dl dd{margin:0;font-size:15px;color:var(--ink);line-height:1.5;word-break:break-word}
+.req-dl dd .b.a{margin-left:6px;vertical-align:1px}
+.req-dl dd .ed-in{width:100%}
+.req-money{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px 24px;margin:0}
+@media (max-width:1180px){.req-money{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.req-money>div{display:flex;align-items:baseline;gap:9px;padding:7px 0;border-bottom:1px dashed var(--line2);min-width:0}
+.req-money dt{font-size:13.5px;color:var(--ink3);white-space:nowrap;flex:none}
+.req-money dd{margin:0;font-size:15.5px;color:var(--ink);word-break:break-word}
+.req-money dd .ed-in{width:100%}
+
 /* ---------- 多条投递：一人 N 个需求，每条可折叠 ---------- */
 .acc-list{display:flex;flex-direction:column;gap:9px}
 .acc{border:1px solid var(--line);border-radius:10px;background:#fff;overflow:hidden;transition:border-color .12s}

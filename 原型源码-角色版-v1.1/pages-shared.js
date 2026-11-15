@@ -267,8 +267,10 @@ const DM_TABS = [
   {k:'resume',   n:'简历明细', tip:'像人员列表那样看人'},
   {k:'progress', n:'招聘进度', tip:'漏斗与批次'},
 ];
-/* back：进详情前记下的「从哪来」（页面 / 筛选 / 滚动），供页面内返回原样还原 */
-let DM = {id:null, tab:'detail', scope:'mine', back:null};
+/* back：进详情前记下的「从哪来」（页面 / 筛选 / 滚动），供页面内返回原样还原
+   sub：detail | history —— 同一条需求的两个视图，地址分别是 #demand/<id>/detail 与 /history
+   edit：需求明细是否处于编辑态（默认只看最新值） */
+let DM = {id:null, tab:'detail', scope:'mine', back:null, sub:null, edit:false, hist:{}};
 
 function dmTabOk(t){ return DM_TABS.some(x=>x.k===t); }
 
@@ -283,6 +285,7 @@ function openDemand(id, tab){
   }
   DM.id = id;
   DM.tab = dmTabOk(tab) ? tab : 'detail';
+  DM.sub = null; DM.edit = false; DM.hist = {};
   S.page = 'demandDetail';
   closeAll();
   render();
@@ -291,7 +294,7 @@ function openDemand(id, tab){
 }
 function dmSetTab(t){
   if(!dmTabOk(t) || DM.tab === t) return;
-  DM.tab = t;
+  DM.tab = t; DM.sub = null; DM.edit = false;   /* 切页签就退出「变更历史」与编辑态 */
   dmRender(false);
 }
 function dmSetScope(s){ DM.scope = s; dmRender(false); }
@@ -307,7 +310,7 @@ function dmRender(push){
 /* 页面内返回：优先回到进来时的那一页并还原记录、筛选与滚动，没有来源就去需求列表 */
 function dmBack(){
   const b = DM.back;
-  DM.id = null; DM.tab = 'detail'; DM.back = null;
+  DM.id = null; DM.tab = 'detail'; DM.back = null; DM.sub = null; DM.edit = false;
   /* 来源页本身是需求详情（详情互跳）时不能返回自己，回落列表 */
   if(b && b.page && b.page !== 'demandDetail' && restoreSnap(b)){
     render();
@@ -326,6 +329,7 @@ function pmOpen(did){ openDemand(did, 'detail'); }
 function dmHtml(){
   const d = D(DM.id);
   if(!d || !d.id) return dmMissingHtml();
+  if(DM.sub === 'history') return dmHistoryHtml(d);
   const ps = personsOf(d.id), al = allocOf(d.id);
   const isR04 = S.role==='R04';
   const mineN = dmMine(d.id).length;
@@ -367,7 +371,16 @@ function dmMissingHtml(){
   </div>`;
 }
 
-/* ---------- 页签 1 · 需求明细（可改） ---------- */
+/* ---------- 页签 1 · 需求明细（只展开最新一版的条件） ----------
+   原来这一页把三件事挤在一屏：标准岗位标准是什么、本单改过哪几项、47 项逐项对照表。
+   招聘专员打开只想看「这一单要什么样的人」，版本差异是另一件事，看完就走。
+   现在拆成：
+     · 一条版本线（生效 v1.1 / 待处理 / 匹配依据 / 只读链接 + 三个入口）
+     · 「要什么样的人」：只列当前值，与标准不同的打一个「改」标（hover 看标准值）
+     · 「人 / 时间 / 钱」：人数、工价、到岗、有效期、地点、跟进人
+   每个版本改了什么 → 独立页 #demand/<id>/history（右上的「变更历史」）。
+   「编辑这一单」把当前值切成输入框，改的仍是本单差异，标准本身不动。 */
+const DM_PRICE_NO = 32;                 /* 工价：在「人 / 时间 / 钱」里出现，要素清单不重复列 */
 function dmOvMap(d){ const m={}; (d.stdOverride||[]).forEach(o=>{ m[o.no]=o.to; }); return m; }
 function dmSetVal(no, v){
   const d = D(DM.id), s = stdOf(d.stdId)||{};
@@ -380,8 +393,7 @@ function dmSetVal(no, v){
 }
 function dmMark(no, base, v){
   const same = JSON.stringify(base)===JSON.stringify(v);
-  if(same) return '<span class="xs mut">同标准</span>';
-  return '<span class="b a">已改</span> <span class="xs mut">标准 ' + esc(stdVal(no, base)||'未定') + '</span>';
+  return same ? '<span class="xs mut">同标准</span>' : '<span class="b a">已改</span>';
 }
 function dmEditor(no, v){
   const f = f47Of(no);
@@ -401,90 +413,167 @@ function dmEditor(no, v){
   return `<input class="ed-in" value="${esc(v==null?'':v)}" placeholder="填这一单的值"
     onchange="dmSetVal(${no}, this.value)">`;
 }
+function dmFieldRow(f, base, v, edit){
+  const changed = JSON.stringify(base) !== JSON.stringify(v);
+  return `<div>
+    <dt>${esc(f.name)}</dt>
+    <dd>${edit ? dmEditor(f.no, v) : esc(stdVal(f.no, v) || '未定')}${changed
+      ? `<span class="b a" title="标准值 ${esc(stdVal(f.no, base)||'未定')}">改</span>` : ''}
+      ${edit ? `<div class="t-sub">标准 ${esc(stdVal(f.no, base)||'未定')} · <span id="dmm-${f.no}">${dmMark(f.no, base, v)}</span></div>` : ''}
+    </dd></div>`;
+}
+
 function dmDetail(d){
   const isR04 = S.role==='R04';
   const al = allocOf(d.id);
   const s = stdOf(d.stdId) || {};
   const ov = dmOvMap(d);
   const l = elListOf(d.stdList || s.list), picks = l.picks || [];
-  const byDom = F47_L1.map(dom=>{
-    const groups = dom.groups.map(g=>{
-      const items = picks.map(f47Of).filter(f=>f.l2===g);
-      if(!items.length) return '';
-      const rows = items.map(f=>{
-        const base = (s.vals||{})[f.no];
-        const v = (f.no in ov) ? ov[f.no] : base;
-        return `<tr>
-          <td><span class="fid">${f.no}</span> <b class="sm">${esc(f.name)}</b>
-            <div class="t-sub">${esc(f.type)} · ${esc(GATE_OF_LEVEL[f.level]||'')}</div></td>
-          <td class="sm mut mono">${esc(stdVal(f.no, base)||'未定')}</td>
-          <td>${dmEditor(f.no, v)}</td>
-          <td id="dmm-${f.no}" style="min-width:96px">${dmMark(f.no, base, v)}</td>
-        </tr>`;
-      }).join('');
-      return `<div class="el-grp"><div class="el-grp-h"><b>${esc(g)}</b><span class="sm mut">${items.length} 项</span></div>
-        <div class="tbl-wrap"><table class="sj-tbl"><tbody>${rows}</tbody></table></div></div>`;
-    }).join('');
-    if(!groups) return '';
-    return `<div class="el-dom"><div class="el-dom-h"><span class="el-dom-m">${esc(dom.mark)}</span><b>${esc(dom.name)}</b></div>${groups}</div>`;
+  const edit = !!DM.edit;
+  const av = activeVer(d);
+
+  /* 平台里还有两种历史数据：只挂岗位描述（jd）的、什么都没挂的 —— 保持原样，不硬套要素表 */
+  if(!d.stdId && d.jdId) return `${demandStateBar(d)}${jdSection(d)}`;
+  if(!d.stdId && !d.jdId) return `${demandStateBar(d)}
+    <div class="sec"><div class="sec-t">岗位口径</div>
+      <div class="note w">这一单既没挂标准岗位标准、也没挂岗位描述（历史数据）—— 没有口径就没法评分、没法出确认单。
+      ${isR04?'':'<button class="btn xs" style="margin-left:6px" onclick="closeAll();ndEnter()">新建一单</button>'}</div>
+    </div>`;
+
+  const ovN = (d.stdOverride||[]).filter(o=>picks.includes(o.no)).length;   /* 只数这一页真的看得见的差异 */
+  const stdStale = s.ver && d.stdVer && s.ver !== d.stdVer;
+
+  /* 要素清单：按一级域分组、两列铺开，只显示当前值；工价在「人 / 时间 / 钱」里，这里不重复列 */
+  const fields = picks.filter(no=>no!==DM_PRICE_NO);
+  const groups = F47_L1.map(dom=>{
+    const items = fields.map(f47Of).filter(f=>f.l1===dom.id);
+    if(!items.length) return '';
+    return `<div class="req-grp"><div class="req-grp-h">${esc(dom.mark)} ${esc(dom.name)}</div>
+      <dl class="req-dl">${items.map(f=>dmFieldRow(f, (s.vals||{})[f.no],
+        (f.no in ov) ? ov[f.no] : (s.vals||{})[f.no], edit)).join('')}</dl></div>`;
   }).join('');
 
-  const noStd = !d.stdId && !d.jdId;
+  const hasPrice = picks.includes(DM_PRICE_NO);
+  const priceBase = (s.vals||{})[DM_PRICE_NO];
+  const priceV = (DM_PRICE_NO in ov) ? ov[DM_PRICE_NO] : priceBase;
+  const priceChanged = JSON.stringify(priceBase) !== JSON.stringify(priceV);
 
-  return `
-    ${demandStateBar(d)}
-    ${d.stdId
-      ? `<div class="sec"><div class="sec-t">① 标准岗位标准（本单快照 · ${esc(d.stdVer||'—')} / 清单 ${esc(d.stdList||'—')}）
-          <span class="xs mut" style="font-weight:400">口径：清单版本 +1 才触发重算，本单快照记 stdVer + listVer</span></div>${stdSection(d, true)}</div>`
-      : d.jdId ? jdSection(d)
-      : `<div class="sec"><div class="sec-t">① 岗位口径</div>
-        <div class="note w">这一单既没挂标准岗位标准、也没挂岗位描述（历史数据）—— 没有口径就没法评分、没法出确认单。
-        ${isR04?'':'<button class="btn xs" style="margin-left:6px" onclick="closeAll();ndEnter()">新建一单</button>'}</div>
-      </div>`}
+  const cell = (label, val, hint) => `<div><dt>${label}</dt>
+    <dd>${val}${hint?`<span class="xs mut" style="margin-left:6px">${hint}</span>`:''}</dd></div>`;
+  const money = [
+    cell('需求人数', edit ? `<input class="ed-in" type="number" value="${d.head}" onchange="dmSetD('head',+this.value)">` : `<b>${d.head}</b> 人`),
+    cell('已入职 / 缺口', `<b>${d.hired}</b> / <b style="color:var(--bad)">${d.head-d.hired}</b>`),
+    cell('工价', edit && hasPrice ? dmEditor(DM_PRICE_NO, priceV)
+        : esc(hasPrice ? (stdVal(DM_PRICE_NO, priceV)||'未定') : d.price),
+      hasPrice && priceChanged ? `标准 ${esc(stdVal(DM_PRICE_NO, priceBase)||'—')}` : ''),
+    cell('最迟到岗', edit ? `<input class="ed-in" type="date" value="${esc(d.deadline)}" onchange="dmSetD('deadline',this.value)">` : esc(d.deadline)),
+    cell('需求有效期', edit ? `<input class="ed-in" value="${esc(d.valid)}" onchange="dmSetD('valid',this.value)">` : esc(d.valid)),
+    cell('工作地点', edit ? `<input class="ed-in" value="${esc(d.city)}" onchange="dmSetD('city',this.value)">` : esc(d.city)),
+    cell('当前跟进', al.length ? esc(al.map(x=>x.staff).join(' / ')) : '<span class="b w">未分配</span>'),
+    cell('需求编号', `<span class="mono">${esc(d.code)}</span>`),
+  ].join('');
 
-    ${picks.length? `<div class="sec"><div class="sec-t">② 要素与标准值（${picks.length} 项）
-        <span class="xs mut" style="font-weight:400">左边是要问的，中间是标准，右边是这一单</span></div>
-      <div class="note" style="margin-bottom:10px">右边改的是<b>这一单</b>：只存差异，标准岗位标准不动、也不升版。</div>
-      ${byDom}
-    </div>`:''}
-
-    <div class="sec"><div class="sec-t">③ 人 / 时间 / 钱</div>
-      <div class="tbl-wrap" style="border-radius:9px"><table class="sj-tbl">
-        <thead><tr><th style="width:110px">项</th><th>值</th><th style="width:150px">说明</th></tr></thead>
-        <tbody>
-          ${dmRow('需求人数', `<input class="ed-in" type="number" value="${d.head}" onchange="dmSetD('head',+this.value)">`, '改这里会动缺口')}
-          ${dmRow('工价', `<input class="ed-in" value="${esc(d.price)}" onchange="dmSetD('price',this.value)">`, '支持区间，如 32-38')}
-          ${dmRow('最迟到岗', `<input class="ed-in" type="date" value="${esc(d.deadline)}" onchange="dmSetD('deadline',this.value)">`, '改期需重确认')}
-          ${dmRow('需求有效期', `<input class="ed-in" value="${esc(d.valid)}" onchange="dmSetD('valid',this.value)">`, '含起止')}
-          ${dmRow('工作地点', `<input class="ed-in" value="${esc(d.city)}" onchange="dmSetD('city',this.value)">`, '城市·园区')}
-        </tbody></table></div>
-      <div class="note w" style="margin-top:9px">改「需求人数」「最迟到岗」属于关键内容变更，<b>已发出的确认单需要客户重新确认</b>；本页改动都会写操作日志。</div>
+  return `${demandStateBar(d)}
+    ${stdStale?`<div class="note w" style="margin:-6px 0 12px">标准已升版到 <b>${esc(s.ver)}</b>，本单仍按 ${esc(d.stdVer)} 算 —— 历史评分不回溯。</div>`:''}
+    <div class="sec">
+      <div class="sec-t">要什么样的人
+        <span class="xs mut" style="font-weight:400">${picks.length} 项 · 当前版 ${esc(av?av.v:(d.stdVer||'—'))}${ovN?` · ${ovN} 项与标准不同`:''}</span></div>
+      <div class="req-grid">${groups || '<div class="mut sm">这一单还没有要素清单</div>'}</div>
+      ${edit?`<div class="note w" style="margin-top:10px">改的是<b>这一单</b>：只存差异，标准岗位标准不动、也不升版。</div>`:''}
     </div>
 
-    <div class="sec"><div class="sec-t">④ 客户与项目</div>
-      <dl class="kv">
-        <div><dt>客户</dt><dd>${esc(d.client)}</dd></div>
-        <div><dt>项目</dt><dd>${esc(d.project)}</dd></div>
-        <div><dt>需求编号</dt><dd class="mono">${esc(d.code)}</dd></div>
-        <div><dt>当前跟进</dt><dd>${al.length? esc(al.map(x=>x.staff).join(' / ')) : '<span class="b w">未分配</span>'}</dd></div>
-      </dl>
+    <div class="sec">
+      <div class="sec-t">人 / 时间 / 钱</div>
+      <dl class="req-money">${money}</dl>
+      ${edit?`<div class="note w" style="margin-top:10px">改「需求人数」「最迟到岗」属于关键内容变更，<b>已发出的确认单需要客户重新确认</b>；本页改动都会写操作日志。</div>`:''}
     </div>`;
-}
-function dmRow(k, input, hint){
-  return `<tr><td class="sm"><b>${k}</b></td><td>${input}</td><td class="xs mut">${hint||''}</td></tr>`;
 }
 function dmSetD(field, v){
   const d = D(DM.id);
   const old = d[field];
   d[field] = v;
-  const el = document.getElementById('dm-d-' + field);
-  if(el) el.textContent = v;
   toast(`已改 ${field}：${old} → ${v}${field==='head'||field==='deadline'?'（关键内容，需重确认）':''}`);
+  dmRender(false);
 }
 function dmMine(did){
   const me = S.who;
   return personsOf(did).filter(p=>p.owner===me || (appPerson(p.personId)||{}).follower===me);
 }
+
+/* ---------- 变更历史（独立页 #demand/<id>/history） ----------
+   需求明细页只放「最新一版要什么样的人」；每个版本改了什么，进这一页看。
+   一个版本一块折叠区：默认展开最新版与生效版，其余收起（点标题展开）。
+   这一页同时是原来「版本历史」抽屉的唯一去处 —— 抽屉停了，不再一处功能两个入口。 */
+function dmHistOpen(v){
+  const d = D(DM.id);
+  const vers = versOf(d) || [];
+  const newest = (vers[vers.length-1]||{}).v;
+  const act = (activeVer(d)||{}).v;
+  const m = DM.hist || {};
+  if(v in m) return m[v];
+  return v === newest || v === act;
+}
+function dmHistFold(v){
+  DM.hist = DM.hist || {};
+  DM.hist[v] = !dmHistOpen(v);
+  dmRender(false);
+}
+function dmHistoryHtml(d){
+  const vers = versOf(d).slice().reverse();
+  const av = activeVer(d);
+  const one = v => {
+    const open = dmHistOpen(v.v);
+    const ch = v.changes || [];
+    return `<div class="acc ${open?'open':''}" data-ver="${esc(v.v)}">
+      <div class="acc-hd" onclick="dmHistFold('${esc(v.v)}')" title="点标题${open?'收起':'展开'}这一版">
+        <span class="acc-arw">▶</span>
+        <b class="acc-post mono">${esc(v.v)}</b>
+        <span class="b ${VER_TONE[v.status]||'n'}">${esc(v.status)}</span>
+        ${av && v.v===av.v?'<span class="b a">当前匹配依据</span>':''}
+        <span class="xs mut">${esc(v.at||'')} · ${esc(v.by||'—')}${v.way?' · '+esc(v.way):''}</span>
+        <div class="sp"></div>
+        <span class="acc-tog">${ch.length?`变更 ${ch.length} 项`:'首版'} · ${open?'收起 ▴':'展开 ▾'}</span>
+      </div>
+      ${open?`<div class="acc-bd">
+        ${v.note?`<div class="sm" style="margin-bottom:10px">${esc(v.note)}</div>`:''}
+        ${ch.length?`<div class="tbl-wrap" style="border-radius:9px"><table>
+          <thead><tr><th style="width:180px">字段</th><th>旧值</th><th>新值</th></tr></thead>
+          <tbody>${ch.map(c=>`<tr><td class="sm"><b>${esc(c.f)}</b></td>
+            <td class="sm mut">${esc(c.from)}</td><td class="sm"><b style="color:var(--accent2)">${esc(c.to)}</b></td></tr>`).join('')}
+          </tbody></table></div>`
+          :`<div class="sm mut">首版：按当时选中的标准岗位标准整单建立，没有字段变更。</div>`}
+        <div class="xs mut" style="margin-top:10px">审核 ${esc(v.audit||'未送审')}${v.auditBy?` · ${esc(v.auditBy)} · ${esc(v.auditAt||'')}`:''} · 代登记记录 ${regsOfVer(d.id, v.v).length} 条</div>
+        ${v.auditNote?`<div class="note ${v.audit==='已退回'?'r':'i'}" style="margin-top:9px"><b>${v.audit==='已退回'?'退回意见':'审核意见'}</b>：${esc(v.auditNote)}</div>`:''}
+        ${auditHistHtml(v)}
+        ${v.status==='待重新确认'||v.status==='待内部审核'?`<div class="note r" style="margin-top:10px">旧版（生效中）的确认<b>不自动继承</b>到本版。本版未生效前，不作为匹配依据。</div>`:''}
+      </div>`:''}
+    </div>`;
+  };
+  return `<div class="page">
+    <div class="pg-back" onclick="dmHistoryBack()">← 返回需求明细</div>
+    ${head('变更历史 · ' + esc(d.post),
+      `${esc(d.code)} · ${esc(d.client)} · ${esc(d.project)} · 共 ${vers.length} 个版本`,
+      `<button class="btn" onclick="openConfirm('${d.id}')">需求确认单</button>`)}
+    ${demandStateBar(d, {noBtn:true})}
+    <div class="xs mut" style="margin:-4px 0 11px">每一版记的是<b>相对上一版改了什么</b>。旧版记录不删除、不覆盖；新版未生效前，匹配仍按旧版算。</div>
+    <div class="acc-list">${vers.map(one).join('') || '<div class="mut sm">这一单还没有版本记录</div>'}</div>
+  </div>`;
+}
+function openDmHistory(did){
+  const d = D(did);
+  if(!d || !d.id) return;
+  if(DM.id !== did){ DM.back = snapshotHere(); DM.tab = 'detail'; DM.hist = {}; }
+  DM.id = did; DM.sub = 'history'; DM.edit = false;
+  S.page = 'demandDetail';
+  closeAll();
+  render();
+  setMainScroll(0);
+  navHash(routeHash(), 'push');
+}
+/* 历史页 → 需求明细：replace，不往历史里再堆一条。
+   地址必须一起换回 /detail，否则返回后地址还停在 /history，刷新会又跳回历史页。 */
+function dmHistoryBack(){ DM.sub = null; dmRender(false); navHash(routeHash(), 'replace'); }
+function dmToggleEdit(){ DM.edit = !DM.edit; dmRender(false); }
 
 /* ---------- 页签 2 · 简历明细（列与人员列表一致） ---------- */
 function dmResume(d){

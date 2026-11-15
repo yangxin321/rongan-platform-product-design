@@ -311,6 +311,8 @@ function pageOkForRole(page){
 }
 function routeHash(){
   if(S.page === 'demandDetail'){
+    /* 变更历史是同一条需求的第二个视图：地址 /history，页签信息不带（它不属于任何页签） */
+    if(DM && DM.sub === 'history') return `#demand/${encodeURIComponent(DM.id||'')}/history`;
     const tab = (DM && dmTabOk(DM.tab)) ? DM.tab : 'detail';
     return `#demand/${encodeURIComponent(DM.id||'')}/detail?tab=${tab}`;
   }
@@ -359,8 +361,12 @@ function applyHash(){
   if(seg[0] === 'demand' && seg[1]){
     if(!pageOkForRole('demandDetail')) return false;
     DM.id = seg[1];
+    const isHist = seg[2] === 'history';
     const t = new URLSearchParams(qs || '').get('tab');
     DM.tab = dmTabOk(t) ? t : 'detail';
+    DM.sub = isHist ? 'history' : null;
+    DM.edit = false;
+    if(isHist) DM.hist = {};
     S.page = 'demandDetail';
     return true;
   }
@@ -394,8 +400,9 @@ function applyHash(){
    所以把来源页正在看的那条记录的定位信息一起存下来，返回时原样恢复。 */
 function snapshotHere(){
   const snap = { page: S.page, f: Object.assign({}, S.f), scroll: mainScroll() };
+  /* sub：detail / history —— 不带上它，前进回到「变更历史」会落到需求明细 */
   if(S.page === 'demandDetail' && DM.id)
-    snap.dm = { id: DM.id, tab: DM.tab, scope: DM.scope, back: DM.back };
+    snap.dm = { id: DM.id, tab: DM.tab, scope: DM.scope, sub: DM.sub, back: DM.back };
   if(S.page === 'personDetail' && HU.pid)
     snap.hu = { pid: HU.pid, tab: HU.tab, appId: HU.appId, navKey: HU.navKey, back: HU.back };
   if(S.page === 'custreqRaw' && CR.cid)
@@ -408,13 +415,13 @@ function trimSnap(s, d){
   if(!s) return null;
   const o = { page: s.page, f: s.f || {}, scroll: s.scroll || 0 };
   if(d <= 0) return o;
-  if(s.dm) o.dm = { id: s.dm.id, tab: s.dm.tab, scope: s.dm.scope, back: trimSnap(s.dm.back, d-1) };
+  if(s.dm) o.dm = { id: s.dm.id, tab: s.dm.tab, scope: s.dm.scope, sub: s.dm.sub, back: trimSnap(s.dm.back, d-1) };
   if(s.hu) o.hu = { pid: s.hu.pid, tab: s.hu.tab, appId: s.hu.appId, navKey: s.hu.navKey, back: trimSnap(s.hu.back, d-1) };
   if(s.cr) o.cr = { cid: s.cr.cid, item: s.cr.item, back: trimSnap(s.cr.back, d-1) };
   return o;
 }
 function clearDetail(){
-  DM.id = null; DM.tab = 'detail'; DM.back = null;
+  DM.id = null; DM.tab = 'detail'; DM.back = null; DM.sub = null; DM.edit = false; DM.hist = {};
   HU.pid = null; HU.appId = null; HU.tab = 'resume'; HU.back = null;
   CR.cid = null; CR.item = ''; CR.back = null;
 }
@@ -426,7 +433,8 @@ function restoreSnap(snap){
   if(snap.page === 'custreqRaw' && !snap.cr) return false;
   clearDetail();                    /* 先清干净：不能让较早的档案沿用最后打开的另一份档案的返回链 */
   if(snap.dm){ DM.id = snap.dm.id; DM.tab = snap.dm.tab || 'detail';
-    DM.scope = snap.dm.scope || 'mine'; DM.back = snap.dm.back || null; }
+    DM.scope = snap.dm.scope || 'mine'; DM.sub = snap.dm.sub || null;
+    DM.edit = false; DM.hist = {}; DM.back = snap.dm.back || null; }
   if(snap.hu){ HU.pid = snap.hu.pid; HU.tab = snap.hu.tab || 'resume';
     HU.appId = snap.hu.appId || null; HU.navKey = snap.hu.navKey || 'persons';
     HU.back = snap.hu.back || null; }

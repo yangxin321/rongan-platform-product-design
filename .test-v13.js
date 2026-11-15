@@ -675,6 +675,103 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      && multi.open2 === 1 && multi.open3 === 1,
      JSON.stringify(multi));
 
+  /* 48~52：需求明细只展开「最新一版要什么样的人」；每个版本改了什么进独立历史页。
+     旧版这一页把三件事挤一屏（①标准岗位标准 ②要素与标准值三栏表 ③人/时间/钱 ④客户与项目），
+     所以反向验证的抓手就是这两句标题必须消失、历史页必须能独立寻址。 */
+  await ev(() => { enter('R01'); openDemand('D1', 'detail'); });
+  await page.waitForTimeout(250);
+  const dmLatest = await ev2(() => {
+    const m = document.querySelector('.main'), t = m.innerText;
+    return {
+      hash: location.hash, page: S.page,
+      verBadge: (m.querySelector('.ver-line .b.g') || {}).innerText || '',
+      whoCnt: (m.querySelector('.sec-t') || {}).innerText || '',
+      hasWho: /要什么样的人/.test(t),
+      hasMoney: /人 \/ 时间 \/ 钱/.test(t),
+      rows: m.querySelectorAll('.req-dl > div').length,
+      money: m.querySelectorAll('.req-money > div').length,
+      oldStd: /① 标准岗位标准/.test(t),
+      oldTri: /② 要素与标准值/.test(t),
+      oldTbl: m.querySelectorAll('.el-dom').length,
+    };
+  });
+  ok('RG012-48 需求明细只放最新一版：版本号 +「要什么样的人」+「人/时间/钱」，旧的三段说明与三栏表消失',
+     !dmLatest.err && dmLatest.page === 'demandDetail'
+     && /生效 v\d+\.\d+/.test(dmLatest.verBadge)
+     && dmLatest.hasWho && dmLatest.hasMoney
+     && dmLatest.rows > 0 && dmLatest.money >= 6
+     && !dmLatest.oldStd && !dmLatest.oldTri && dmLatest.oldTbl === 0,
+     JSON.stringify(dmLatest));
+
+  const hist = await ev2(() => {
+    openVers('D1');
+    const m = document.querySelector('.main');
+    const accs = [...m.querySelectorAll('.acc')];
+    const vs = versOf(D('D1'));
+    return {
+      hash: location.hash, page: S.page, sub: DM.sub,
+      drawerOn: !!document.querySelector('#drawer.on'),
+      n: accs.length, want: vs.length,
+      vers: accs.map(a => a.dataset.ver),
+      open: accs.filter(a => a.classList.contains('open')).map(a => a.dataset.ver),
+      newest: (vs[vs.length - 1] || {}).v, act: (activeVer(D('D1')) || {}).v,
+      title: (m.querySelector('.page-head h2') || {}).innerText || '',
+      firstBody: (accs[0] || {}).innerText || '',
+    };
+  });
+  ok('RG012-49 变更历史是独立地址页 #demand/<id>/history：一版一块，默认只展开最新/生效版，抽屉不再出现',
+     !hist.err && hist.page === 'demandDetail' && hist.hash === '#demand/D1/history'
+     && hist.sub === 'history' && !hist.drawerOn
+     && hist.n === hist.want && hist.n >= 2
+     && hist.open.includes(hist.newest) && hist.open.length <= 2
+     && hist.open.length < hist.n
+     && /变更历史 ·/.test(hist.title) && /旧值/.test(hist.firstBody),
+     JSON.stringify(hist));
+
+  const fold = await ev2(() => {
+    const cnt = () => document.querySelectorAll('.main .acc.open').length;
+    const hd = v => document.querySelector('.main .acc[data-ver="' + v + '"] .acc-hd');
+    const before = cnt();
+    hd('v1.1').click();                       /* 收起当前版 */
+    const after_hide = cnt();
+    render();                                 /* 重画：不能自己弹回来 */
+    const after_render = cnt();
+    hd('v1.0').click();                       /* 展开旧版 */
+    const after_show = cnt();
+    return { before, after_hide, after_render, after_show };
+  });
+  ok('RG012-50 历史页每版可独立折叠，重画不回弹', 
+     !fold.err && fold.before === 1 && fold.after_hide === 0
+     && fold.after_render === 0 && fold.after_show === 1,
+     JSON.stringify(fold));
+
+  await page.reload(); await page.waitForTimeout(450);
+  const rel = await ev2(() => ({
+    hash: location.hash, page: S.page, dm: DM && DM.id, sub: DM && DM.sub,
+    n: document.querySelectorAll('.main .acc').length,
+    open: [...document.querySelectorAll('.main .acc.open')].map(a => a.dataset.ver),
+  }));
+  ok('RG012-51 刷新后仍停在这条需求的变更历史（地址可寻址，不落回明细）',
+     !rel.err && rel.hash === '#demand/D1/history' && rel.page === 'demandDetail'
+     && rel.dm === 'D1' && rel.sub === 'history' && rel.n >= 2 && rel.open.length <= 2,
+     JSON.stringify(rel));
+
+  const ed = await ev2(() => {
+    dmHistoryBack();                            /* 回明细 */
+    const cnt = () => document.querySelectorAll('.main .ed-in').length;
+    const n0 = cnt();
+    dmToggleEdit();
+    const n1 = cnt();
+    const btn1 = [...document.querySelectorAll('.main .ver-line .btn')].map(b => b.innerText.trim());
+    dmToggleEdit();
+    const n2 = cnt();
+    return { n0, n1, n2, btn1, hash: location.hash };
+  });
+  ok('RG012-52「编辑这一单」把当前值切成输入框，再点一次收起，地址回到明细',
+     !ed.err && ed.n0 === 0 && ed.n1 > 0 && ed.n2 === 0
+     && ed.btn1.includes('完成编辑') && /\/detail\?tab=detail$/.test(ed.hash || ''),
+     JSON.stringify(ed));
+
   /* 全页渲染无错（详情页在路由里，需单独过一遍） */
   const pages = ['demands','batches','persons','pool','logs','custreq','confirms','clinks','dicts','factors','std','dash','conversion','perms','home'];
   let renderErr = '';

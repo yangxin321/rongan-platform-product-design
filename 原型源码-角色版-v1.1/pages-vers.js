@@ -46,27 +46,29 @@ function verBadge(v){
   const tone = VER_TONE[v.status] || 'n';
   return `<span class="b ${tone}">${esc(v.v)} ${esc(v.status)}</span>`;
 }
-function demandStateBar(d){
+function demandStateBar(d, opts){
+  opts = opts || {};
   const av = activeVer(d), ov = openVer(d), lk = mainLink(d.id);
   const stale = matchNeedsUpdate(d);
   const stamp = MATCH_STAMP[d.id] || {};
-  const ovBadge = ov && ov.status === '待客户确认' ? '<span class="b w">待客户确认</span>' : verBadge(ov);
-  return `<div class="card" style="margin-bottom:14px"><div class="card-b">
-    <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
-      ${av?`<span class="b g">生效 ${esc(av.v)}</span>`:'<span class="b r">未生效</span>'}
-      ${ov?ovBadge:''}
-      ${confirmB(d.confirm)}
-      ${lk?`<span class="b ${lk.state==='有效'?'i':'n'}">只读链接 ${esc(lk.state)}</span>`:'<span class="b w">无只读链接</span>'}
-      ${stale?`<span class="b r">匹配结果需更新</span>`:`<span class="b g">匹配依据 ${esc(stamp.ver||'—')}</span>`}
-      <div class="sp" style="flex:1"></div>
-      <button class="btn xs" onclick="openVers('${d.id}')">版本历史</button>
-      <button class="btn xs" onclick="openConfirm('${d.id}')">确认单</button>
-    </div>
-    ${!av?`<div class="note r" style="margin-top:10px">该需求尚无生效版本，<b>不得作为匹配与推荐依据</b>。需客户线下反馈、我方代登记，并经内部审核通过后方可生效。</div>`:''}
-    ${ov&&ov.status==='待内部审核'?`<div class="note w" style="margin-top:10px">${esc(ov.v)} 已代登记客户反馈，<b>等待内部审核</b>；审核通过前不生效，旧版 ${esc((av||{}).v||'—')} 仍为匹配依据。</div>`:''}
-    ${ov&&ov.status==='已退回'?`<div class="note r" style="margin-top:10px">${esc(ov.v)} 已被内部<b>退回</b>：${esc(ov.auditNote||'—')} 需补充客户依据后重新送审。</div>`:''}
-    ${stale&&av?`<div class="note w" style="margin-top:10px">需求条件已变更：当前匹配结果依据 ${esc(stamp.ver||'—')}，需按 ${esc(av.v)} 重算。</div>`:''}
-  </div></div>`;
+  const nv = versOf(d).length;
+  /* 一行说完「现在算哪一版、客户确认到哪、链接在不在、匹配依据旧不旧」，细节都进变更历史 */
+  return `<div class="ver-line">
+    ${av?`<span class="b g">生效 ${esc(av.v)}</span>`:'<span class="b r">未生效</span>'}
+    ${av?`<span class="xs mut">${esc((av.at||'').slice(0,10))} · ${esc(av.by||'—')}</span>`:''}
+    ${ov?verBadge(ov):''}
+    ${confirmB(d.confirm)}
+    ${stale?`<span class="b r">匹配结果需更新</span>`:`<span class="b g">匹配依据 ${esc(stamp.ver||'—')}</span>`}
+    ${lk?`<span class="b ${lk.state==='有效'?'i':'n'}">只读链接 ${esc(lk.state)}</span>`:`<span class="b w">无只读链接</span>`}
+    <div class="sp"></div>
+    ${opts.noBtn?'':`<button class="btn xs" onclick="dmToggleEdit()">${DM.edit?'完成编辑':'编辑这一单'}</button>
+      <button class="btn xs" onclick="openVers('${d.id}')">变更历史（${nv} 版）</button>
+      <button class="btn xs" onclick="openConfirm('${d.id}')">确认单</button>`}
+  </div>
+  ${!av?`<div class="note r" style="margin-top:9px">该需求尚无生效版本，<b>不得作为匹配与推荐依据</b>。需客户线下反馈、我方代登记，并经内部审核通过后方可生效。</div>`:''}
+  ${ov&&ov.status==='待内部审核'?`<div class="note w" style="margin-top:9px">${esc(ov.v)} 已代登记客户反馈，<b>等待内部审核</b>；审核通过前不生效，旧版 ${esc((av||{}).v||'—')} 仍为匹配依据。</div>`:''}
+  ${ov&&ov.status==='已退回'?`<div class="note r" style="margin-top:9px">${esc(ov.v)} 已被内部<b>退回</b>：${esc(ov.auditNote||'—')} 需补充客户依据后重新送审。</div>`:''}
+  ${stale&&av?`<div class="note w" style="margin-top:9px">需求条件已变更：当前匹配结果依据 ${esc(stamp.ver||'—')}，需按 ${esc(av.v)} 重算。</div>`:''}`;
 }
 
 /* ---------- 需求确认单（代登记）抽屉 ---------- */
@@ -368,41 +370,10 @@ function auditAct(did, act){
   toast(`${v.v} 已退回，需补充客户依据后重新送审`);
 }
 
-/* ---------- 版本历史 ---------- */
-function openVers(did){
-  const d = D(did);
-  const vers = versOf(d).slice().reverse();
-  openDrawer(`<div class="dr-h"><div><h3>需求版本 · ${esc(d.post)}</h3>
-    <div class="sub">${esc(d.client)} · 条件变更生成新版本，旧版记录保留</div></div>
-    <button class="dr-x" onclick="closeAll()">×</button></div>
-  <div class="dr-b">
-    ${vers.map(v=>`<div class="card" style="margin-bottom:11px"><div class="card-h">
-      <div><h3 class="mono" style="font-size:15.5px">${esc(v.v)}</h3>
-        <div class="sub">${esc(v.at)} · ${esc(v.by)} · ${esc(v.way)}</div></div>
-      <span class="b ${VER_TONE[v.status]||'n'}">${esc(v.status)}</span>
-    </div><div class="card-b">
-      <div class="sm mut">${esc(v.note||'')}</div>
-      <div class="xs" style="margin-top:7px;display:flex;gap:10px;flex-wrap:wrap">
-        <span>审核：<b class="${v.audit==='已通过'?'':''}">${esc(v.audit||'未送审')}</b></span>
-        ${v.auditBy?`<span class="mut">${esc(v.auditBy)} · ${esc(v.auditAt||'')}</span>`:''}
-        <span class="mut">代登记记录 ${regsOfVer(d.id, v.v).length} 条</span>
-      </div>
-      ${(v.changes||[]).length?`
-        <div class="sec-t" style="margin-top:11px">变更 ${v.changes.length} 项</div>
-        <div class="tbl-wrap" style="border-radius:8px"><table>
-          <thead><tr><th>字段</th><th>旧值</th><th>新值</th></tr></thead>
-          <tbody>${v.changes.map(c=>`<tr><td class="sm">${esc(c.f)}</td>
-            <td class="sm mut">${esc(c.from)}</td><td class="sm"><b>${esc(c.to)}</b></td></tr>`).join('')}</tbody>
-        </table></div>`:'<div class="xs mut" style="margin-top:8px">首版，无字段变更</div>'}
-      ${v.auditNote?`<div class="note ${v.audit==='已退回'?'r':'i'}" style="margin-top:10px">${v.audit==='已退回'?'退回意见':'审核意见'}：${esc(v.auditNote)}</div>`:''}
-      ${auditHistHtml(v)}
-      ${v.status==='待重新确认'||v.status==='待内部审核'?`<div class="note r" style="margin-top:10px">旧版（生效中）的确认<b>不自动继承</b>到本版。本版未生效前，不作为匹配依据。</div>`:''}
-      ${lastReg(d.id, v.v)?`<div class="xs mut" style="margin-top:9px">最近一条代登记 ${esc(lastReg(d.id,v.v).id)} · 反馈人 ${esc(lastReg(d.id,v.v).fbPerson)} · 反馈 ${esc(lastReg(d.id,v.v).fbAt)} · 登记 ${esc(lastReg(d.id,v.v).regAt)}</div>`:''}
-    </div></div>`).join('')}
-    <div class="note">同一字段在三个地方出现时必须可辨认来源：岗位标准标准（跨客户共用）、客户级条件（该客户模板）、本单调整（只此一单）。原标准永远不会被本单覆盖。</div>
-  </div>
-  <div class="dr-f"><button class="btn" onclick="closeAll()">关闭</button></div>`);
-}
+/* ---------- 版本历史（抽屉已停用，统一走独立页 #demand/<id>/history） ----------
+   抽屉和详情页各渲染一套版本信息，改一处漏一处；而且抽屉关掉就没了地址。
+   现在只留一个入口：需求明细 / 确认单里的「变更历史」都跳同一页（openDmHistory）。 */
+function openVers(did){ openDmHistory(did); }
 
 /* ---------- 登记动作 ----------
    v1.2 修订：不再「点一下直接生效」。
