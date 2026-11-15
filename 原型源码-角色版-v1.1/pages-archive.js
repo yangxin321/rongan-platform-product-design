@@ -245,19 +245,24 @@ function huVerify(p){
 
   <div class="sec"><div class="sec-t">可到岗时间<span class="perm">须候选人确认</span></div>
     ${(()=>{
-      /* 与当前查看的这次投递对应需求比对最晚报到日（第 7 项）；没有投递记录时退回最近一次投递 */
+      /* 与当前查看的这次投递对应需求比对最晚报到日（第 7 项）；没有投递记录时退回最近一次投递。
+         必须读**生效版本**的到岗日（gateOf），不能读本单调整里的待确认值（effVal）——
+         否则同一人在匹配页判不符合、在核实依据页判符合，两处结论相反（R4）。 */
       const curApp = (HU.appId && P(HU.appId)) || appsOf(p.id)[0] || null;
       const dm = curApp ? D(curApp.demandId) : null;
-      const raw = dm ? String(effVal(dm, 7).v || '') : '';
-      const need = (raw.match(/\d{4}-\d{2}-\d{2}/) || [])[0] || '';
+      const g = dm ? gateOf(dm) : {};
+      const need = String(g.arriveBy || '').match(/\d{4}-\d{2}-\d{2}/)
+        ? String(g.arriveBy).match(/\d{4}-\d{2}-\d{2}/)[0] : '';
+      const av = dm ? activeVer(dm) : null;
+      const avTag = av ? `（生效 ${av.v}）` : '';
       const dv = (String(a.date || '').match(/\d{4}-\d{2}-\d{2}/) || [])[0] || '';
       const late = !!(dv && need && a.state === '已确认' && dv > need);
       const st = late ? 'no' : (a.state === '已确认' ? 'ok' : 'pend');
       const got = a.date ? a.date + ' 起可到岗' : '未确认';
       const note = late
-        ? `候选人确认的可到岗日期 ${dv} <b>晚于</b>需求（${esc(dm.post)}）要求的最晚报到日 ${need}，按日期依据判为<b>已确认不符合</b>。`
+        ? `候选人确认的可到岗日期 ${dv} <b>晚于</b>需求（${esc(dm.post)}）生效版本${avTag}要求的最晚报到日 ${need}，按日期依据判为<b>已确认不符合</b>。`
         : (a.state === '已确认' ? '' : '没有候选人确认的时间就不算可到岗，与是否有进行中投递无关');
-      return row('可到岗日期', st, dm ? `需求最晚报到日 ${need || '—'}` : '需求最晚报到日', got, a.src, '', a.at, note);
+      return row('可到岗日期', st, dm ? `需求最晚报到日 ${need || '—'}${avTag}` : '需求最晚报到日', got, a.src, '', a.at, note);
     })()}
   </div>
 

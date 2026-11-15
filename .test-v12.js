@@ -620,6 +620,95 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      triFilter.nNo > 0 && triFilter.nNo < triFilter.nAll && triFilter.rowsAllNo
      && triFilter.nBack === triFilter.nAll, JSON.stringify(triFilter));
 
+  /* 多选必备证书必须逐项核验：只核验到一张不得判 ok（原 find+some 会漏掉其余证） */
+  const multiCert = await ev(() => {
+    DEMANDS.unshift({ id:'DT11', code:'XQ-TEST-11', client:'测试客户', cs:'测试', ps:'电工',
+      project:'双证', post:'电工 · 双证', head:1, hired:0, price:'35 元/时', city:'上海',
+      deadline:'2026-12-20', valid:'2026-12-20 ~ 待定', confirm:'已确认', alloc:'未分配',
+      status:'已确认', req:[], owner:'李文静', stdId:'SJ-DG-D3', stdVer:'v1.1',
+      stdList:'EL-DG-D3', stdOverride:[] });
+    const base = { city:'上海', age:[18,45], gender:'不限', night:'不需要', trade:'船舶电工',
+      skill:[], arriveBy:'2026-12-30' };
+    /* 只持一张证 / 两张都持 / 第二张明确不满足，三种情形都要正确 */
+    const p = PERSONS.find(x=>x.name==='郑海峰');
+    const keep = VERIFY[p.personId];
+    const run = certs => {
+      DEMAND_GATE.DT11 = Object.assign({}, base, { cert:['电工特种作业操作证','登高作业证'], certMust:true });
+      VERIFY[p.personId] = Object.assign({}, keep, { certs });
+      const c = assessPerson(p, D('DT11')).find(x=>x.key==='cert') || {};
+      return { state:c.state, note:c.note||'' };
+    };
+    const one = run([{ name:'电工特种作业操作证', state:'ok', src:'原件核验', ev:'x', at:'2026-11-14 10:00' }]);
+    const both = run([
+      { name:'电工特种作业操作证', state:'ok', src:'原件核验', ev:'x', at:'2026-11-14 10:00' },
+      { name:'登高作业证', state:'ok', src:'原件核验', ev:'y', at:'2026-11-14 10:00' }]);
+    const oneNo = run([
+      { name:'电工特种作业操作证', state:'ok', src:'原件核验', ev:'x', at:'2026-11-14 10:00' },
+      { name:'登高作业证', state:'no', src:'候选人确认', ev:'「没考」', at:'2026-11-14 10:00' }]);
+    VERIFY[p.personId] = keep;
+    const i = DEMANDS.findIndex(x=>x.id==='DT11'); if(i>=0) DEMANDS.splice(i,1); delete DEMAND_GATE.DT11;
+    return { one, both, oneNo };
+  });
+  ok('RG002-55 必备证书逐项核验，缺一张不判符合',
+     multiCert.one.state === 'pend' && multiCert.one.note.includes('登高作业证')
+     && multiCert.both.state === 'ok'
+     && multiCert.oneNo.state === 'no', JSON.stringify(multiCert));
+
+  /* 核实依据页必须读**生效版本**的到岗日：自建「生效 v1.0 = 11-25 / 待审 v1.1 = 12-01」夹具，
+     候选人 11-26 已确认 → 两页都必须判「已确认不符合」，页面不许出现待审版的 12-01。 */
+  const arriveSame = await ev(() => {
+    const pe = PEOPLE.find(x=>x.name==='曹敏') || PEOPLE[0];
+    const ap = appsOf(pe.id)[0];
+    if(!ap) return { noApp:true };
+    const keepDemand = ap.demandId;
+    const person = PERSONS.find(x=>x.personId===pe.id) || {};
+    const keepVerify = VERIFY[pe.id];
+    DEMANDS.unshift({ id:'DT12', code:'XQ-TEST-12', client:'测试客户', cs:'测试', ps:'电工',
+      project:'生效版到岗日', post:'CNC · 生效版', head:1, hired:0, price:'36 元/时', city:'东莞',
+      deadline:'2026-11-25', valid:'2026-11-25 ~ 待定', confirm:'已确认', alloc:'未分配',
+      status:'已确认', req:[], owner:'李文静', stdId:'SJ-DG-D3', stdVer:'v1.1',
+      stdList:'EL-DG-D3',
+      /* 关键：本单调整里挂着待确认的新日期 12-01。老实现读 effVal 就会取这个值而放行，
+         新实现必须只认生效版本 gate 的 11-25，这条断言才有区分力。 */
+      stdOverride:[{ no:7, from:'2026-11-25', to:'2026-12-01', why:'客户放宽到岗时间', at:'2026-11-12' }] });
+    DEMAND_GATE.DT12 = { city:'东莞', age:[18,50], gender:'不限', night:'不需要', trade:'CNC 操作',
+      skill:[], cert:[], certMust:false, arriveBy:'2026-11-25' };
+    DEMAND_VERS.DT12 = [
+      { v:'v1.0', status:'生效', audit:'已通过', at:'2026-11-10 09:00', by:'金诚（代客户登记）',
+        way:'微信', n:47, note:'', changes:[], gate:{ city:'东莞', age:[18,50], gender:'不限',
+        night:'不需要', trade:'CNC 操作', skill:[], cert:[], certMust:false, arriveBy:'2026-11-25' } },
+      { v:'v1.1', status:'待内部审核', audit:'待审核', at:'2026-11-13 10:00', by:'金诚（代客户登记）',
+        way:'微信', n:47, note:'客户放宽到岗', changes:[], gate:{ city:'东莞', age:[18,50],
+        gender:'不限', night:'不需要', trade:'CNC 操作', skill:[], cert:[], certMust:false,
+        arriveBy:'2026-12-01' } },
+    ];
+    VERIFY[pe.id] = Object.assign({}, keepVerify, {
+      arrive:{ date:'2026-11-26', state:'已确认', src:'电话确认', at:'2026-11-13 09:30' },
+      night:{ state:'已确认愿意', src:'电话确认', at:'2026-11-13 09:30' },
+    });
+    ap.demandId = 'DT12';
+    enter('R04'); openHuman(pe.id, 'verify', ap.id);
+    const drawer = document.querySelector('#drawer');
+    const txt = drawer ? drawer.innerText : '';
+    const g = gateOf(D('DT12'));
+    const byAssess = (assessPerson(person, D('DT12')).find(x=>x.key==='arrive') || {}).state;
+    const out = {
+      active: g.arriveBy, byAssess,
+      showsActive: txt.includes(String(g.arriveBy)),
+      leaksPending: txt.includes('2026-12-01'),
+      pageNo: /已确认不符合/.test(txt),
+    };
+    closeAll();
+    ap.demandId = keepDemand; VERIFY[pe.id] = keepVerify;
+    const i = DEMANDS.findIndex(x=>x.id==='DT12'); if(i>=0) DEMANDS.splice(i,1);
+    delete DEMAND_GATE.DT12; delete DEMAND_VERS.DT12;
+    return out;
+  });
+  ok('RG002-56 核实依据页与匹配判定同读生效版本到岗日',
+     !arriveSame.noApp && arriveSame.active === '2026-11-25' && arriveSame.byAssess === 'no'
+     && arriveSame.showsActive && !arriveSame.leaksPending && arriveSame.pageNo,
+     JSON.stringify(arriveSame));
+
   /* ---- 匹配模式切换 ---- */
   await ev(() => { enter('R04'); go('batches'); runMatch('B1','batch'); }); await page.waitForTimeout(300);
   const mb = await txt('.modal');

@@ -296,31 +296,50 @@ function assessPerson(p, d){
      certMust 区分「必备证」与「优先/加分证」：
      —— 优先证仍按证据真实呈现（无证据就是待确认，不能凭空判符合，R5 的对称要求），
         但打 soft 标记，不进 triSum / 不参与 Pass 判定，只影响加分与排序。
-     —— 老需求快照里没有 certMust 字段，按必备处理（保守，与历史判定一致）。 */
+     —— 老需求快照里没有 certMust 字段，按必备处理（保守，与历史判定一致）。
+     多选证书必须**逐项**核验：第 26 项支持多选，原来的 find+some 只看到任意一张，
+     其余必备证缺失或明确不满足都被吞掉，缺证的人照样进「可推荐」（R5 全部硬条件符合才可推荐）。 */
   {
-    const need = g.cert || [];
+    const need = (g.cert || []).filter(Boolean);
     const must = g.certMust !== false;
     if(!need.length){
       push('cert', 'ok', '无证书要求', '—', '需求快照', '', '—', '该需求未设证书硬条件');
     } else {
-      const rec = (v.certs||[]).find(c => need.some(n => c.name.includes(n) || n.includes(c.name)));
-      let st = 'pend', got = '无证书记录', note = must
-        ? '必备证书无记录，需补证或核验；不得因技能关键词推断持证'
-        : '客户标注为优先/加分项，无证据不影响硬条件判定';
-      if(rec){
-        got = `${rec.name}（${rec.state==='ok'?'已核验':rec.state==='no'?'明确不满足':'待核验'}）`;
-        st = rec.state === 'ok' ? 'ok' : rec.state === 'no' ? 'no' : 'pend';
-        note = rec.state === 'pend' ? '证据不足，需补充证件或核验' : '';
-        if(rec.state === 'no'){
-          note = must ? '候选人明确表示不满足（该证为客户必备条件）' : '该证为客户优先/加分项，未持不影响硬条件判定';
-        }
-        if(!must && rec.state !== 'ok') note += '；优先项不参与 Pass 判定';
-        push('cert', st, `${need.join('、')}（${must?'必备':'优先'}）`, got, rec.src||'—', rec.ev||'', rec.at||'—', note, !must);
+      const recs = v.certs || [];
+      /* 每个要求各找一条对应的核验记录；找不到就是「无记录」，不能借用别的证 */
+      const rows = need.map(n => ({
+        name: n,
+        rec: recs.find(c => (c.name||'').includes(n) || n.includes(c.name||'')) || null,
+      }));
+      const t = r => r.state === 'ok' ? '已核验' : r.state === 'no' ? '明确不满足' : '待核验';
+      const got = rows.map(r => r.rec ? `${r.name}（${t(r.rec)}）` : `${r.name}（无记录）`).join('；');
+      /* 汇总：任一明确不满足 → no；否则任一缺记录/待核验 → pend；全部已核验 → ok */
+      const anyNo = rows.some(r => r.rec && r.rec.state === 'no');
+      const anyGap = rows.some(r => !r.rec || r.rec.state !== 'ok');
+      const st = anyNo ? 'no' : (anyGap ? 'pend' : 'ok');
+      const hit = rows.filter(r => r.rec);
+      const src = hit.length ? Array.from(new Set(hit.map(r => r.rec.src || '—'))).join(' / ') : '—';
+      const ev = hit.map(r => r.rec.ev).filter(Boolean).join('；');
+      const at = hit.length ? (hit[hit.length-1].rec.at || '—') : '—';
+      const missName = rows.filter(r => !r.rec).map(r => r.name);
+      const noName = rows.filter(r => r.rec && r.rec.state === 'no').map(r => r.name);
+      const pendName = rows.filter(r => r.rec && r.rec.state === 'pend').map(r => r.name);
+      let note;
+      if(!must){
+        note = '客户标注为优先/加分项，不参与 Pass 判定';
+      } else if(anyNo){
+        note = `候选人明确不满足：${noName.join('、')}（客户必备条件）`;
+      } else if(anyGap){
+        const parts = [];
+        if(missName.length) parts.push(`缺记录：${missName.join('、')}`);
+        if(pendName.length) parts.push(`待核验：${pendName.join('、')}`);
+        note = `必备证书未齐（${parts.join('；')}），需补证或核验；不得因技能关键词推断持证`;
       } else {
-        if(v.certNote && must) note = v.certNote;
-        else if(v.certNote) note = v.certNote + '；优先项不参与 Pass 判定';
-        push('cert', st, `${need.join('、')}（${must?'必备':'优先'}）`, got, '—', '', '—', note, !must);
+        note = '必备证书已逐项核验通过';
       }
+      /* 有证书说明的样本（如「简历技能栏写电工，未附证书」）把原话带出来，别丢依据 */
+      if(v.certNote && anyGap) note += `；${v.certNote}`;
+      push('cert', st, `${need.join('、')}（${must?'必备':'优先'}）`, got, src, ev, at, note, !must);
     }
   }
 
