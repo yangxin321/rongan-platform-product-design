@@ -159,19 +159,25 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     ok('RG014-15b 直接改地址能落到另一条投递（每条投递各自可寻址）', false, 'PE001 只有一条投递');
   }
 
-  /* ---------- 6. 沟通记录：跨投递合并 + 档案记录 ---------- */
+  /* ---------- 6. 沟通记录：跨投递合并，页面上只有一张沟通表 ---------- */
   await ev(() => huGo('logs', 'P1', 'D1'));
   await page.waitForTimeout(250);
   const logs = await ev(() => {
     const m = document.querySelector('.main');
     const ths = Array.from(m.querySelectorAll('.tbl-wrap thead th')).map(x => x.innerText.trim());
     return { hash: location.hash, t: m.innerText, ths,
+      tbls: m.querySelectorAll('.tbl-wrap table').length,
+      rows: m.querySelectorAll('.tbl-wrap tbody tr').length,
       add: Array.from(m.querySelectorAll('.btn, .link')).some(b => /新增沟通记录/.test(b.innerText)) };
   });
   ok('RG014-16 沟通记录是独立页，关联需求写在列里',
      logs.hash === '#person/PE001/logs' && A(logs.ths).includes('关联需求或岗位'), JSON.stringify(A(logs.ths)));
-  ok('RG014-17 沟通记录页能新增，且档案记录（建档/上传/转交）在这里',
-     logs.add && /档案记录/.test(logs.t) && /建档时间/.test(logs.t) && /上传履历|转交记录/.test(logs.t), '');
+  ok('RG014-17 沟通记录页只有一张沟通表，多行即多次沟通',
+     logs.add && logs.tbls === 1 && logs.rows >= 1,
+     'tbls=' + logs.tbls + ' rows=' + logs.rows);
+  ok('RG014-17b 沟通记录页不再有档案记录 / 转交历史 / 上传履历',
+     !/档案记录|转交历史|上传履历|建档时间|建档人/.test(logs.t),
+     logs.t.slice(0, 160));
 
   /* ---------- 7. 资料核实：按岗位对照 ---------- */
   await ev(() => huGo('verify', 'P1', 'D1'));

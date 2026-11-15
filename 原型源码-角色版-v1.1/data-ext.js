@@ -107,6 +107,33 @@ PEOPLE.forEach((pe,i)=>{
     demandId: app?app.demandId:'', purpose:PURPOSES[i%7],
     concl:['问了下当前状态，还在看机会','说下周给答复','资料已发，等待回传'][i%3], next:'2026-11-14'});
 });
+/* 2026-11-15 第十四批：沟通记录页收成「一张表，一行 = 一次沟通」之后，
+   演示里必须真的能看到「多次沟通」——否则一行表看不出「多行即多次」，等于没演示。
+   给前三条投递各补两次更早的沟通。日期从 TODAY 往前推（演示时钟是 2026-11-13，
+   不能按真实日期写死，否则会跟 TODAY 撞在同一天）。 */
+const TALK_EXTRA = [
+  {back:2, h:15, mi:40, type:'微信', purpose:'约面试',
+   concl:'约周四下午到厂面谈，提醒带身份证与证件原件'},
+  {back:4, h:9,  mi:20, type:'电话', purpose:'首次触达',
+   concl:'电话打通，人在职，月底可离岗；先加微信发了岗位与薪资范围'},
+];
+const backDay = n => {
+  const d = new Date(TODAY + 'T00:00:00');
+  d.setDate(d.getDate() - n);
+  return [d.getMonth() + 1, d.getDate()];
+};
+[0,1,2].forEach(k=>{
+  const f = FOLLOWS[k];
+  if(!f) return;
+  const p = PERSONS.find(x=>x.id===f.personId) || {};
+  if(!p.personId) return;
+  TALK_EXTRA.forEach(e=>{
+    const [m, d] = backDay(e.back);
+    CONTACTS.push({personId:p.personId, appId:f.personId,
+      time:fmtDT(m, d, e.h, e.mi), type:e.type, staff:f.staff,
+      demandId:p.demandId, purpose:e.purpose, concl:e.concl, next:''});
+  });
+});
 CONTACTS.sort((a,b)=>b.time.localeCompare(a.time));
 
 /* 画像判断层：只写可验证行为 + 依据 + 来源 + 置信度 + 更新时间 */

@@ -162,7 +162,7 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   await page.waitForTimeout(250);
   /* 用户截图「先直接去掉」：这一页只留「跟进环节 + 这一单的联系记录」两段。
      其他投递、更多操作、转交历史三块都不该再出现在投递跟进页 ——
-     转交流水没有丢，它在「沟通记录 → 转交历史」（RG015-22 验）。 */
+     转交流水没有丢，它跟着「转交」动作走，在转交弹窗里（RG015-23 验）。 */
   const trT = tr1.t || '';
   ok('RG015-14 投递跟进页不再有「其他投递 / 更多操作 / 转交历史」三块',
      !!tr1.t && !/其他投递/.test(trT) && !/更多操作/.test(trT) && !/转交历史/.test(trT),
@@ -236,14 +236,40 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      allLogs.value === '__all' && allLogs.after >= allLogs.before,
      JSON.stringify(allLogs));
 
-  const trLogs = await ev(() => {
-    const sec = Array.from(document.querySelectorAll('.main .sec'))
-      .find(s => /转交历史/.test((s.querySelector('.sec-t') || {}).innerText || ''));
-    return sec ? Array.from(sec.querySelectorAll('.tbl-wrap thead th')).map(x => x.innerText.trim()) : [];
+  /* 用户原话：「沟通就是沟通啊，一个表格就好了……只留下第一个表格」。
+     沟通记录页收成一张表，转交历史 / 档案记录 / 上传履历全部退场。 */
+  const logsSecs = await ev(() => {
+    const m = document.querySelector('.main');
+    return { heads: Array.from(m.querySelectorAll('.sec-t')).map(x => x.innerText.trim()),
+      tbls: m.querySelectorAll('.tbl-wrap table').length, t: m.innerText };
   });
-  ok('RG015-22 沟通记录页的转交历史是表格，不与沟通内容混在一起',
-     JSON.stringify(trLogs) === JSON.stringify(['时间', '原跟进人', '新跟进人', '转交范围', '原因']),
-     JSON.stringify(trLogs));
+  /* 注意：这里必须用字符串本身，不能套 A() —— A() 只对数组有效，
+     传字符串会变 []，正则就永远测不到内容，断言会变成空跑（2026-11-15 踩过）。 */
+  const logsT = logsSecs.t || '';
+  ok('RG015-22 沟通记录页不再有「转交历史 / 档案记录 / 上传履历」',
+     !!logsT && !/转交历史|档案记录|上传履历|建档时间|建档人/.test(logsT),
+     JSON.stringify({ heads: A(logsSecs.heads), t: logsT.slice(0, 140) }));
+  ok('RG015-22b 沟通记录页整页只有一张表（多行即多次沟通）',
+     logsSecs.tbls === 1, 'tbls=' + logsSecs.tbls);
+
+  /* 转交流水没删：跟着「转交」动作走，在弹窗里能看到最近几条 */
+  const trModal = await ev(() => {
+    huGo('apply', 'P1', 'D1');
+    const b = Array.from(document.querySelectorAll('.main .btn')).find(x => x.innerText.trim() === '转交');
+    if (!b) return { err: 'no-transfer-btn' };
+    b.click();
+    const md = document.getElementById('modal');
+    if (!md) return { err: 'no-modal' };
+    const w = md.querySelector('.tbl-wrap');
+    return { ths: w ? Array.from(w.querySelectorAll('thead th')).map(x => x.innerText.trim()) : [],
+      rows: w ? w.querySelectorAll('tbody tr').length : 0, t: md.innerText };
+  });
+  await page.waitForTimeout(200);
+  ok('RG015-23b 转交流水挪进「转交」弹窗，不再占页面',
+     JSON.stringify(A(trModal.ths)) === JSON.stringify(['时间', '原 → 新', '范围', '原因']) && (trModal.rows || 0) >= 1,
+     JSON.stringify({ ths: A(trModal.ths), rows: trModal.rows, err: trModal.err }));
+  await ev(() => closeAll());
+  await page.waitForTimeout(150);
 
   /* ===================== V3-06 人才池分工 ===================== */
   const pool = await ev(() => {

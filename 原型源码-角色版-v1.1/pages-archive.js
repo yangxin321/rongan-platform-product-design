@@ -284,8 +284,9 @@ PAGES.personDetail = { any: huHtml };
    页 1 · 查看简历
    -----------------------------------------------------------------------
    只回答「这个人是谁、能给什么、原件长什么样」。
-   建档时间 / 建档人 / 上传履历 <b>不在这一页</b>（它们属于记录，去了沟通记录页的
-   「档案记录」），招聘跟进、画像判断、大段规则说明也不进来。
+   建档时间 / 建档人 / 转交流水<b>不在这一页</b>：附件表本身就是上传履历（一版一行，
+   带上传人与时间）；转交流水跟着「转交」动作走（弹窗里能看到最近几条）；
+   建档留在数据层做审计，五页里都不铺记录表。招聘跟进、画像判断、大段规则说明也不进来。
    ======================================================================= */
 function huResume(p){
   const pid = huPid(p);
@@ -356,7 +357,7 @@ function huResume(p){
     {label:'操作', r:f=>`<div class="acts">
       <span class="link" onclick="toast('打开原件预览（演示）')">预览</span>
       <span class="link" onclick="toast('已开始下载')">下载</span>
-      <span class="link" onclick="toast('这一版的时间与上传人见「沟通记录 → 档案记录」')">历史版本</span>
+      <span class="link" onclick="toast('每一版都在上表按版本列出，不覆盖；上传人与时间见「上传人及时间」列')">历史版本</span>
     </div>`},
   ], files, '暂无原件（BOSS 导出的数据行不含附件）');
 
@@ -374,7 +375,7 @@ function huResume(p){
 
     <div class="sec"><div class="sec-t">简历附件（${files.length} 版）<span class="perm">内部全员可见</span></div>
       ${fileTbl}
-      <div class="xs mut" style="margin-top:6px">简历版本<b>不覆盖</b>，每次上传留一版；上传与档案变更记录在「沟通记录」页，不占这一页。</div>
+      <div class="xs mut" style="margin-top:6px">简历版本<b>不覆盖</b>，每上传一次留一版，上传人与时间就在上表。</div>
     </div>`;
 }
 
@@ -523,7 +524,7 @@ function huApply(p){
          从这里再列一遍，等于把「这一单」和「这个人的全部」混在一页；
        ②「更多操作 / 转交跟进 / 转交历史」：整块占掉一屏，而转交是低频动作、转交流水也不是
          每天要看的东西。转交入口收成页头一个按钮「转交」（仍只作用于这一条投递），
-         转交流水保留在「沟通记录 → 转交历史」，随时可查，不删记录。
+         转交流水跟着这个动作走 —— 就在「转交」弹窗里列最近几条，随时可查，不删记录。
      转交流水本身一条都没删，只是不在这页展开。 */
   return `
     <div class="arc-top" style="margin-bottom:12px">
@@ -556,12 +557,16 @@ function huApplyEmpty(p){
 }
 
 /* =======================================================================
-   页 4 · 沟通记录（表格）
+   页 4 · 沟通记录（只有一张表）
    -----------------------------------------------------------------------
-   沟通时间 / 关联需求或岗位 / 沟通方式 / 内容摘要 / 记录人 / 下次跟进 / 操作。
-   默认最近在前；从某条投递进来默认只看那一单，可切成「此人的全部沟通」。
-   顶部不再放「共沟通 / 首次 / 最近 / 下次跟进」四个汇总块 —— 表格自己会说。
-   建档、上传、转交这些「记录」也在这里（简历页不放它们，但记录不能删）。
+   2026-11-15 用户原话：「沟通就是沟通啊，一个表格就好了……只留下第一个表格，
+   可以多条记录，就是代表多次沟通……不要在这个页面里。」
+   所以这一页**只有一张沟通表**：一行 = 一次沟通，多行 = 多次沟通。
+   建档记录、上传履历、转交流水都不在这里：
+     · 上传履历 → 查看简历的「简历附件」表（一版一行，本来就带上传人与时间）
+     · 转交流水 → 「转交」弹窗（跟着动作走，不占页面）
+     · 建档时间 / 建档人 → 留在数据层做审计，五页里都不铺表
+   不要再往这一页加第二张表、汇总卡或长说明。
    ======================================================================= */
 /* 需求筛选：undefined = 跟随当前投递；'*' = 全部；其它 = 指定需求 */
 function huLogsFilter(v){
@@ -569,9 +574,7 @@ function huLogsFilter(v){
   refreshTable();
 }
 function huTalk(p, cs, apps){
-  const pid = huPid(p);
-  const ups = uploadsOf(pid), tr = transfersOf(pid);
-  const apps2 = apps || appsOf(pid);
+  const apps2 = apps || appsOf(huPid(p));
   const today = TODAY;
   const days = t => Math.round((new Date(today+'T00:00:00') - new Date(t.slice(0,10)+'T00:00:00'))/86400000);
 
@@ -606,48 +609,13 @@ function huTalk(p, cs, apps){
     ? '这条投递还没有沟通记录 —— 上方「＋ 新增沟通记录」补一条，或切换为全部需求查看'
     : '这个人还没有沟通记录 —— 上方「＋ 新增沟通记录」补一条';
 
-  /* 档案记录：建档信息压成一行表格，不再占大块 */
-  const arch = [
-    ['建档时间', `${esc(p.createdAt)} <span class="xs mut">${days(p.createdAt)} 天前</span>`],
-    ['建档人', esc(p.createdBy)],
-    ['首次进入方式', esc(p.entryMode)],
-    ['当前跟进人', `${esc(p.follower||p.createdBy)} <span class="xs mut">${p.follower&&p.follower!==p.createdBy?'（已转交）':'（与建档人一致）'}</span>`],
-  ];
-  const archTbl = table([{label:'项目', r:r=>`<span class="sm mut">${r[0]}</span>`},
-    {label:'内容', r:r=>`<span class="sm">${r[1]}</span>`}], arch);
-  const upTbl = table([
-    {label:'时间', r:u=>`<span class="sm mono">${esc(u.time)}</span>`},
-    {label:'上传人 / 渠道', r:u=>`<div class="sm">${esc(u.staff)}</div><div class="t-sub">${esc(u.channel)}</div>`},
-    {label:'版本及文件', r:u=>`<div class="sm">第 ${u.ver} 版 · ${esc(u.file)}</div><div class="t-sub">解析出 ${u.factors} 项</div>`},
-    {label:'变化', r:u=>`<span class="sm" style="color:var(--accent2)">${esc(u.diff)}</span>`},
-  ], ups, '无上传记录');
-  const trTbl = table([
-    {label:'时间', r:t=>`<span class="sm mono">${esc(t.at)}</span>`},
-    {label:'原跟进人', r:t=>`<span class="sm">${esc(t.from)}</span>`},
-    {label:'新跟进人', r:t=>`<span class="sm">${esc(t.to)}</span>`},
-    {label:'转交范围', r:t=>`<span class="sm">${esc(t.scope||'这个人全部投递')}</span>`},
-    {label:'原因', r:t=>`<span class="sm mut">${esc(t.why)}</span>`},
-  ], tr);
-
   return `
     <div class="toolbar" style="margin-bottom:10px">
       <select class="sel" onchange="huLogsFilter(this.value)">${opts}</select>
       <div class="sp"></div>
-      <span class="xs mut">跨投递、跨专员合并 · 权限内可见</span>
+      <span class="xs mut">一行 = 一次沟通 · 跨投递合并 · 权限内可见</span>
     </div>
-
-    ${table(cols, rows, emptyMsg)}
-
-    <div class="sec" style="margin-top:18px"><div class="sec-t">转交历史（${tr.length}）<span class="perm">不与沟通内容混在一起</span></div>
-      ${trTbl}
-      <div class="xs mut" style="margin-top:6px">转交历史不可删除；转回自己也算一条。</div>
-    </div>
-
-    <div class="sec" style="margin-top:18px"><div class="sec-t">档案记录<span class="perm">建档 / 上传，不在简历页</span></div>
-      ${archTbl}
-      <div class="sec-t" style="margin-top:12px">上传履历（${ups.length} 次）</div>
-      ${upTbl}
-    </div>`;
+    ${table(cols, rows, emptyMsg)}`;
 }
 
 /* =======================================================================
@@ -831,12 +799,15 @@ const VER_CONFLICT = {
 
 /* ---------- 转交跟进 ----------
    从「投递跟进」页进来时带 appId：转交范围锁定为这一条投递，不影响这个人的其他投递。
-   从人员档案层面转交（没有 appId）时，范围可以是这个人的全部投递 —— 两种含义分开记。 */
+   从人员档案层面转交（没有 appId）时，范围可以是这个人的全部投递 —— 两种含义分开记。
+   2026-11-15：转交流水原来挂在沟通记录页，用户要求那一页「只有沟通表」，
+   所以流水跟着动作走 —— 就在这个弹窗底部列最近几条，不占任何页面。 */
 function transferModal(pid, appId){
   const p = appPerson(pid);
   const a = appId ? P(appId) : null;
   const d = a ? D(a.demandId) : null;
   const staff = ['李文静','陈曦','王浩','金诚'].filter(n=>n!==(p.follower||p.createdBy));
+  const tr = transfersOf(pid).slice(0,3);
   return `<div class="md-h"><div><h3>转交跟进 · ${esc(p.name)}${d?' · '+esc(d.post):''}</h3>
     <p>${a?`本次转交只作用于这一条投递（${esc(d.code)}）；这个人的其他投递仍由原负责人跟进。`
         :`当前跟进人 ${esc(p.follower||p.createdBy)} · 转交后原负责人不再收到该人的待办`}</p></div>
@@ -854,6 +825,15 @@ function transferModal(pid, appId){
       <select id="trWhy"><option>我请假 / 不在岗</option><option>人太多跟不过来</option><option>技能不匹配，换人更合适</option><option>其他（写在备注）</option></select></div>
     <div class="field"><label>备注</label><input id="trNote" placeholder="例：我请假两天，先让她跟，回来转回"></div>
     <div class="note">转交会写一条流水（谁转给谁、时间、范围、原因），<b>不可删除</b>；想收回就再转一次给自己，同样留痕。</div>
+    ${tr.length?`<div class="field"><label>最近转交（${transfersOf(pid).length} 条，不可删除）</label>
+      <div class="tbl-wrap hu-tbl"><table><thead><tr><th>时间</th><th>原 → 新</th><th>范围</th><th>原因</th></tr></thead>
+      <tbody>${tr.map(t=>`<tr>
+        <td class="mono sm">${esc(t.at)}</td>
+        <td class="sm">${esc(t.from)} → <b>${esc(t.to)}</b></td>
+        <td class="sm">${esc(t.scope||'这个人全部投递')}</td>
+        <td class="sm mut">${esc(t.why)}</td>
+      </tr>`).join('')}</tbody></table></div>
+    </div>`:''}
   </div>
   <div class="md-f"><button class="btn" onclick="closeAll()">取消</button>
     <button class="btn pri" onclick="trDo('${esc(pid)}','${a?a.id:''}')">确认转交</button></div>`;
