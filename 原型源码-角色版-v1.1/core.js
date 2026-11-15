@@ -189,11 +189,9 @@ function viewCustLink(tok){
       </dl></div>
 
     <div class="sec"><div class="sec-t">四、你的反馈</div>
-      <div class="note">确认方式：<b>线下反馈</b>（微信 / 会议 / 电话），由我方在系统内逐项登记。本链接不收集填写内容，也不提供在线提交。</div>
-      <div class="cust-acts">
-        <button class="btn" onclick="toast('演示：客户反馈走线下，登记由我方完成')">内容无误</button>
-        <button class="btn" onclick="toast('演示：客户反馈走线下，登记由我方完成')">需要修改</button>
-      </div></div>
+      <div class="note">确认方式：<b>线下反馈</b>（微信 / 会议 / 电话），由我方在系统内逐项登记。本链接不收集填写内容，也不提供在线提交。<br>
+        如对本单有任何修改意见，请直接回复我方对接人；由我方登记并经内部审核后生效，本页内容不会因你的点击而改变。</div>
+    </div>
 
     <div class="cust-ft">
       链接 <span class="mono">${esc(r.l.tok)}</span> · 生成人 ${esc(r.l.by)} · ${esc(r.l.at)} · 有效期至 <span class="mono">${esc(r.l.expire)}</span> · 已查看 ${r.l.views} 次

@@ -2813,9 +2813,18 @@ Object.assign(VERIFY, {
 
 function verifyOf(pid){ return VERIFY[pid] || { certs:[], city:{wantState:'待确认'}, arrive:{state:'待确认'}, night:{state:'未确认'} }; }
 
+/* 匹配用的条件＝**生效版本**的快照；未生效的新版条件一律不得参与判断（AGENTS R4）。
+   版本对象上带 gate 就以此为准，否则退回需求基础快照。 */
+function gateOf(d){
+  const av = activeVer(d);
+  const base = DEMAND_GATE[d.id] || {};
+  const snap = (av && av.gate) ? av.gate : null;
+  return snap ? Object.assign({}, base, snap) : base;
+}
+
 /* ---------- 4. 逐项判定 ---------- */
 function assessPerson(p, d){
-  const g = DEMAND_GATE[d.id] || {};
+  const g = gateOf(d);
   const v = verifyOf(p.personId);
   const out = [];
   const push = (key, state, need, got, src, ev, at, note)=>{
@@ -2866,21 +2875,34 @@ function assessPerson(p, d){
     push('gender', st, need, p.gender, '人员档案', '', '—', need==='不限'?'客户未设限制':'客户明示条件');
   }
 
-  /* 22 工种 */
+  /* 22 工种 —— 先分「无资料」与「明确不匹配」，缺资料不等于不符合 */
   {
     const kw = TRADE_KW[d.id] || [];
-    const hit = (p.skills||[]).find(s => kw.some(k => s.includes(k)));
-    push('trade', hit?'ok':'no', g.trade||'—', hit?`技能含「${hit}」`:(p.skills||[]).join('、')||'无技能记录',
-      '简历技能栏', '', '—', hit?'':'技能栏未出现该工种关键词');
+    const skills = p.skills || [];
+    const hit = skills.find(s => kw.some(k => s.includes(k)));
+    const st = hit ? 'ok' : (skills.length ? 'no' : 'pend');
+    push('trade', st, g.trade||'—',
+      hit ? `技能含「${hit}」` : (skills.length ? skills.join('、') : '无技能记录'),
+      skills.length ? '简历技能栏' : '无来源', '', '—',
+      hit ? '' : (skills.length ? '技能栏未出现该工种关键词' : '没有技能资料，不得据此判定不符合'));
   }
 
-  /* 25 专业技能项 */
+  /* 25 专业技能项 —— 需求未设要求时直接符合；无资料待确认 */
   {
     const need = g.skill || [];
-    const hits = need.filter(k => (p.skills||[]).some(s => s.includes(k) || k.includes(s)));
-    const st = hits.length ? 'ok' : 'no';
-    push('skill', st, need.join('、')||'—', hits.length?`命中 ${hits.join('、')}`:(p.skills||[]).join('、')||'—',
-      '简历技能栏', '', '—', hits.length?'':'技能项与要求无交集');
+    const skills = p.skills || [];
+    const hits = need.filter(k => skills.some(s => s.includes(k) || k.includes(s)));
+    let st = 'pend', got = '', note = '';
+    if(!need.length){
+      st = 'ok'; got = '—'; note = '该需求未设专业技能要求';
+    } else if(hits.length){
+      st = 'ok'; got = `命中 ${hits.join('、')}`;
+    } else if(!skills.length){
+      got = '无技能记录'; note = '没有技能资料，不得据此判定不符合';
+    } else {
+      st = 'no'; got = skills.join('、') || '—'; note = '技能项与要求无交集';
+    }
+    push('skill', st, need.join('、')||'—', got, skills.length ? '简历技能栏' : '无来源', '', '—', note);
   }
 
   /* 26 证书：独立字段 + 核验状态；技能名不得推断持证 */
@@ -2946,10 +2968,12 @@ const DEMAND_VERS = {
   ],
   D7:[
     {v:'v1.0', status:'生效', audit:'已通过', at:'2026-11-02 09:40', by:'王浩（代客户登记）', way:'电话', n:47,
-     note:'旧版仍生效，直至新版确认后自动取代', changes:[]},
+     note:'旧版仍生效，直至新版确认后自动取代', changes:[],
+     gate:{ arriveBy:'2026-11-25' }},
     {v:'v1.1', status:'待重新确认', audit:'未送审', at:'2026-11-12 16:10', by:'王浩', way:'待客户反馈', n:47,
      note:'客户口头改工价与到岗日，尚未回签',
-     changes:[{f:'工价', from:'28-32 元/时', to:'30-36 元/时'},{f:'最晚报到日', from:'2026-11-25', to:'2026-12-01'}]},
+     changes:[{f:'工价', from:'28-32 元/时', to:'30-36 元/时'},{f:'最晚报到日', from:'2026-11-25', to:'2026-12-01'}],
+     gate:{ arriveBy:'2026-12-01' }},
   ],
   D8:[
     {v:'v1.0', status:'待客户确认', audit:'未送审', at:'2026-11-01 15:00', by:'王浩', way:'链接已发出', n:47,
@@ -3461,11 +3485,9 @@ function viewCustLink(tok){
       </dl></div>
 
     <div class="sec"><div class="sec-t">四、你的反馈</div>
-      <div class="note">确认方式：<b>线下反馈</b>（微信 / 会议 / 电话），由我方在系统内逐项登记。本链接不收集填写内容，也不提供在线提交。</div>
-      <div class="cust-acts">
-        <button class="btn" onclick="toast('演示：客户反馈走线下，登记由我方完成')">内容无误</button>
-        <button class="btn" onclick="toast('演示：客户反馈走线下，登记由我方完成')">需要修改</button>
-      </div></div>
+      <div class="note">确认方式：<b>线下反馈</b>（微信 / 会议 / 电话），由我方在系统内逐项登记。本链接不收集填写内容，也不提供在线提交。<br>
+        如对本单有任何修改意见，请直接回复我方对接人；由我方登记并经内部审核后生效，本页内容不会因你的点击而改变。</div>
+    </div>
 
     <div class="cust-ft">
       链接 <span class="mono">${esc(r.l.tok)}</span> · 生成人 ${esc(r.l.by)} · ${esc(r.l.at)} · 有效期至 <span class="mono">${esc(r.l.expire)}</span> · 已查看 ${r.l.views} 次
@@ -5136,11 +5158,18 @@ function huResume(p){
         <div><dt>技能</dt><dd class="sm">${p.skills.map(esc).join(' / ')} <span class="xs mut">技能名不等于持证</span></dd></div>
         <div><dt>期望薪资</dt><dd class="sm">${esc(p.expect||'32-36 元/时')}</dd></div>
         <div><dt>现居地</dt><dd class="sm">${esc((verifyOf(p.id).city||{}).live || p.city || '—')}
-          <span class="xs mut">${esc((verifyOf(p.id).city||{}).liveState||'')}</span></dd></div>
+          <span class="xs mut">${esc((verifyOf(p.id).city||{}).liveState||'')}</span>
+          <span class="xs mut">（不作为匹配依据）</span></dd></div>
         <div><dt>愿意工作城市</dt><dd class="sm">${(()=>{ const c=verifyOf(p.id).city||{};
-          return (c.want||[]).length ? esc(c.want.join('、'))+' '+tri('ok') : '<span class="mut">未确认</span> '+tri('pend'); })()}</dd></div>
+          /* 只看状态，不看数组是否有值：待确认时即便填了城市也不得显示符合 */
+          const st = c.wantState==='已确认' ? 'ok' : 'pend';
+          const txt = (c.want||[]).length ? esc(c.want.join('、')) : '<span class="mut">未确认</span>';
+          return txt+' '+tri(st); })()}</dd></div>
         <div><dt>可到岗</dt><dd class="sm">${(()=>{ const v=verifyOf(p.id).arrive||{};
-          return v.date ? esc(v.date)+' '+tri('ok') : '<span class="mut">未确认</span> '+tri('pend'); })()}</dd></div>
+          /* 同理：有日期但状态未确认，仍显示待确认 */
+          const st = (v.state==='已确认' && v.date) ? 'ok' : 'pend';
+          const txt = v.date ? esc(v.date) : '<span class="mut">未确认</span>';
+          return txt+' '+tri(st)+(v.state!=='已确认'&&v.date?'<span class="xs mut">（日期有值但未经候选人确认）</span>':''); })()}</dd></div>
         <div><dt>资料完整度</dt><dd><div class="barline" style="max-width:180px"><div class="bar ${p.complete>=85?'g':p.complete<65?'w':''}"><i style="width:${p.complete}%"></i></div><b>${p.complete}%</b></div></dd></div>
       </dl>
       <div class="note" style="margin-top:8px">现居地不推断异地意愿，投递状态不推断可到岗 —— 详见「核实依据」页签。</div>
@@ -8271,6 +8300,8 @@ function demandConfirmDrawer(id){
     <button class="btn" onclick="closeAll()">关闭</button>
     ${pv&&pv.status==='待内部审核'?`<button class="btn pri" onclick="auditDrawer('${d.id}')">内部审核 ${esc(pv.v)}</button>`:''}
     ${pv&&pv.status==='已退回'?`<button class="btn pri" onclick="regDrawer('${d.id}')">补充反馈并重新送审</button>`:''}
+    ${pv&&(pv.status==='待客户确认'||pv.status==='待重新确认')
+      ? `<button class="btn pri" onclick="regDrawer('${d.id}')">代登记客户反馈（${esc(pv.v)}）</button>`:''}
     ${!pv?`<button class="btn pri" onclick="regDrawer('${d.id}')">代登记客户反馈</button>`:''}
     ${d.confirm==='已确认'||av?`<button class="btn" onclick="confirmReg('${d.id}','change')">标记条件已变更</button>`:''}
   </div>`);
@@ -8495,7 +8526,9 @@ function confirmReg(did, act){
     const next = 'v'+(Number(String(base).replace('v','').split('.')[0])+1)+'.0';
     versOf(d).push({v:next, status:'待重新确认', audit:'未送审', at:nowTs(), by:'金诚', way:'待客户反馈',
       n:47, note:'我方发起变更，等待客户反馈',
-      changes:[{f:'工效条款', from:'按原版本', to:'待客户确认'}]});
+      changes:[{f:'工效条款', from:'按原版本', to:'待客户确认'}],
+      /* 新版条件先留在待确认版本上；生效前不参与匹配（gateOf 读的是生效版本） */
+      gate:Object.assign({}, gateOf(d))});
     d.confirm = activeVer(d) ? '变更待重确认' : '待客户确认';
     MATCH_STAMP[did] = {ver:base, at:nowTs(), stale:true};
     closeAll(); refreshTable();

@@ -172,9 +172,18 @@ Object.assign(VERIFY, {
 
 function verifyOf(pid){ return VERIFY[pid] || { certs:[], city:{wantState:'待确认'}, arrive:{state:'待确认'}, night:{state:'未确认'} }; }
 
+/* 匹配用的条件＝**生效版本**的快照；未生效的新版条件一律不得参与判断（AGENTS R4）。
+   版本对象上带 gate 就以此为准，否则退回需求基础快照。 */
+function gateOf(d){
+  const av = activeVer(d);
+  const base = DEMAND_GATE[d.id] || {};
+  const snap = (av && av.gate) ? av.gate : null;
+  return snap ? Object.assign({}, base, snap) : base;
+}
+
 /* ---------- 4. 逐项判定 ---------- */
 function assessPerson(p, d){
-  const g = DEMAND_GATE[d.id] || {};
+  const g = gateOf(d);
   const v = verifyOf(p.personId);
   const out = [];
   const push = (key, state, need, got, src, ev, at, note)=>{
@@ -225,21 +234,34 @@ function assessPerson(p, d){
     push('gender', st, need, p.gender, '人员档案', '', '—', need==='不限'?'客户未设限制':'客户明示条件');
   }
 
-  /* 22 工种 */
+  /* 22 工种 —— 先分「无资料」与「明确不匹配」，缺资料不等于不符合 */
   {
     const kw = TRADE_KW[d.id] || [];
-    const hit = (p.skills||[]).find(s => kw.some(k => s.includes(k)));
-    push('trade', hit?'ok':'no', g.trade||'—', hit?`技能含「${hit}」`:(p.skills||[]).join('、')||'无技能记录',
-      '简历技能栏', '', '—', hit?'':'技能栏未出现该工种关键词');
+    const skills = p.skills || [];
+    const hit = skills.find(s => kw.some(k => s.includes(k)));
+    const st = hit ? 'ok' : (skills.length ? 'no' : 'pend');
+    push('trade', st, g.trade||'—',
+      hit ? `技能含「${hit}」` : (skills.length ? skills.join('、') : '无技能记录'),
+      skills.length ? '简历技能栏' : '无来源', '', '—',
+      hit ? '' : (skills.length ? '技能栏未出现该工种关键词' : '没有技能资料，不得据此判定不符合'));
   }
 
-  /* 25 专业技能项 */
+  /* 25 专业技能项 —— 需求未设要求时直接符合；无资料待确认 */
   {
     const need = g.skill || [];
-    const hits = need.filter(k => (p.skills||[]).some(s => s.includes(k) || k.includes(s)));
-    const st = hits.length ? 'ok' : 'no';
-    push('skill', st, need.join('、')||'—', hits.length?`命中 ${hits.join('、')}`:(p.skills||[]).join('、')||'—',
-      '简历技能栏', '', '—', hits.length?'':'技能项与要求无交集');
+    const skills = p.skills || [];
+    const hits = need.filter(k => skills.some(s => s.includes(k) || k.includes(s)));
+    let st = 'pend', got = '', note = '';
+    if(!need.length){
+      st = 'ok'; got = '—'; note = '该需求未设专业技能要求';
+    } else if(hits.length){
+      st = 'ok'; got = `命中 ${hits.join('、')}`;
+    } else if(!skills.length){
+      got = '无技能记录'; note = '没有技能资料，不得据此判定不符合';
+    } else {
+      st = 'no'; got = skills.join('、') || '—'; note = '技能项与要求无交集';
+    }
+    push('skill', st, need.join('、')||'—', got, skills.length ? '简历技能栏' : '无来源', '', '—', note);
   }
 
   /* 26 证书：独立字段 + 核验状态；技能名不得推断持证 */
@@ -305,10 +327,12 @@ const DEMAND_VERS = {
   ],
   D7:[
     {v:'v1.0', status:'生效', audit:'已通过', at:'2026-11-02 09:40', by:'王浩（代客户登记）', way:'电话', n:47,
-     note:'旧版仍生效，直至新版确认后自动取代', changes:[]},
+     note:'旧版仍生效，直至新版确认后自动取代', changes:[],
+     gate:{ arriveBy:'2026-11-25' }},
     {v:'v1.1', status:'待重新确认', audit:'未送审', at:'2026-11-12 16:10', by:'王浩', way:'待客户反馈', n:47,
      note:'客户口头改工价与到岗日，尚未回签',
-     changes:[{f:'工价', from:'28-32 元/时', to:'30-36 元/时'},{f:'最晚报到日', from:'2026-11-25', to:'2026-12-01'}]},
+     changes:[{f:'工价', from:'28-32 元/时', to:'30-36 元/时'},{f:'最晚报到日', from:'2026-11-25', to:'2026-12-01'}],
+     gate:{ arriveBy:'2026-12-01' }},
   ],
   D8:[
     {v:'v1.0', status:'待客户确认', audit:'未送审', at:'2026-11-01 15:00', by:'王浩', way:'链接已发出', n:47,

@@ -146,11 +146,18 @@ function huResume(p){
         <div><dt>技能</dt><dd class="sm">${p.skills.map(esc).join(' / ')} <span class="xs mut">技能名不等于持证</span></dd></div>
         <div><dt>期望薪资</dt><dd class="sm">${esc(p.expect||'32-36 元/时')}</dd></div>
         <div><dt>现居地</dt><dd class="sm">${esc((verifyOf(p.id).city||{}).live || p.city || '—')}
-          <span class="xs mut">${esc((verifyOf(p.id).city||{}).liveState||'')}</span></dd></div>
+          <span class="xs mut">${esc((verifyOf(p.id).city||{}).liveState||'')}</span>
+          <span class="xs mut">（不作为匹配依据）</span></dd></div>
         <div><dt>愿意工作城市</dt><dd class="sm">${(()=>{ const c=verifyOf(p.id).city||{};
-          return (c.want||[]).length ? esc(c.want.join('、'))+' '+tri('ok') : '<span class="mut">未确认</span> '+tri('pend'); })()}</dd></div>
+          /* 只看状态，不看数组是否有值：待确认时即便填了城市也不得显示符合 */
+          const st = c.wantState==='已确认' ? 'ok' : 'pend';
+          const txt = (c.want||[]).length ? esc(c.want.join('、')) : '<span class="mut">未确认</span>';
+          return txt+' '+tri(st); })()}</dd></div>
         <div><dt>可到岗</dt><dd class="sm">${(()=>{ const v=verifyOf(p.id).arrive||{};
-          return v.date ? esc(v.date)+' '+tri('ok') : '<span class="mut">未确认</span> '+tri('pend'); })()}</dd></div>
+          /* 同理：有日期但状态未确认，仍显示待确认 */
+          const st = (v.state==='已确认' && v.date) ? 'ok' : 'pend';
+          const txt = v.date ? esc(v.date) : '<span class="mut">未确认</span>';
+          return txt+' '+tri(st)+(v.state!=='已确认'&&v.date?'<span class="xs mut">（日期有值但未经候选人确认）</span>':''); })()}</dd></div>
         <div><dt>资料完整度</dt><dd><div class="barline" style="max-width:180px"><div class="bar ${p.complete>=85?'g':p.complete<65?'w':''}"><i style="width:${p.complete}%"></i></div><b>${p.complete}%</b></div></dd></div>
       </dl>
       <div class="note" style="margin-top:8px">现居地不推断异地意愿，投递状态不推断可到岗 —— 详见「核实依据」页签。</div>

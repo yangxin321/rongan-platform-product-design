@@ -144,6 +144,8 @@ function demandConfirmDrawer(id){
     <button class="btn" onclick="closeAll()">关闭</button>
     ${pv&&pv.status==='待内部审核'?`<button class="btn pri" onclick="auditDrawer('${d.id}')">内部审核 ${esc(pv.v)}</button>`:''}
     ${pv&&pv.status==='已退回'?`<button class="btn pri" onclick="regDrawer('${d.id}')">补充反馈并重新送审</button>`:''}
+    ${pv&&(pv.status==='待客户确认'||pv.status==='待重新确认')
+      ? `<button class="btn pri" onclick="regDrawer('${d.id}')">代登记客户反馈（${esc(pv.v)}）</button>`:''}
     ${!pv?`<button class="btn pri" onclick="regDrawer('${d.id}')">代登记客户反馈</button>`:''}
     ${d.confirm==='已确认'||av?`<button class="btn" onclick="confirmReg('${d.id}','change')">标记条件已变更</button>`:''}
   </div>`);
@@ -368,7 +370,9 @@ function confirmReg(did, act){
     const next = 'v'+(Number(String(base).replace('v','').split('.')[0])+1)+'.0';
     versOf(d).push({v:next, status:'待重新确认', audit:'未送审', at:nowTs(), by:'金诚', way:'待客户反馈',
       n:47, note:'我方发起变更，等待客户反馈',
-      changes:[{f:'工效条款', from:'按原版本', to:'待客户确认'}]});
+      changes:[{f:'工效条款', from:'按原版本', to:'待客户确认'}],
+      /* 新版条件先留在待确认版本上；生效前不参与匹配（gateOf 读的是生效版本） */
+      gate:Object.assign({}, gateOf(d))});
     d.confirm = activeVer(d) ? '变更待重确认' : '待客户确认';
     MATCH_STAMP[did] = {ver:base, at:nowTs(), stale:true};
     closeAll(); refreshTable();

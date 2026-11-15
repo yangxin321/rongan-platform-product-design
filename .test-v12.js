@@ -40,11 +40,18 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     const t = await txt('.cust-doc'); return t.includes('链接已失效'); })());
   ok('RG001-13 撤销链接提示明确', await (async () => { await ev(() => openCustLinkDemo('LK-D3-V10')); await page.waitForTimeout(200);
     const t = await txt('.cust-doc'); return t.includes('链接已撤销'); })());
-  ok('RG001-14 只读页无任何输入或提交控件', await ev(() => {
-      const n = document.querySelectorAll('.cust-doc input, .cust-doc textarea, .cust-doc select').length;
-      const btns = Array.from(document.querySelectorAll('.cust-doc button'))
-        .filter(b => /提交|确认|修改|保存|切换/.test(b.innerText||''));
-      return n === 0 && btns.length === 0; }));
+  /* 必须在**有效**链接上断言，否则 .cust-doc 不存在会空过（历史 bug） */
+  ok('RG001-14 只读页无任何输入或提交控件', await (async () => {
+      await ev(() => openCustLinkDemo('LK-D8-V10')); await page.waitForTimeout(250);
+      const r = await ev(() => {
+        const doc = document.querySelector('.cust-doc');
+        if(!doc) return {noDoc:true};
+        const n = doc.querySelectorAll('input, textarea, select').length;
+        const btns = Array.from(doc.querySelectorAll('button'))
+          .filter(b => /提交|确认|修改|保存|切换|无误|需要/.test(b.innerText||''));
+        return {noDoc:false, n, btns:btns.map(b=>b.innerText.trim()), hasNote: doc.innerText.includes('不提供在线提交')};
+      });
+      return !r.noDoc && r.n === 0 && r.btns.length === 0 && r.hasNote; })());
   await ev(() => exitCustLink());
 
   /* ---- RG-002 ---- */
@@ -61,6 +68,17 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   ok('RG002-6 声明不回写标准', dr.includes('不回写标准岗位标准'));
   ok('RG002-7 生效版本标识', dr.includes('生效版本 v1.1'));
   await ev(() => closeAll());
+
+  /* 回归 #1：待客户确认 / 待重新确认 也要有代登记入口 */
+  const entry = {};
+  for (const did of ['D7','D8']) {
+    await ev(id => { enter('R01'); go('confirms'); openConfirm(id); }, did);
+    await page.waitForTimeout(250);
+    entry[did] = await ev(() => Array.from(document.querySelectorAll('.dr-f .btn')).map(b => b.innerText.trim()));
+    await ev(() => closeAll());
+  }
+  ok('RG002-7b 待重新确认版本有代登记入口', (entry.D7||[]).some(t => t.includes('代登记客户反馈')));
+  ok('RG002-7c 待客户确认版本有代登记入口', (entry.D8||[]).some(t => t.includes('代登记客户反馈')));
 
   /* 新建需求 -> 生成链接（ndFinish 内部） */
   const linkCount0 = await ev(() => CLINKS.length);
@@ -194,6 +212,25 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     return { late: html.includes('晚于') && html.includes('已确认不符合'), hasNeed: html.includes('需求最晚报到日 2026-12-01') };
   });
   ok('RG004-9 到岗晚于需求要求判为不符合并给原因', lateCheck.late && lateCheck.hasNeed);
+
+  /* 回归 #5：简历明细页的「愿意城市 / 可到岗」必须按核实**状态**显示，
+     不能因为字段有值就显示已核实符合（有值 ≠ 候选人已确认）。 */
+  const rsCheck = await ev(() => {
+    /* 必须用档案记录（appPerson → PEOPLE，id 即 VERIFY 的键）；直接传 PERSONS 记录会拿到投递 id */
+    const pe = appPerson(PERSONS.find(x=>x.name==='王秀兰').personId);
+    const vf = verifyOf(pe.id);
+    const oldC = JSON.parse(JSON.stringify(vf.city||{})), oldA = JSON.parse(JSON.stringify(vf.arrive||{}));
+    const good = huResume(pe);
+    vf.city = {live:'东莞', liveState:'已核实', want:['东莞'], wantState:'待确认', src:'—', at:'—'};
+    vf.arrive = {date:'2026-11-12', state:'待确认', src:'—', at:'—'};
+    const bad = huResume(pe);
+    vf.city = oldC; vf.arrive = oldA;
+    return { goodOk: good.includes('已核实符合'),
+             badNoOk: !bad.includes('已核实符合'),
+             badPend: (bad.match(/信息待确认/g)||[]).length >= 2 };
+  });
+  ok('RG004-10 简历页意愿按状态显示而非有值即符合',
+     rsCheck.goodOk && rsCheck.badNoOk && rsCheck.badPend, JSON.stringify(rsCheck));
   await ev(() => closeAll());
 
   /* ---- RG-003 ---- */
@@ -212,7 +249,42 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
       const it = assessPerson(PERSONS.find(x=>x.name==='谢天成'), D('D7'));
       return triSum(it) === 'pend' && it.some(i=>i.state==='pend');
     }));
+
+  /* 回归 #4：技能资料为空 ≠ 已确认不符合 */
+  ok('RG003-16 无技能资料判待确认而非不符合', await ev(() => {
+      const p = Object.assign({}, PERSONS[0], {skills:[]});
+      const it = assessPerson(p, D('D1'));
+      const t = it.find(x=>x.key==='trade'), s = it.find(x=>x.key==='skill');
+      return t.state === 'pend' && s.state === 'pend' && triSum(it) === 'pend'; }));
+
   ok('RG003-7 版本提示存在', mm.includes('生效版本'));
+
+  /* 回归 #3：匹配必须用**生效版本**条件，而不是待确认的新版。
+     自带夹具：RG002 那组用例会把 D7 v1.1 审到生效并取代 v1.0，此处不能直接读线上状态，
+     否则用例顺序一变就误判。临时置入「v1.0 生效 11-25 / v1.1 待重新确认 12-01」，断言后还原。 */
+  const gfix = await ev(() => {
+      const bak = JSON.stringify(DEMAND_VERS.D7);
+      DEMAND_VERS.D7 = [
+        {v:'v1.0', status:'生效', audit:'已通过', at:'2026-11-02 09:40', by:'王浩（代客户登记）',
+         way:'电话', n:47, note:'旧版仍生效，直至新版确认后自动取代', changes:[],
+         gate:{ arriveBy:'2026-11-25' }},
+        {v:'v1.1', status:'待重新确认', audit:'未送审', at:'2026-11-12 16:10', by:'王浩',
+         way:'待客户反馈', n:47, note:'客户口头改到岗日，尚未回签', changes:[],
+         gate:{ arriveBy:'2026-12-01' }},
+      ];
+      const d = D('D7');
+      const p = PERSONS.find(x => x.name === '徐立新');  /* 11-30 已确认到岗：过 11-25 但没过 12-01 */
+      /* 注意：必须用 PERSONS（带 personId，可查核实依据）；PEOPLE 只有 id，verifyOf 会返回默认待确认 */
+      const it = p ? assessPerson(p, d) : [];
+      const a = it.find(x => x.key === 'arrive') || {};
+      const out = { gateArriveBy: gateOf(d).arriveBy, avV: (activeVer(d)||{}).v,
+                    hasP: !!p, need: a.need, state: a.state };
+      DEMAND_VERS.D7 = JSON.parse(bak);
+      return out; });
+  ok('RG003-14 匹配读取生效版本条件',
+     gfix.gateArriveBy === '2026-11-25' && gfix.avV === 'v1.0', JSON.stringify(gfix));
+  ok('RG003-15 待确认新版条件不参与匹配',
+     gfix.hasP && gfix.need === '2026-11-25' && gfix.state === 'no', JSON.stringify(gfix));
   await ev(() => closeAll());
 
   await ev(() => { MATCH_STAMP.D7 = {ver:'v1.0', at:'2026-11-13 18:00', stale:true}; });
@@ -255,13 +327,13 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     try { await ev(p => go(p), pg); await page.waitForTimeout(60); }
     catch (e) { renderErr += pg + ':' + e.message + ' '; }
   }
-  ok('RG001-14 R01 全部页面可切换', renderErr === '', renderErr);
+  ok('RG001-15 R01 全部页面可切换', renderErr === '', renderErr);
 
   for (const role of ['R02','R04','E01']) {
     await ev(r => enter(r), role);
     await page.waitForTimeout(150);
     const nav = await txt('.side');
-    ok('RG001-15 ' + role + ' 可进入', nav.length > 20);
+    ok('RG001-16-' + role + ' ' + role + ' 可进入', nav.length > 20);
   }
 
   console.log(checks.map(c => (c.pass ? 'PASS ' : 'FAIL ') + c.id + (c.extra ? ' | ' + c.extra : '')).join('\n'));
