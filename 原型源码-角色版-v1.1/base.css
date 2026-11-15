@@ -383,6 +383,23 @@ tbody td .mono,tbody td .acts,tbody td .link,tbody td .b,tbody td .tier,tbody td
 .app-row:hover{border-color:var(--accent-line);background:var(--card2)}
 .app-row.dim{opacity:.72}
 
+/* ---------- 多条投递：一人 N 个需求，每条可折叠 ---------- */
+.acc-list{display:flex;flex-direction:column;gap:9px}
+.acc{border:1px solid var(--line);border-radius:10px;background:#fff;overflow:hidden;transition:border-color .12s}
+.acc.open{border-color:var(--accent-line)}
+.acc-hd{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 14px;cursor:pointer;user-select:none}
+.acc-hd:hover{background:var(--card2)}
+.acc.open .acc-hd{background:var(--accent-soft);border-bottom:1px solid var(--line2)}
+.acc-arw{flex:none;width:14px;font-size:12.5px;color:var(--ink3);display:inline-block;transition:transform .15s}
+.acc.open .acc-arw{transform:rotate(90deg)}
+.acc-post{font-size:15.5px;font-weight:600;color:var(--ink);white-space:nowrap}
+.acc-code{font-family:var(--mono);font-size:12.5px;color:var(--ink3);white-space:nowrap}
+.acc-tog{font-size:13px;color:var(--ink3);white-space:nowrap}
+.acc-hd:hover .acc-tog{color:var(--accent2)}
+.acc-bd{padding:13px 14px 15px}
+.acc-bd .sec-t{margin-top:15px}
+.acc-bd .sec-t:first-child{margin-top:0}
+
 /* ---------- 人才画像（判断层标签） ---------- */
 .pt-dim{margin-bottom:12px}
 .pt-dim-n{font-size:13.5px;color:var(--ink4);letter-spacing:.5px;margin-bottom:6px}

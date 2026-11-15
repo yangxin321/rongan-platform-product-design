@@ -33,7 +33,7 @@ const HU_TABS = [
   {k:'apply',   n:'本次投递', tip:'这一单谈到哪'},
   {k:'talk',    n:'沟通记录', tip:'跨投递合并'},
 ];
-let HU = {pid:null, appId:null, tab:'resume', back:null, navKey:'persons'};
+let HU = {pid:null, appId:null, tab:'resume', back:null, navKey:'persons', open:null};
 
 function huMemGet(){ try{ return localStorage.getItem('rg-human-tab')||'resume'; }catch(e){ return 'resume'; } }
 function huMemSet(t){ try{ localStorage.setItem('rg-human-tab', t); }catch(e){} }
@@ -85,7 +85,33 @@ function huSetTab(t){
   HU.tab = t; huMemSet(t);
   huRender(false);
 }
-function huAppTo(appId){ HU.appId = appId; HU.tab = 'apply'; huMemSet('apply'); huRender(false); }
+function huAppTo(appId){
+  HU.appId = appId; HU.tab = 'apply'; huMemSet('apply');
+  const p = appPerson(HU.pid);
+  if(p) huOpenMap(p.id, appsOf(p.id))[appId] = true;   /* 从别处跳过来，那一单要自己展开 */
+  huRender(false);
+}
+/* 多条投递的展开态：按人记，默认展开地址里那一单（app=）。
+   收起后写成 false 记住，下次重画不会自己又弹开。 */
+function huOpenMap(pid, apps){
+  if(!HU.open || HU.open.pid !== pid) HU.open = {pid:pid, ids:{}};
+  const act = HU.appId || (apps[0]||{}).id;
+  if(act && !(act in HU.open.ids)) HU.open.ids[act] = true;
+  return HU.open.ids;
+}
+function huAppFold(appId){
+  const p = appPerson(HU.pid);
+  if(!p) return;
+  const ids = huOpenMap(p.id, appsOf(p.id));
+  if(ids[appId]){
+    ids[appId] = false;
+  } else {
+    ids[appId] = true;
+    HU.appId = appId;                    /* 展开哪一单，顶栏和地址就跟着到哪一单 */
+    navHash(routeHash(), 'replace');
+  }
+  huRender(false);
+}
 /* 页面内返回：回到进来时的列表 / 详情页，还原记录、筛选与滚动 */
 function huBack(){
   const b = HU.back;
@@ -436,77 +462,92 @@ function huPortrait(p){
 }
 
 /* ---------- 页签 3 · 本次投递 ---------- */
+/* 一个人可以同时投多个需求：每条投递各自计分、各自推进、各自记联系。
+   所以这里不再「切一单」，而是把 N 条全部列出来、每条一个可折叠块：
+   收着时只看关键字段（岗位 / 客户 / 档位 / 节点 / 状态 / 分 / 负责人 / 编码），
+   需要操作时点标题展开。默认展开地址里那一单（app=），收起状态也不会被重画弹开。 */
 function huApply(p){
-  const apps = appsOf(p.id);
+  /* 在跟进中的排前面 —— 结束掉的（无意向/已淘汰）不用抢第一条的位置 */
+  const apps = appsOf(p.id).slice().sort((x,y)=>(x.status==='跟进中'?0:1)-(y.status==='跟进中'?0:1));
   if(!apps.length) return `<div class="empty">这个人还没有任何投递 —— 从人才池「捞入批次」后会生成第一条</div>`;
-  const id = HU.appId || apps[0].id;
-  const a = P(id);
-  if(!a) return `<div class="empty">投递记录不存在</div>`;
+  const ids = huOpenMap(p.id, apps);
+  const actId = HU.appId || apps[0].id;
 
-  const idx = NODES.indexOf(a.node);
-  const steps = [
-    {n:'匹配', desc: a.tier? `档位 ${a.tier} · ${a.score} 分 · 已通过硬门槛` : '尚未运行匹配',
-      ops:[`<button class="btn xs" onclick="toast('已重算，档位 ${a.tier||'B'}')">重算</button>`,`<button class="btn xs" onclick="toast('打开逐维度依据')">看依据</button>`]},
-    {n:'触达', desc: a.lastContact==='—'? '尚未联系' : `上次 ${a.lastContact.slice(5)} · ${a.lastType}`,
-      ops:[`<button class="btn xs" onclick="openModal(followModal('${a.id}'))">记录联系</button>`,`<button class="btn xs danger" onclick="toast('已标为无意向，人员回到人才池')">标无意向</button>`]},
-    {n:'补全复核', desc: a.node==='补全中'? '已发链接，等待提交' : (idx>=3? '已复核通过' : '未开始'),
-      ops:[`<button class="btn xs" onclick="toast('补全链接已发送 → 候选人 APP 收到一条待办')">发补全链接</button>`,
-        `<button class="btn xs" onclick="copyFillLink('${a.personId}')">复制链接</button>`,
-        `<button class="btn xs" onclick="toast('复核通过，12 项因子已更新')">复核通过</button>`]},
-    {n:'面试', desc: ['待面试','面试通过'].includes(a.node)? (a.node==='面试通过'?'客户已确认通过':'已约面试，等待到面') : '未提报',
-      ops:[`<button class="btn xs" onclick="toast('已提报客户，等待排期')">提报面试</button>`,`<button class="btn xs" onclick="toast('已登记面试结果')">登记结果</button>`]},
-    {n:'入职安排', desc: a.node==='待入职'? '已确认，等待报到' : (a.node==='已入职'?'已报到':'未开始'),
-      ops:[`<button class="btn xs" onclick="toast('已推进到下一段')">推进</button>`,`<button class="btn xs danger" onclick="toast('已跳票，人员回到人才池')">跳票回池</button>`]},
-    {n:'体检与建档', desc: a.node==='已入职'? '体检通过，档案已建' : '未开始',
-      ops:[`<button class="btn xs" onclick="toast('体检报告已审核')">审核体检</button>`,`<button class="btn xs" onclick="toast('员工档案已建立')">完成建档</button>`]},
-  ];
-  const stepState = i => {
-    const map = {'新入库':0,'已匹配':1,'触达中':2,'补全中':3,'待面试':4,'面试通过':4,'待入职':5,'已入职':6,'已淘汰':1};
-    const cur = map[a.node]||0;
-    return i<cur? 'done' : i===cur? 'now' : 'todo';
-  };
-  const fl = FOLLOWS.filter(f=>f.personId===a.id).sort((x,y)=>y.time.localeCompare(x.time));
-  const d = D(a.demandId);
+  const one = a => {
+    const idx = NODES.indexOf(a.node);
+    const steps = [
+      {n:'匹配', desc: a.tier? `档位 ${a.tier} · ${a.score} 分 · 已通过硬门槛` : '尚未运行匹配',
+        ops:[`<button class="btn xs" onclick="toast('已重算，档位 ${a.tier||'B'}')">重算</button>`,`<button class="btn xs" onclick="toast('打开逐维度依据')">看依据</button>`]},
+      {n:'触达', desc: a.lastContact==='—'? '尚未联系' : `上次 ${a.lastContact.slice(5)} · ${a.lastType}`,
+        ops:[`<button class="btn xs" onclick="openModal(followModal('${a.id}'))">记录联系</button>`,`<button class="btn xs danger" onclick="toast('已标为无意向，人员回到人才池')">标无意向</button>`]},
+      {n:'补全复核', desc: a.node==='补全中'? '已发链接，等待提交' : (idx>=3? '已复核通过' : '未开始'),
+        ops:[`<button class="btn xs" onclick="toast('补全链接已发送 → 候选人 APP 收到一条待办')">发补全链接</button>`,
+          `<button class="btn xs" onclick="copyFillLink('${a.personId}')">复制链接</button>`,
+          `<button class="btn xs" onclick="toast('复核通过，12 项因子已更新')">复核通过</button>`]},
+      {n:'面试', desc: ['待面试','面试通过'].includes(a.node)? (a.node==='面试通过'?'客户已确认通过':'已约面试，等待到面') : '未提报',
+        ops:[`<button class="btn xs" onclick="toast('已提报客户，等待排期')">提报面试</button>`,`<button class="btn xs" onclick="toast('已登记面试结果')">登记结果</button>`]},
+      {n:'入职安排', desc: a.node==='待入职'? '已确认，等待报到' : (a.node==='已入职'?'已报到':'未开始'),
+        ops:[`<button class="btn xs" onclick="toast('已推进到下一段')">推进</button>`,`<button class="btn xs danger" onclick="toast('已跳票，人员回到人才池')">跳票回池</button>`]},
+      {n:'体检与建档', desc: a.node==='已入职'? '体检通过，档案已建' : '未开始',
+        ops:[`<button class="btn xs" onclick="toast('体检报告已审核')">审核体检</button>`,`<button class="btn xs" onclick="toast('员工档案已建立')">完成建档</button>`]},
+    ];
+    const stepState = i => {
+      const map = {'新入库':0,'已匹配':1,'触达中':2,'补全中':3,'待面试':4,'面试通过':4,'待入职':5,'已入职':6,'已淘汰':1};
+      const cur = map[a.node]||0;
+      return i<cur? 'done' : i===cur? 'now' : 'todo';
+    };
+    const fl = FOLLOWS.filter(f=>f.personId===a.id).sort((x,y)=>y.time.localeCompare(x.time));
+    const d = D(a.demandId);
+    const open = !!ids[a.id];
+    const on = a.id === actId;
 
-  return `
-    <div class="sec"><div class="sec-t">这一单</div>
-      <div style="background:#fff;border:1px solid var(--line);border-radius:10px;padding:13px 15px">
-        <div class="sm"><b class="arc-link" onclick="openDemand('${a.demandId}')">${esc(d.post)}</b>
-          <span class="xs mut">· ${esc(d.client)} · ${esc(d.project)}</span></div>
-        <div class="xs mut mono" style="margin-top:3px">${esc(d.code)} · ${a.batchId?esc(B(a.batchId).code):'人才池捞入'} · 负责人 ${esc(a.owner)}</div>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:9px">
-          ${tierChip(a.tier)} ${nodeB(a.node)} ${statB(a.status)}
-          <span class="xs mut">匹配分 ${a.score}</span>
+    return `
+    <div class="acc ${open?'open':''}" data-app="${esc(a.id)}">
+      <div class="acc-hd" onclick="huAppFold('${a.id}')" title="点标题${open?'收起':'展开'}这一单">
+        <span class="acc-arw">▶</span>
+        <b class="acc-post">${esc(d.post)}</b>
+        <span class="xs mut">${esc(d.client)} · ${esc(d.project)}</span>
+        ${on?'<span class="b a">当前</span>':''}
+        ${tierChip(a.tier)} ${nodeB(a.node)} ${statB(a.status)}
+        <span class="xs mut">匹配分 ${a.score}</span>
+        <span class="xs mut">负责人 ${esc(a.owner)}</span>
+        <div class="sp"></div>
+        <span class="acc-code">${esc(d.code)}</span>
+        <span class="acc-tog">${open?'收起 ▴':'展开 ▾'}</span>
+      </div>
+      ${open?`<div class="acc-bd">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <b class="arc-link" onclick="openDemand('${a.demandId}')">${esc(d.post)}</b>
+          <span class="xs mut mono">${esc(d.code)} · ${a.batchId?esc(B(a.batchId).code):'人才池捞入'} · 负责人 ${esc(a.owner)}</span>
           <div class="sp"></div>
           <button class="btn xs" onclick="openModal(transferModal('${esc(p.id)}'))">转交这一单</button>
         </div>
-      </div>
-    </div>
 
-    ${apps.length>1?`<div class="sec"><div class="sec-t">同一个人共 ${apps.length} 条投递 · 点一下原地切换</div>
-      <div class="chips">
-        ${apps.map(x=>`<span class="chip ${x.id===a.id?'on':''}" onclick="huAppTo('${x.id}')">
-          ${esc(D(x.demandId).post)}${x.status==='跟进中'?'':' · 已结束'}</span>`).join('')}
-      </div>
-      <div class="xs mut" style="margin-top:7px">每条投递的分数、进度、负责人各自独立，切换不重开抽屉。</div>
-    </div>`:''}
+        <div class="sec-t" style="margin-top:13px">进度（每个节点都能操作）</div>
+        <div class="flow">${steps.map((s,i)=>`
+          <div class="flow-item ${stepState(i)}">
+            <div class="fv">${i<stepState(0)?'':i+1}</div>
+            <div class="fb"><div class="ft"><span class="fn">${s.n}</span>
+              ${stepState(i)==='now'?'<span class="b a">当前</span>':''}</div>
+              <div class="fd">${s.desc}</div>
+              <div class="fops">${stepState(i)==='todo'? '':s.ops.join('')}</div>
+            </div>
+          </div>`).join('')}</div>
 
-    <div class="sec"><div class="sec-t">进度（每个节点都能操作）</div>
-      <div class="flow">${steps.map((s,i)=>`
-        <div class="flow-item ${stepState(i)}">
-          <div class="fv">${i<stepState(0)?'':i+1}</div>
-          <div class="fb"><div class="ft"><span class="fn">${s.n}</span>
-            ${stepState(i)==='now'?'<span class="b a">当前</span>':''}</div>
-            <div class="fd">${s.desc}</div>
-            <div class="fops">${stepState(i)==='todo'? '':s.ops.join('')}</div>
-          </div>
-        </div>`).join('')}</div>
-    </div>
+        <div class="sec-t">这一单的联系记录（${fl.length}）</div>
+        ${fl.length? `<div class="tl">${fl.map(f=>`<div class="tl-item hot"><div class="tl-d">${f.time} · ${f.type} · ${esc(f.staff)}</div>
+          <div class="tl-t">${esc(f.note)}</div></div>`).join('')}</div>`
+        : '<div class="mut sm">这一单还没有联系记录</div>'}
+      </div>`:''}
+    </div>`;
+  };
 
-    <div class="sec"><div class="sec-t">这一单的联系记录（${fl.length}）</div>
-      ${fl.length? `<div class="tl">${fl.map(f=>`<div class="tl-item hot"><div class="tl-d">${f.time} · ${f.type} · ${esc(f.staff)}</div>
-        <div class="tl-t">${esc(f.note)}</div></div>`).join('')}</div>`
-      : '<div class="mut sm">这一单还没有联系记录</div>'}
+  const actN = apps.filter(a=>a.status==='跟进中').length;
+  return `
+    <div class="sec">
+      <div class="sec-t">本次投递 · 共 ${apps.length} 个需求${apps.length>1?`<span class="perm">跟进中 ${actN} · 已结束 ${apps.length-actN}</span>`:''}</div>
+      ${apps.length>1?`<div class="xs mut" style="margin:-3px 0 10px">同一个人在不同需求下各有一单，分数、节点、负责人、联系记录互不影响。点标题展开或收起。</div>`:''}
+      <div class="acc-list">${apps.map(one).join('')}</div>
     </div>`;
 }
 

@@ -28,3 +28,6 @@
 !AGENTS.md
 !.pr-sync.mjs
 .pr-sync-state.json
+!截图-多重投递/
+!截图-多重投递/**
+!.shot-acc.js

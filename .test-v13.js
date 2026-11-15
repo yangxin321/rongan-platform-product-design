@@ -420,7 +420,8 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     enter('R01');
     openPerson(wantApp.id);            /* 第二条投递（P42 / D7） */
     huSetTab('apply');
-    const secTxt = () => (document.querySelector('.main .sec') || {}).innerText || '';
+    /* 多条投递时页面里可能开着不止一单，这里只取「当前这一单」的展开区 */
+    const secTxt = () => (document.querySelector('.main .acc.open[data-app="' + HU.appId + '"] .acc-bd') || {}).innerText || '';
     const before = secTxt();
     const hashBefore = location.hash;
     /* 模拟刷新 / 新标签页打开地址：清掉内存态，只按地址恢复 */
@@ -641,6 +642,38 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      && h46d.dm === h46a.dm && h46d.st === '' && !h46d.empty && h46d.rows > 0
      && h46d.selDm === h46a.dm && h46d.inText,
      JSON.stringify({ h46a, h46b, h46c, h46d }));
+
+  /* 45：一个人投多个需求 —— 每条投递都列出来（不是切换器），各自可折叠；
+     展开哪一单，地址里的 app= 就跟到哪一单；收起后重画不许自己弹开。 */
+  const multi = await ev2(() => {
+    const pair = [...new Set(PERSONS.map(x => x.personId))]
+      .map(id => ({ pid: id, aps: appsOf(id) })).filter(x => x.aps.length > 1)[0];
+    if(!pair) return { err: '没有多条投递的人' };
+    enter('R01');
+    openPerson(pair.aps[0].id);
+    huSetTab('apply');
+    const cards = () => [...document.querySelectorAll('.main .acc')];
+    /* 按 data-app 取，不按位置取 —— 跟进中的会排在已结束的前面 */
+    const hd = id => document.querySelector('.main .acc[data-app="' + id + '"] .acc-hd');
+    const openIds = () => [...document.querySelectorAll('.main .acc.open')].map(x => x.dataset.app);
+    const n = cards().length, want = pair.aps.length;
+    const open0 = openIds().length;
+    hd(pair.aps[1].id).click();                      /* 展开第二条投递 */
+    const open1 = openIds(), appId1 = HU.appId, hash1 = location.hash, page1 = S.page;
+    hd(pair.aps[1].id).click();                      /* 再点一次：收起 */
+    const open2 = openIds().length;
+    render();                                        /* 重画：收起的不能自己弹回来 */
+    const open3 = openIds().length;
+    return { n, want, open0, open1, open2, open3, appId1, hash1, page1,
+      want2: pair.aps[1].id, pid: pair.pid, pidNow: HU.pid };
+  });
+  ok('RG012-47 多条投递全部列出、每条可折叠、展开时地址跟随',
+     !multi.err && multi.n === multi.want && multi.want >= 2 && multi.open0 === 1
+     && multi.open1.length === 2 && multi.open1.includes(multi.want2)
+     && multi.appId1 === multi.want2 && /app=/.test(multi.hash1 || '')
+     && multi.page1 === 'personDetail' && multi.pidNow === multi.pid
+     && multi.open2 === 1 && multi.open3 === 1,
+     JSON.stringify(multi));
 
   /* 全页渲染无错（详情页在路由里，需单独过一遍） */
   const pages = ['demands','batches','persons','pool','logs','custreq','confirms','clinks','dicts','factors','std','dash','conversion','perms','home'];
