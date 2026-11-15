@@ -293,40 +293,45 @@ function assessPerson(p, d){
   }
 
   /* 26 证书：独立字段 + 核验状态；技能名不得推断持证
-     certMust 区分「必备证」与「优先/加分证」：
-     —— 优先证仍按证据真实呈现（无证据就是待确认，不能凭空判符合，R5 的对称要求），
-        但打 soft 标记，不进 triSum / 不参与 Pass 判定，只影响加分与排序。
-     —— 老需求快照里没有 certMust 字段，按必备处理（保守，与历史判定一致）。
-     多选证书必须**逐项**核验：第 26 项支持多选，原来的 find+some 只看到任意一张，
+     强制属性**按每张证分别判定**，不能整单一个开关：
+       certOpt        明确标为优先/加分的证名（混选时必备证仍要卡 Pass）
+       certMust=false 只有「全部证书都是加分项」时才用（历史快照 / D1 这类单证样本）
+     多选证书必须逐项核验：第 26 项支持多选，原来的 find+some 只看到任意一张，
      其余必备证缺失或明确不满足都被吞掉，缺证的人照样进「可推荐」（R5 全部硬条件符合才可推荐）。 */
   {
     const need = (g.cert || []).filter(Boolean);
-    const must = g.certMust !== false;
     if(!need.length){
       push('cert', 'ok', '无证书要求', '—', '需求快照', '', '—', '该需求未设证书硬条件');
     } else {
+      const optList = (g.certOpt || []).filter(Boolean);
+      const allOpt = g.certMust === false && !optList.length;
+      const isOpt = n => allOpt || optList.includes(n);
       const recs = v.certs || [];
       /* 每个要求各找一条对应的核验记录；找不到就是「无记录」，不能借用别的证 */
       const rows = need.map(n => ({
         name: n,
+        must: !isOpt(n),
         rec: recs.find(c => (c.name||'').includes(n) || n.includes(c.name||'')) || null,
       }));
       const t = r => r.state === 'ok' ? '已核验' : r.state === 'no' ? '明确不满足' : '待核验';
-      const got = rows.map(r => r.rec ? `${r.name}（${t(r.rec)}）` : `${r.name}（无记录）`).join('；');
-      /* 汇总：任一明确不满足 → no；否则任一缺记录/待核验 → pend；全部已核验 → ok */
-      const anyNo = rows.some(r => r.rec && r.rec.state === 'no');
-      const anyGap = rows.some(r => !r.rec || r.rec.state !== 'ok');
+      const got = rows.map(r => r.rec ? `${r.name}（${r.must?'必备':'优先'}·${t(r.rec)}）`
+                                      : `${r.name}（${r.must?'必备':'优先'}·无记录）`).join('；');
+      /* 汇总只看**必备**那几张：任一明确不满足 → no；否则任一缺记录/待核验 → pend；全已核验 → ok */
+      const hard = rows.filter(r => r.must);
+      const anyNo = hard.some(r => r.rec && r.rec.state === 'no');
+      const anyGap = hard.some(r => !r.rec || r.rec.state !== 'ok');
       const st = anyNo ? 'no' : (anyGap ? 'pend' : 'ok');
+      const soft = hard.length === 0;          /* 全是加分证 → 整项不进 Pass */
       const hit = rows.filter(r => r.rec);
       const src = hit.length ? Array.from(new Set(hit.map(r => r.rec.src || '—'))).join(' / ') : '—';
       const ev = hit.map(r => r.rec.ev).filter(Boolean).join('；');
       const at = hit.length ? (hit[hit.length-1].rec.at || '—') : '—';
-      const missName = rows.filter(r => !r.rec).map(r => r.name);
-      const noName = rows.filter(r => r.rec && r.rec.state === 'no').map(r => r.name);
-      const pendName = rows.filter(r => r.rec && r.rec.state === 'pend').map(r => r.name);
+      const missName = hard.filter(r => !r.rec).map(r => r.name);
+      const noName = hard.filter(r => r.rec && r.rec.state === 'no').map(r => r.name);
+      const pendName = hard.filter(r => r.rec && r.rec.state === 'pend').map(r => r.name);
       let note;
-      if(!must){
-        note = '客户标注为优先/加分项，不参与 Pass 判定';
+      if(soft){
+        note = '所选证书客户均标注为优先/加分项，不参与 Pass 判定';
       } else if(anyNo){
         note = `候选人明确不满足：${noName.join('、')}（客户必备条件）`;
       } else if(anyGap){
@@ -339,7 +344,8 @@ function assessPerson(p, d){
       }
       /* 有证书说明的样本（如「简历技能栏写电工，未附证书」）把原话带出来，别丢依据 */
       if(v.certNote && anyGap) note += `；${v.certNote}`;
-      push('cert', st, `${need.join('、')}（${must?'必备':'优先'}）`, got, src, ev, at, note, !must);
+      const needTxt = rows.map(r=>`${r.name}（${r.must?'必备':'优先'}）`).join('、');
+      push('cert', st, needTxt, got, src, ev, at, note, soft);
     }
   }
 

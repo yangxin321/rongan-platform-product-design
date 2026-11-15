@@ -292,3 +292,22 @@
 
 - 角色版 `aad44926fe8ac94554b9cfd18031af62`、解释版 `3bfaaeae8b1f058208f3bed03c72f91f`
 - 线上 8095 已覆盖，上一版备为 `index.before-r6.backup.html` / `explain.before-r6.backup.html`
+
+---
+
+## 追加 · 第七轮外部审查（1 处）修复
+
+| # | 审查意见（位置） | 问题 | 修复 |
+|---|---|---|---|
+| ㉑ | `pages-nd.js:339` | 证书强制属性按**整段文本**判断：`26` 写「低压电工证（不强制）、登高证」时整单 `certMust=false`，连新加的必备登高证也被当成加分项排除 → 缺必备证仍可推荐 | 改为**按张判定**：快照落 `cert`（证名）+ `certOpt`（其中标了优先/加分的证名），`certMust` 仅作兼容（全部必备才 true）；`assessPerson` 逐张算 `must`，汇总只看必备那几张，全部为加分证时整项才 `soft`；只读确认单的证书要求文案也按张标「（必备）/（优先）」 |
+
+### 验证
+
+- 断言 **105 → 106 条，全部 PASS，0 JS 错误**；本地 file:// 与线上 8095 各跑一遍
+- 新增 `RG002-57`：`ndGate` 解析「低压电工证（不强制）、登高证」→ `certOpt=['低压电工证']`、`certMust=false`；只持优先证 → `pend` 且 `soft=false`（不再整项降级）、两张齐 → `ok`、一张都没有 → `pend`
+- **反向验证**：把 `allOpt` 改回「`certMust===false` 即整单优先」再跑，`RG002-57` 变红（三项全变 `ok`/`soft:true`），确认断言有区分力
+
+### 产物
+
+- 角色版 `fe8dc9fc51b01cb5239d5852bf495219`、解释版 `f82194d832f2134fd5c7d495a09afa06`
+- 线上 8095 已覆盖，上一版备为 `index.before-r7.backup.html` / `explain.before-r7.backup.html`

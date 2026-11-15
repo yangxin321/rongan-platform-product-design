@@ -334,16 +334,27 @@ function ndGate(st, s){
   /* 夜班：两班倒 / 三班 / 常夜才需要确认夜班意愿，长白班 / 不限不需要 */
   const night = /两班倒|三班|四班|常夜|夜班/.test(raw(19)) ? '需要' : '不需要';
 
-  /* 证书：写了「优先 / 非强制 / 加分」的是软条件，其余按硬条件 */
-  const certRaw = raw(26), cert = arr(certRaw);
-  const certMust = cert.length > 0 && !/优先|非强制|不强制|加分|非必须/.test(certRaw);
+  /* 证书：**逐张**判断强制属性。
+     第 26 项是多选，一段文本里可能既有「低压电工证（不强制）」又有「登高证」；
+     按整段文本判断会把整单证书降成加分，连新加的必备证也一起被排除（R5 漏判）。
+     这里拆成 cert（证名）+ certOpt（其中标了优先/加分的那几张），
+     certMust 保留为兼容字段：全部都是必备时 true。 */
+  const certRaw = raw(26);
+  const certItems = ndArr(certRaw).map(txt => {
+    const opt = /优先|非强制|不强制|加分|非必须/.test(txt);
+    const name = String(txt).replace(/[（(][^()（）]*[)）]/g, '').trim() || String(txt).trim();
+    return { name, must: !opt };
+  });
+  const cert = certItems.map(x => x.name);
+  const certOpt = certItems.filter(x => !x.must).map(x => x.name);
+  const certMust = certItems.length > 0 && certOpt.length === 0;
 
   return {
     city: st.city || '',
     age, ageRaw, gender, night,
     trade: raw(22) || s.trade || '',
     skill: arr(val(25)),
-    cert, certMust,
+    cert, certMust, certOpt,
     arriveBy: st.deadline || '',
     /* 快照出处，便于回溯「这个值是从哪份标准、哪一版来的」 */
     from: {stdId:s.id, stdVer:s.ver, list:s.list, at:TODAY},

@@ -131,6 +131,15 @@ function custAgeTxt(g){
   const a = (g && g.age) || [];
   return a.length === 2 ? `${a[0]}–${a[1]} 岁` : '不限';
 }
+/* 证书要求的展示文字：按**每张证**分别标必备/优先，混选时不能笼统写一个「（优先）」，
+   否则客户会以为那几张全都不是硬条件。 */
+function certNeedTxt(g){
+  const list = ((g && g.cert) || []).filter(Boolean);
+  if(!list.length) return '无硬性要求';
+  const optList = ((g && g.certOpt) || []).filter(Boolean);
+  const allOpt = g.certMust === false && !optList.length;
+  return list.map(n => optList.includes(n) || allOpt ? `${n}（优先）` : `${n}（必备）`).join('、');
+}
 function viewCustLink(tok){
   const r = custLinkPayload(tok);
   const back = `<div class="cust-back"><button class="btn xs" onclick="exitCustLink()">← 返回演示首页</button><span class="xs mut">演示导航，正式环境客户看不到此按钮</span></div>`;
@@ -163,7 +172,7 @@ function viewCustLink(tok){
     ['性别要求', g.gender||'不限','客户明示条件'],
     ['工种 / 等级', `${d.post}（${g.trade||'—'}）`,''],
     ['专业技能项', (g.skill||[]).join('、')||'—',''],
-    ['证书要求', (g.cert||[]).length?`${g.cert.join('、')}${g.certMust?'（必备）':'（优先）'}`:'无硬性要求',''],
+    ['证书要求', certNeedTxt(g),''],
     ['夜班', g.night||'不需要',''],
   ];
   return `<div class="cust-wrap"><div class="cust-doc">

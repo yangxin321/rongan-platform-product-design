@@ -709,6 +709,40 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      && arriveSame.showsActive && !arriveSame.leaksPending && arriveSame.pageNo,
      JSON.stringify(arriveSame));
 
+  /* 混选证书：一段文本里既有「低压电工证（不强制）」又有「登高证」。
+     按整段判断会把整单降成加分 → 必备的登高证被一起排除，缺证仍可推荐。 */
+  const mixCert = await ev(() => {
+    const s = STD_JOBS.find(x => x.id === 'SJ-DG-D3');
+    const st = { sid:'SJ-DG-D3', draft:{ 26:'低压电工证（不强制）、登高证' }, dirty:{},
+      city:'青岛', deadline:'2026-12-20', people:'1' };
+    const g = ndGate(st, s);
+    const p = PERSONS.find(x=>x.name==='李海涛') || PERSONS[0];
+    const keep = VERIFY[p.personId];
+    const run = certs => {
+      VERIFY[p.personId] = Object.assign({}, keep, { certs });
+      const c = assessPerson(p, D('D1')).find(x=>x.key==='cert') || {};
+      return { state:c.state, soft:!!c.soft, note:c.note||'', need:c.need||'' };
+    };
+    /* 临时把 D1 的 gate 换成混选快照，跑完还原 */
+    const keepGate = DEMAND_GATE.D1;
+    DEMAND_GATE.D1 = Object.assign({}, keepGate, { cert:g.cert, certMust:g.certMust, certOpt:g.certOpt });
+    const onlyOpt = run([{ name:'低压电工证', state:'ok', src:'原件核验', ev:'x', at:'2026-11-14 10:00' }]);
+    const allOk = run([
+      { name:'低压电工证', state:'ok', src:'原件核验', ev:'x', at:'2026-11-14 10:00' },
+      { name:'登高证', state:'ok', src:'原件核验', ev:'y', at:'2026-11-14 10:00' }]);
+    const none = run([]);
+    DEMAND_GATE.D1 = keepGate; VERIFY[p.personId] = keep;
+    return { cert:g.cert, certOpt:g.certOpt, certMust:g.certMust, onlyOpt, allOk, none };
+  });
+  ok('RG002-57 混合必备/优先证书按张判定，不整体降级',
+     Array.isArray(mixCert.certOpt) && mixCert.certOpt.length === 1 && mixCert.certOpt[0] === '低压电工证'
+     && mixCert.certMust === false
+     && mixCert.onlyOpt.state === 'pend' && mixCert.onlyOpt.soft === false
+     && mixCert.onlyOpt.note.includes('登高证')
+     && mixCert.allOk.state === 'ok'
+     && mixCert.none.state === 'pend' && mixCert.none.soft === false,
+     JSON.stringify(mixCert));
+
   /* ---- 匹配模式切换 ---- */
   await ev(() => { enter('R04'); go('batches'); runMatch('B1','batch'); }); await page.waitForTimeout(300);
   const mb = await txt('.modal');
