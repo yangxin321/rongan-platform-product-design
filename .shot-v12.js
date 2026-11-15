@@ -136,6 +136,68 @@ const OUT = '/Users/yangxin/WorkBuddy/2026-11-10-18-54-53/月贝招聘平台-需
   await page.waitForTimeout(400);
   await shot('19-reg-resubmit');
 
+
+  // 新建需求 → 只读链接：条件来自向导，不是「无要求」
+  await page.evaluate(() => {
+    enter('R01');
+    ndEnter('SJ-DG-D3-L');
+    const st = ndState();
+    Object.assign(st, {client:'青岛思锐智能', project:'ALD 设备总装 2026Q4', people:'6', price:'38 元/时',
+      city:'青岛', deadline:'2026-12-20', term:'3 个月'});
+    ndPaint();
+    st.draft[25] = ['配盘接线','通电测试','报警排查'];
+    st.draft[26] = ['低压电工证'];
+    st.draft[19] = '两班倒';
+    st.draft[10] = '18-40';
+    ndCreate();
+    const id = DEMANDS[0].id;
+    window.__SHOTND__ = id;
+    const tok = (CLINKS.find(l=>l.demandId===id)||{}).tok;
+    openCustLinkDemo(tok);
+  });
+  await page.waitForTimeout(600);
+  await shot('20-newdemand-custlink');
+
+  // 两轮退回 → 版本历史逐轮保留意见
+  await page.evaluate(() => { exitCustLink(); enter('R01'); });
+  await page.waitForTimeout(200);
+  await page.evaluate(() => {
+    const id = window.__SHOTND__;
+    regDrawer(id);
+    const set = (k,v)=>{ const el=document.getElementById(k); if(el) el.value=v; };
+    set('rg_fbPerson','李主管（思锐·生产部）'); set('rg_fbChannel','微信');
+    set('rg_fbAt','2026-11-13 10:05');
+    set('rg_fbContent','「技能按清单来，电工证必须有；班制两班倒。」');
+    set('rg_fbAttach','微信截图 2 张（arch/2026-11-13-SR-01.png）');
+    set('rg_regBy','金诚'); set('rg_regAt','2026-11-13 10:30');
+    regSave(id,'v1.0');
+  });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => auditDrawer(window.__SHOTND__));
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { const n=document.getElementById('au_note');
+    if(n) n.value='第一轮退回：反馈未落到具体倒班周期，且缺客户原话截图'; auditAct(window.__SHOTND__,'back'); });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => {
+    const id = window.__SHOTND__;
+    regDrawer(id);
+    const set = (k,v)=>{ const el=document.getElementById(k); if(el) el.value=v; };
+    set('rg_fbAt','2026-11-13 15:00');
+    set('rg_fbContent','「两班倒，15 天倒一次；电工证必须有，其他按清单。」');
+    set('rg_fbAttach','微信截图 3 张（arch/2026-11-13-SR-02.png）');
+    set('rg_regAt','2026-11-13 15:20');
+    regSave(id,'v1.0');
+  });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => auditDrawer(window.__SHOTND__));
+  await page.waitForTimeout(250);
+  await page.evaluate(() => { const n=document.getElementById('au_note');
+    if(n) n.value='第二轮退回：变更值仍未写死到具体条款，补充后重新送审'; auditAct(window.__SHOTND__,'back'); });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => openVers(window.__SHOTND__));
+  await page.waitForTimeout(500);
+  await shot('21-audit-history');
+
   console.log('ERRS', JSON.stringify(errs, null, 1));
   await browser.close();
 })();
