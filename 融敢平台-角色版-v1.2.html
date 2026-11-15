@@ -76,7 +76,10 @@ input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
 .side-foot{padding:10px 16px 14px;border-top:1px solid var(--line2);font-size:12.5px;color:var(--ink4);display:flex;justify-content:space-between}
 
 .main{overflow-y:auto;background:var(--bg)}
-.page{max-width:1560px;padding:26px 30px 64px}
+.page{padding:26px 32px 64px}
+/* 内容区跟着视口自适应：不再设 max-width。
+   B 端列表/表格就该铺满 —— 之前限了 1560，1920 屏右侧留 120px 空白、2560 留 520px，
+   看着像没加载完。正文类段落（页面说明）另用 max-width 限行宽，不跟着表格一起拉长。 */
 .page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:20px}
 .page-head h2{font-size:25px;line-height:1.35;font-weight:600;letter-spacing:-.3px}
 .page-head p{font-size:14.5px;color:var(--ink3);margin-top:5px;max-width:760px}
