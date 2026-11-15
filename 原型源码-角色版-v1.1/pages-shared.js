@@ -185,8 +185,17 @@ function personsPage(){
   if(ng==='onb')    rows = rows.filter(p=>p.node==='待入职');
   if(ng==='hired')  rows = rows.filter(p=>p.node==='已入职');
 
-  const actions = `<button class="btn" onclick="toast('已导出当前筛选 '+${rows.length}+' 条')">导出</button>
-    <button class="btn pri" onclick="openModal(addPersonModal())">＋ 加人</button>`;
+  /* 简单跟进筛选（2026-11-15 第八批）：今天待跟进 / 已逾期。
+     只算还在跟的人 —— 已入职、已结束（无意向 / 已淘汰）不进入待跟进范围，
+     否则每天都有一堆「早就结束的人」压在逾期里，真正的待办就被埋掉了。 */
+  const fu = S.f.fu || '';
+  if(fu) rows = rows.filter(p=>p.status==='跟进中' && p.nextFollow!=='—');
+  if(fu==='today') rows = rows.filter(p=>p.nextFollow===TODAY);
+  if(fu==='late')  rows = rows.filter(p=>p.nextFollow<TODAY);
+
+  /* 这一页不再挂「导出 / ＋加人」：人是从「传简历 / 人才库找人」进来的，
+     在人员列表里凭空加一个人，会绕开批次与需求，也不是这一页要干的事。 */
+  const actions = '';
 
   const cols = [
     {label:'姓名', r:p=>{const n=otherApps(p).length;
@@ -200,7 +209,7 @@ function personsPage(){
       return `<div style="cursor:pointer" onclick="event.stopPropagation();openMatchDetail('${p.id}','${d.id}')" title="点开看逐项依据">
         ${triS(sum)}<div class="t-sub">${bad.length?bad.length+' 项待核 / 不符':'全部已核实'}</div></div>`;
     }},
-    {label:'匹配档位', r:p=>`<div style="display:flex;align-items:center;gap:6px">${tierChip(p.tier)}<span class="mono sm">${p.score}</span></div><div class="t-sub">演示评分</div>`},
+    {label:'匹配档位 <span class="xs mut">演示评分</span>', r:p=>`<div style="display:flex;align-items:center;gap:6px">${tierChip(p.tier)}<span class="mono sm">${p.score}</span></div>`},
     {label:'上次联系', r:p=>`<div class="sm mono">${p.lastContact==='—'?'—':p.lastContact.slice(5)}</div><div class="t-sub">${p.lastType==='—'?'未联系':esc(p.lastType)}</div>`},
     {label:'下次跟进', r:p=>{
       if(p.nextFollow==='—') return '<span class="mut">—</span>';
@@ -209,16 +218,36 @@ function personsPage(){
     }},
     ...(isR04?[]:[{label:'负责人', r:p=>`<span class="sm">${esc(p.owner)}</span>`}]),
     {label:'状态', r:p=>statB(p.status)},
+    /* 三个入口对应三个业务页面：看简历 / 推进这一单 / 其余三页收进「更多」。
+       以前只有一个笼统的「详情」，点进去还得自己找页签。 */
     {label:'操作', r:p=>`<div class="acts">
-      <span class="link" onclick="event.stopPropagation();openPerson('${p.id}')">详情</span>
-      <span class="link" onclick="event.stopPropagation();openModal(followModal('${p.id}'))">记录联系</span>
+      <span class="link" onclick="event.stopPropagation();openPerson('${p.id}')">查看简历</span>
+      <span class="link" onclick="event.stopPropagation();huAppTo('${p.id}')">投递跟进</span>
+      <span class="link ${pmIsOpen('persons',p.id)?'on':''}" onclick="event.stopPropagation();pmMore('persons','${p.id}')">更多 ${pmIsOpen('persons',p.id)?'▴':'▾'}</span>
     </div>`},
   ];
 
   const sl = pageSlice('persons', rows);
+  /* 「更多」展开行：一行里塞三个链接，点开才能进另外三页；再点一次收起 */
+  const deco = sl.rows.map(p=>{
+    if(!pmIsOpen('persons', p.id)) return p;
+    const q = Object.assign({}, p, { _more: `
+      <div class="more-row">
+        <span class="xs mut">同一份档案的其他页面：</span>
+        <span class="link" onclick="huGoTo('${p.personId||p.id}','profile','${p.id}','${p.demandId}')">人才画像</span>
+        <span class="hu-dot">·</span>
+        <span class="link" onclick="huGoTo('${p.personId||p.id}','logs','${p.id}','${p.demandId}')">沟通记录</span>
+        <span class="hu-dot">·</span>
+        <span class="link" onclick="huGoTo('${p.personId||p.id}','verify','${p.id}','${p.demandId}')">资料核实</span>
+        <span class="xs mut">（都打开独立页面，不在这行展开内容）</span>
+      </div>` });
+    return q;
+  });
+
   return `<div class="page">
-    ${head('人员列表', (isR04? '我名下的人员' : '全部在跟人员') + ' · 一行 = 一次投递（人 × 需求）；同一个人投多个需求会出现多行，姓名旁标「同投 N」', actions)}
+    ${head('人员列表', (isR04? '我名下的人员' : '全部在跟人员') + ' · 一行 = 一次投递（人 × 需求）；同一个人投多个需求会出现多行，姓名旁标「同投 N」· 点匹配档位看逐项依据 · 新增简历走需求 / 批次的「传简历」「人才库找人」', actions)}
     ${toolbar({q:'搜索姓名 / 电话 / 技能', filters:[
+      {k:'fu',opts:[{v:'',label:'全部跟进'},{v:'today',label:'今天待跟进'},{v:'late',label:'已逾期'}]},
       {k:'nd',opts:[{v:'',label:'全部节点'},...NODES.map(n=>({v:n,label:n}))]},
       {k:'tri',opts:[{v:'',label:'全部硬条件'},{v:'ok',label:'已核实符合'},{v:'pend',label:'信息待确认'},{v:'no',label:'已确认不符合'}]},
       {k:'dm',opts:[{v:'',label:'全部需求'},...DEMANDS.map(d=>({v:d.id,label:d.post}))]},
@@ -230,9 +259,24 @@ function personsPage(){
       {k:'ng',v:'onb',label:`待入职 ${cnt.onb}`},
       {k:'ng',v:'hired',label:`已入职 ${cnt.hired}`},
     ], right:`<span class="sm mut">共 ${rows.length} 人</span>`})}
-    ${table(cols, sl.rows)}
+    ${table(cols, deco)}
     ${pagerBar('persons', sl, '人')}
   </div>`;
+}
+
+/* 「更多」菜单：只记哪一行展开，收起靠再点一次。
+   按列表分开记（人员列表 / 需求简历明细 / 批次人员各有自己的 key），
+   一处展开不会让另一个列表也跟着展开。 */
+let PM = {open:{}};
+function pmIsOpen(key, id){ return PM.open[key] === id; }
+function pmMore(key, id){
+  PM.open[key] = pmIsOpen(key, id) ? null : id;
+  refreshTable();
+}
+/* 从「更多」进另外三页：带上这一行的投递与需求，页面才知道是哪一单 */
+function huGoTo(pid, view, appId, demandId){
+  PM.open = {};
+  openHuman(pid, view, appId, demandId);
 }
 
 /* 人才库找人：从需求 / 批次带着岗位条件跳进完整筛选页，不新开弹窗。
@@ -274,7 +318,7 @@ function poolPage(){
   if(rel==='fl') rows = rows.filter(p=>p.follower===S.who);       /* 我在跟的 */
 
   const cols = [
-    {label:'姓名', r:p=>{const n=ac(p);return `<div class="t-name"><span class="arc-link" onclick="event.stopPropagation();openArchive('${p.id}')">${esc(p.name)}</span> <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span></div><div class="t-sub mono">${esc(p.phone)} · ${p.id}</div>`;}},
+    {label:'姓名', r:p=>{const n=ac(p);return `<div class="t-name"><span class="arc-link" onclick="event.stopPropagation();openArchive('${p.id}','resume')">${esc(p.name)}</span> <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span></div><div class="t-sub mono">${esc(p.phone)} · ${p.id}</div>`;}},
     {label:'技能', r:p=>`<div class="tags">${p.skills.slice(0,3).map(s=>`<span class="tg">${esc(s)}</span>`).join('')}${p.skills.length>3?`<span class="tg">+${p.skills.length-3}</span>`:''}</div>`},
     {label:'来源 / 活跃', r:p=>`<div class="sm"><span class="b n">${esc(p.channel||p.source)}</span></div><div class="t-sub mono">${p.lastActive.slice(5)}</div>`},
     {label:'当前跟进人', r:p=>`<div class="sm">${esc(p.follower||p.createdBy||'—')}</div><div class="t-sub">${p.follower&&p.follower!==p.createdBy?'由 '+esc(p.createdBy)+' 转交':'建档人'}</div>`},
@@ -284,7 +328,7 @@ function poolPage(){
     {label:'资料完整度', r:p=>`<div class="barline"><div class="bar ${p.complete>=85?'g':p.complete<65?'w':''}"><i style="width:${p.complete}%"></i></div><b>${p.complete}%</b></div>`},
     {label:'操作', r:p=>{const first=appsOf(p.id)[0];
       return `<div class="acts">
-      <span class="link" onclick="event.stopPropagation();openArchive('${p.id}')">档案</span>
+      <span class="link" onclick="event.stopPropagation();openArchive('${p.id}','resume')">档案</span>
       <span class="link" onclick="event.stopPropagation();openModal(poolPickBatch('${p.id}','${forD}'))">捞入批次</span>
       ${first?`<span class="link" onclick="event.stopPropagation();openPerson('${first.id}')">看投递</span>`:''}
     </div>`;}},
@@ -688,7 +732,7 @@ function appListHtml(o){
   if(st.st) rows = rows.filter(p=>p.status===st.st);
 
   const cols = [
-    {label:'姓名', r:p=>`<div class="t-name"><span class="arc-link" onclick="openPerson('${p.id}')">${esc(p.name)}</span>
+    {label:'姓名', r:p=>`<div class="t-name"><span class="arc-link" onclick="openHuman('${p.personId}','resume','${p.id}','${p.demandId}')">${esc(p.name)}</span>
         <span class="t-sub" style="display:inline">${p.gender} · ${p.age}岁</span></div><div class="t-sub mono">${esc(p.phone)}</div>`},
     {label:'技能', r:p=>`<div class="tags">${p.skills.slice(0,2).map(s=>`<span class="tg">${esc(s)}</span>`).join('')}${p.skills.length>2?`<span class="tg">+${p.skills.length-2}</span>`:''}</div>`},
     {label:'来源 / 批次', r:p=>`<div class="sm">${esc(p.channel||'—')}</div><div class="t-sub mono">${p.batchId?esc(B(p.batchId).code):'人才池捞入'}</div>`},
@@ -700,7 +744,25 @@ function appListHtml(o){
       const late = p.nextFollow < TODAY;
       return `<span class="mono sm" ${late?'style="color:var(--bad)"':''}>${p.nextFollow.slice(5)}${late?' · 逾期':''}</span>`;}},
     {label:'结果', r:p=>statB(p.status)},
+    /* 与人员列表同一组操作（查看简历 / 投递跟进 / 更多），
+       只是范围更窄：这里是「本人 + 当前需求」或「本人 + 当前批次」。
+       投递与需求随行带过去，进去不会变成别的单。 */
+    {label:'操作', r:p=>`<div class="acts">
+        <span class="link" onclick="openHuman('${p.personId}','resume','${p.id}','${p.demandId}')">查看简历</span>
+        <span class="link" onclick="huAppTo('${p.id}')">投递跟进</span>
+        <span class="link ${pmIsOpen(key,p.id)?'on':''}" onclick="pmMore('${key}','${p.id}')">更多 ${pmIsOpen(key,p.id)?'▴':'▾'}</span>
+      </div>`},
   ];
+
+  const deco = sl0 => sl0.map(p=> pmIsOpen(key,p.id) ? Object.assign({}, p, { _more: `
+      <div class="more-row">
+        <span class="xs mut">同一份档案的其他页面：</span>
+        <span class="link" onclick="huGoTo('${p.personId}','profile','${p.id}','${p.demandId}')">人才画像</span>
+        <span class="hu-dot">·</span>
+        <span class="link" onclick="huGoTo('${p.personId}','logs','${p.id}','${p.demandId}')">沟通记录</span>
+        <span class="hu-dot">·</span>
+        <span class="link" onclick="huGoTo('${p.personId}','verify','${p.id}','${p.demandId}')">资料核实</span>
+      </div>` }) : p);
 
   const sl = pageSlice(key, rows);
   return `<div class="toolbar">
@@ -716,7 +778,7 @@ function appListHtml(o){
     <div class="sp"></div>
     <span class="sm mut">共 ${rows.length} 人</span>
   </div>
-  ${table(cols, sl.rows, o.empty)}
+  ${table(cols, deco(sl.rows), o.empty)}
   ${pagerBar(key, sl, '人')}`;
 }
 

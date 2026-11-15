@@ -26,97 +26,139 @@
    而「简历明细」里又写着「详见核实依据页签」—— 悬空引用；这次补成第 2 个页签。
    ------------------------------------------------------------- */
 
-const HU_TABS = [
-  {k:'resume',  n:'简历明细', tip:'候选人自己给的'},
-  {k:'verify',  n:'核实依据', tip:'城市 / 到岗 / 证书逐项确认'},
-  {k:'portrait',n:'人才画像', tip:'我们的判断 · 仅内部'},
-  {k:'apply',   n:'本次投递', tip:'这一单谈到哪'},
-  {k:'talk',    n:'沟通记录', tip:'跨投递合并'},
-];
-let HU = {pid:null, appId:null, tab:'resume', back:null, navKey:'persons', open:null};
+/* =======================================================================
+   人员：五个独立业务页（第二轮讨论稿 · 2026-11-15 第八批）
+   =======================================================================
+   以前是「一个人员详情页 + 五个页签」：看简历要点两下、做画像是第二个页签、
+   推进投递是第三个 —— 页签成了「什么都得先进这个页」的借口，而且一张页面
+   同时背着简历、画像、投递流程、建档历史，谁都读不完。
 
-function huMemGet(){ try{ return localStorage.getItem('rg-human-tab')||'resume'; }catch(e){ return 'resume'; } }
-function huMemSet(t){ try{ localStorage.setItem('rg-human-tab', t); }catch(e){} }
-function huTabOk(t){ return HU_TABS.some(x=>x.k===t); }
+   现在按业务任务拆成五个独立页面，各有地址、各有标题、各自只干一件事：
+
+     #person/<pid>/resume               查看简历      候选人自己给的
+     #person/<pid>/profile              人才画像      我们的判断 · 仅内部
+     #person/<pid>/apply/<appId>        投递跟进      一条投递一个地址
+     #person/<pid>/logs                 沟通记录      跨投递合并
+     #person/<pid>/verify?demand=<did>  资料核实      按岗位逐项对照
+
+   页签栏已删除，改成页头下面一行文字链接（不在本页展开别人的内容）。
+   旧地址 #person/<pid>/detail?tab=xxx 仍然可用，按 tab 映射过来 ——
+   已经发出去的链接不该因为改版就打不开。
+   ======================================================================= */
+
+const HU_VIEWS = [
+  {k:'resume', n:'查看简历', tip:'基本资料 / 求职意愿 / 能力经历 / 附件'},
+  {k:'profile',n:'人才画像', tip:'我们的判断 · 仅内部'},
+  {k:'apply',  n:'投递跟进', tip:'一条投递一个页面'},
+  {k:'logs',   n:'沟通记录', tip:'跨投递合并'},
+  {k:'verify', n:'资料核实', tip:'按岗位逐项对照'},
+];
+const HU_VIEW_NAME = {resume:'查看简历', profile:'人才画像', apply:'投递跟进', logs:'沟通记录', verify:'资料核实'};
+/* 旧页签键 → 新页面键（兼容 detail?tab=） */
+const HU_TAB_MAP = {resume:'resume', verify:'verify', portrait:'profile', apply:'apply', talk:'logs'};
+
+let HU = {pid:null, appId:null, view:'resume', demandId:null, back:null, navKey:'persons', open:null};
+
+function huViewOk(v){ return HU_VIEWS.some(x=>x.k===v); }
+function huTabOk(t){ return !!HU_TAB_MAP[t]; }
+function huMemGet(){ try{ return localStorage.getItem('rg-human-view')||'resume'; }catch(e){ return 'resume'; } }
+function huMemSet(v){ try{ localStorage.setItem('rg-human-view', v); }catch(e){} }
+/* 人员 id：投递记录（PERSONS）用 personId，档案记录（PEOPLE）用 id */
+function huPid(p){ return (p && (p.personId || p.id)) || null; }
+
+/* 当前页面路径：同一份档案的不同页面各自可寻址，刷新/分享都落回原处 */
+function huHash(){
+  const pid = encodeURIComponent(HU.pid||'');
+  const v = HU.view || 'resume';
+  if(v === 'apply'){
+    return `#person/${pid}/apply${HU.appId?('/'+encodeURIComponent(HU.appId)):''}`;
+  }
+  if(v === 'verify' && HU.demandId){
+    return `#person/${pid}/verify?demand=${encodeURIComponent(HU.demandId)}`;
+  }
+  return `#person/${pid}/${v}`;
+}
 
 /* 空态判断与状态标 */
 function archiveState(p){
-  const act = activeAppsOf(p.id);
+  const id = huPid(p);
+  const act = activeAppsOf(id);
   if(p.blacklist) return {label:'黑名单', tone:'r'};
-  if(appsOf(p.id).some(a=>a.node==='已入职')) return {label:'已入职', tone:'g'};
+  if(appsOf(id).some(a=>a.node==='已入职')) return {label:'已入职', tone:'g'};
   if(act.length) return {label:'投递中 · ' + act.length + ' 个需求', tone:'i'};
   return {label:'空闲可捞', tone:'g'};
 }
 
-/* 统一入口：openArchive(personId, tab) / openPerson(appId) 都到这里 → 进独立页 */
-function openHuman(pid, tab, appId){
+/* 统一入口：openHuman(pid, view, appId, demandId)
+   openArchive / openPerson 都是它的别名，全站「点人名」收口到这里。 */
+function openHuman(pid, view, appId, demandId){
   const from = S.page;
-  markScrollOut();                  /* 先记住来源列表滚到哪了，render 之后就是 0 了 */
-  /* 浏览器后退回列表时 HU.pid 还留着，只比 ID 的话第二次进来会沿用第一次的筛选与滚动 */
+  markScrollOut();
   if(HU.pid !== pid || from !== 'personDetail'){
-    HU.back = snapshotHere();       /* 带来源页记录定位：从 D1 简历明细进来的，返回要回到那条需求 */
+    HU.back = snapshotHere();          /* 带来源页记录定位：从批次人员进来，返回要回到那一批 */
     HU.navKey = from;
   }
   HU.pid = pid;
   if(appId) HU.appId = appId;
   const cur = HU.appId ? P(HU.appId) : null;
-  if(!cur || cur.personId!==pid){
+  if(!cur || cur.personId !== pid){
     const act = activeAppsOf(pid);
     HU.appId = (act[0]||appsOf(pid)[0]||{}).id || null;
   }
-  HU.tab = huTabOk(tab) ? tab : (tab ? 'resume' : huMemGet());
+  const v0 = HU_TAB_MAP[view] || view;            /* portrait → profile、talk → logs */
+  HU.view = huViewOk(v0) ? v0 : (view ? 'resume' : huMemGet());
+  if(demandId) HU.demandId = demandId;
+  else if(HU.view === 'verify' && HU.appId) HU.demandId = P(HU.appId).demandId;
+  else if(HU.view !== 'verify') HU.demandId = null;
   S.page = 'personDetail';
-  closeAll();                      /* 弹窗 / 抽屉先关掉，不在弹窗上叠页 */
+  closeAll();
   render();
   setMainScroll(0);
-  navHash(routeHash(), 'push');
+  navHash(huHash(), 'push');
 }
-/* 只重画，不重建外壳：切页签时不闪导航 */
-function huRender(push){
+/* 在五个页面之间跳（不再有页签）：只重画内容区，地址用 replace，返回仍回来源列表 */
+function huGo(view, appId, demandId){
+  if(!huViewOk(view)) return;
+  if(appId) HU.appId = appId;
+  HU.view = view; huMemSet(view);
+  if(view === 'apply'){
+    const cur = HU.appId ? P(HU.appId) : null;
+    if(!cur || cur.personId !== HU.pid){
+      const act = activeAppsOf(HU.pid);
+      HU.appId = (act[0]||appsOf(HU.pid)[0]||{}).id || null;
+    }
+  }
+  if(view === 'verify'){
+    HU.demandId = demandId || (HU.appId ? P(HU.appId).demandId : null) ||
+      ((appsOf(HU.pid)[0]||{}).demandId) || null;
+  }
   const m = document.getElementById('main');
   const sc = m ? m.scrollTop : 0;
   render();
-  setMainScroll(push === false ? sc : 0);
-  navHash(routeHash(), push ? 'push' : 'replace');
+  setMainScroll(0);
+  navHash(huHash(), 'replace');
 }
-function huPaint(){ huRender(false); }
-function huSetTab(t){
-  if(!huTabOk(t) || HU.tab === t) return;
-  HU.tab = t; huMemSet(t);
-  huRender(false);
-}
+/* 兼容旧调用：huSetTab('verify') 等同进「资料核实」页 */
+function huSetTab(t){ const v = HU_TAB_MAP[t]; if(v) huGo(v); }
+function huPaint(){ render(); }
+
+/* 一条投递 / 一条沟通记录跳转时，把投递标识带上 */
 function huAppTo(appId){
-  HU.appId = appId; HU.tab = 'apply'; huMemSet('apply');
-  const p = appPerson(HU.pid);
-  if(p) huOpenMap(p.id, appsOf(p.id))[appId] = true;   /* 从别处跳过来，那一单要自己展开 */
-  huRender(false);
+  const a = P(appId);
+  huGo('apply', appId, a ? a.demandId : null);
 }
-/* 多条投递的展开态：按人记，默认展开地址里那一单（app=）。
-   收起后写成 false 记住，下次重画不会自己又弹开。 */
 function huOpenMap(pid, apps){
   if(!HU.open || HU.open.pid !== pid) HU.open = {pid:pid, ids:{}};
   const act = HU.appId || (apps[0]||{}).id;
   if(act && !(act in HU.open.ids)) HU.open.ids[act] = true;
   return HU.open.ids;
 }
-function huAppFold(appId){
-  const p = appPerson(HU.pid);
-  if(!p) return;
-  const ids = huOpenMap(p.id, appsOf(p.id));
-  if(ids[appId]){
-    ids[appId] = false;
-  } else {
-    ids[appId] = true;
-    HU.appId = appId;                    /* 展开哪一单，顶栏和地址就跟着到哪一单 */
-    navHash(routeHash(), 'replace');
-  }
-  huRender(false);
-}
+function huCopy(id){ toast('档案编号 ' + id + ' 已复制'); }
+
 /* 页面内返回：回到进来时的列表 / 详情页，还原记录、筛选与滚动 */
 function huBack(){
-  const b = HU.back;
-  const nav = HU.navKey;
-  HU.pid = null; HU.appId = null; HU.tab = 'resume'; HU.back = null;
+  const b = HU.back, nav = HU.navKey;
+  HU.pid = null; HU.appId = null; HU.view = 'resume'; HU.demandId = null; HU.back = null;
   if(b && b.page && b.page !== 'personDetail' && restoreSnap(b)){
     render(); setMainScroll(b.scroll || 0);
     navHash(routeHash(), 'replace');
@@ -124,13 +166,14 @@ function huBack(){
   }
   go(nav === 'personDetail' ? 'persons' : (nav || 'persons'));
 }
-/* 兼容入口：全站所有「点人名」都收口到 openHuman */
-function openArchive(id, tab){ openHuman(id, tab); }
+/* 兼容旧调用：view 可能是旧页签名（portrait / talk），在这里统一折成新页面键 */
+function openArchive(id, view, appId, demandId){
+  openHuman(id, HU_TAB_MAP[view] || view, appId, demandId);
+}
 function openPerson(id){
   const a = P(id);
-  openHuman(a ? a.personId : id, null, a ? id : null);
+  openHuman(a ? a.personId : id, 'resume', a ? id : null, a ? a.demandId : null);
 }
-function huCopy(id){ toast('档案编号 ' + id + ' 已复制'); }
 
 /* 补全链接：APP 推送之外，还要能复制到微信手动发 —— 候选人未必看 APP 通知 */
 function copyFillLink(pid){
@@ -148,63 +191,25 @@ function fallbackCopy(txt){
   document.body.removeChild(ta);
 }
 
-function huHtml(){
-  const p = appPerson(HU.pid), st = archiveState(p);
-  if(p.id === '—') return huMissingHtml();
-  const apps = appsOf(p.id), cs = contactsOf(p.id);
-  const last = cs[0];
-  const days = t => Math.round((new Date(TODAY+'T00:00:00') - new Date(t.slice(0,10)+'T00:00:00'))/86400000);
-  const ago = last ? days(last.time) : null;
-  const appsN = apps.filter(a=>a.status==='跟进中').length;
-
-  const vf = verifyOf(p.id);
-  const pendN = [vf.city&&vf.city.wantState!=='已确认', vf.arrive&&vf.arrive.state!=='已确认',
-    vf.night&&vf.night.state!=='已确认愿意', !(vf.certs||[]).some(c=>c.state==='ok')].filter(Boolean).length;
-  const badge = {resume:'', verify: pendN, portrait:'', apply: appsN||apps.length, talk: cs.length};
-
-  const body = HU.tab==='resume' ? huResume(p)
-    : HU.tab==='verify' ? huVerify(p)
-    : HU.tab==='portrait' ? huPortrait(p)
-    : HU.tab==='apply' ? huApply(p)
-    : huTalk(p, cs, apps);
-
+/* ---------- 页头：返回 + 标题 + 识别信息 + 其他页面的文字链接 ---------- */
+function huPage(p, view, body, acts){
+  const st = archiveState(p);
   const fromNav = {persons:'人员列表', pool:'人才池列表', demands:'需求列表', batches:'批次列表',
-    custreq:'客户需求确认', confirms:'客户确认', home:'我的首页', interviews:'面试管理'}[HU.navKey];
-  const backTxt = fromNav ? ('← 返回' + fromNav) : '← 返回上一页';
-
-  return `<div class="page">
-    <div class="pg-back" onclick="huBack()">${backTxt}</div>
-    ${head(esc(p.name),
-      `<span class="xs mut">${p.gender} · ${p.age}岁 · ${esc(p.phone)}</span>
-       · 档案 <span class="arc-link mono" onclick="huCopy('${esc(p.id)}')">${esc(p.id)}</span>
-       · 当前跟进人 <b>${esc(p.follower||p.createdBy||'—')}</b>
-       · 进入 ${esc(p.createdAt)}（${days(p.createdAt)} 天前）`,
-      `<button class="btn" onclick="openModal(transferModal('${esc(p.id)}'))">转交跟进</button>
-       <button class="btn" onclick="openModal(followModal('${esc(p.id)}','archive'),'md-lg')">记录联系</button>
-       <button class="btn pri" onclick="openModal(poolPickBatch('${esc(HU.appId||p.id)}'))">捞入批次</button>`)}
-
-    <div class="arc-top">
-      <span class="b ${st.tone}">${esc(st.label)}</span>
-      <span class="b n">${esc(p.channel)}</span>
-      ${last?`<span class="sm ${ago>60?'arc-late':ago>30?'arc-warn':''}">最近沟通 ${last.time.slice(5)}（${ago} 天前）</span>`:'<span class="sm mut">尚无沟通记录</span>'}
-      <span class="sm mut">沟通 ${cs.length} 次</span>
-      <div class="sp"></div>
-      <span class="xs mut mono">#person/${esc(p.id)}/detail?tab=${esc(HU.tab)}</span>
-    </div>
-
-    <div class="arc-tabs">
-      ${HU_TABS.map(t=>`<span class="arc-tab ${HU.tab===t.k?'on':''}" title="${esc(t.tip)}" onclick="huSetTab('${t.k}')">
-        ${t.n}${badge[t.k]!==''?` <i class="vis n">${badge[t.k]}</i>`:''}
-        ${t.k==='portrait'?'<i class="vis no">仅内部</i>':t.k==='resume'?'<i class="vis ok">可对客户</i>':''}
-      </span>`).join('')}
-    </div>
-
+    batchPersons:'批次人员', custreq:'客户需求确认', confirms:'客户确认', home:'我的首页', interviews:'面试管理'}[HU.navKey];
+  const title = view === 'resume' ? p.name
+    : `${p.name}的${HU_VIEW_NAME[view]}`;
+  const sub = `<span class="xs mut">${p.gender} · ${p.age}岁 · ${esc(p.phone)}</span>
+     · <span class="b ${st.tone}">${esc(st.label)}</span>
+     · 当前跟进人 <b>${esc(p.follower||p.createdBy||'—')}</b>`;
+  const others = HU_VIEWS.filter(v=>v.k!==view)
+    .map(v=>`<span class="link" onclick="huGo('${v.k}')" title="${esc(v.tip)}">${v.n}</span>`).join('<span class="hu-dot">·</span>');
+  return `<div class="page hu-page">
+    <div class="pg-back" onclick="huBack()">← 返回${fromNav||'上一页'}</div>
+    ${head(esc(title), sub, acts||'')}
+    <div class="hu-links"><span class="xs mut">同一份档案：</span>${others}</div>
     ${body}
   </div>`;
 }
-
-/* 三个角色都能开档案页（R01 全量、R02 客户侧、R04 我名下） */
-PAGES.personDetail = { any: huHtml };
 
 /* 地址里的档案不存在（刷新后演示数据重置 / 编号写错）：说清原因并给返回，不静默跳别的人 */
 function huMissingHtml(){
@@ -220,94 +225,479 @@ function huMissingHtml(){
   </div>`;
 }
 
-/* ---------- 页签 1 · 简历明细 ---------- */
-function huResume(p){
-  const ups = uploadsOf(p.id), files = filesOf(p.id), apps = appsOf(p.id);
-  const cur = apps.filter(a=>a.status==='跟进中');
-  const his = apps.filter(a=>a.status!=='跟进中');
-  return `
-    <div class="sec"><div class="sec-t">进入系统</div>
-      <dl class="kv">
-        <div><dt>建档时间</dt><dd>${esc(p.createdAt)}</dd></div>
-        <div><dt>来源渠道</dt><dd>${esc(p.channel)} <span class="xs mut">${esc((CH(p.channel)||{}).type||'')}</span></dd></div>
-        <div><dt>建档人</dt><dd>${esc(p.createdBy)}</dd></div>
-        <div><dt>当前跟进人</dt><dd>${esc(p.follower||p.createdBy)} <span class="xs mut">${p.follower&&p.follower!==p.createdBy?'（已转交，见沟通记录）':'（与建档人一致）'}</span></dd></div>
-        <div><dt>首次进入方式</dt><dd>${esc(p.entryMode)}</dd></div>
-      </dl>
-    </div>
+function huHtml(){
+  const p = appPerson(HU.pid);
+  if(!p || p.id === '—') return huMissingHtml();
+  const view = HU.view || 'resume';
+  const pid = huPid(p);
+  const apps = appsOf(pid), cs = contactsOf(pid);
 
-    <div class="sec"><div class="sec-t">基础信息与意愿<span class="perm">城市与到岗需分别确认</span></div>
+  /* 右上角动作：每条页面只挂这一页真正要做的事 */
+  const acts = view === 'resume'
+    ? `<button class="btn" onclick="huGo('apply')">投递跟进</button>
+       <button class="btn pri" onclick="openModal(followModal('${esc(pid)}','archive'),'md-lg')">记录联系</button>`
+    : view === 'profile'
+    ? `<button class="btn" onclick="openModal(followModal('${esc(pid)}','archive'),'md-lg')">记录联系 · 补依据</button>`
+    : view === 'logs'
+    ? `<button class="btn pri" onclick="openModal(followModal('${esc(pid)}','archive'),'md-lg')">＋ 新增沟通记录</button>`
+    : view === 'verify'
+    ? `<button class="btn" onclick="openModal(followModal('${esc(pid)}','archive'),'md-lg')">记录联系 · 补材料</button>`
+    : `<button class="btn" onclick="openDemand('${esc((P(HU.appId)||{}).demandId||'')}')">看这条需求</button>`;
+
+  let body;
+  if(view === 'profile') body = huPortrait(p);
+  else if(view === 'apply') body = apps.length ? huApply(p) : huApplyEmpty(p);
+  else if(view === 'logs') body = huTalk(p, cs, apps);
+  else if(view === 'verify') body = huVerifyPage(p);
+  else body = huResume(p);
+
+  return huPage(p, view, body, acts);
+}
+
+/* 三个角色都能看人员页（R01 全量、R02 客户侧、R04 我名下） */
+PAGES.personDetail = { any: huHtml };
+
+/* =======================================================================
+   页 1 · 查看简历
+   -----------------------------------------------------------------------
+   只回答「这个人是谁、能给什么、原件长什么样」。
+   建档时间 / 建档人 / 上传履历 <b>不在这一页</b>（它们属于记录，去了沟通记录页的
+   「档案记录」），招聘跟进、画像判断、大段规则说明也不进来。
+   ======================================================================= */
+function huResume(p){
+  const pid = huPid(p);
+  const files = filesOf(pid), vf = verifyOf(pid);
+  const cs = cityStateOf(p);
+  const a = vf.arrive || {};
+  const n = vf.night || {};
+  const certs = vf.certs || [];
+  /* 简历页只说「核验到哪一步」，不说「符合 / 不符合」——
+     符合是相对某个岗位要求说的，这一页不挂岗位，写了就是替人下结论。 */
+  const certTag = s => s==='ok' ? '<span class="b g">已核验证件有效</span>'
+    : s==='no' ? '<span class="b r">已确认无证</span>' : '<span class="b w">待核验</span>';
+  return `
+    <div class="sec"><div class="sec-t">基本资料</div>
       <dl class="kv">
-        <div><dt>技能</dt><dd class="sm">${p.skills.map(esc).join(' / ')} <span class="xs mut">技能名不等于持证</span></dd></div>
-        <div><dt>期望薪资</dt><dd class="sm">${esc(p.expect||'32-36 元/时')}</dd></div>
-        <div><dt>现居地</dt><dd class="sm">${esc((verifyOf(p.id).city||{}).live || p.city || '—')}
-          <span class="xs mut">${esc((verifyOf(p.id).city||{}).liveState||'')}</span>
-          <span class="xs mut">（不作为匹配依据）</span></dd></div>
-        <div><dt>愿意工作城市</dt><dd class="sm">${(()=>{ const k=cityStateOf(p);
-          /* 只看状态，不看数组是否有值：待确认时即便填了城市也不得显示符合；
-             意愿已确认但明确不含岗位城市时，必须显示不符合（同核实依据页口径） */
-          const txt = k.want.length ? esc(k.want.join('、')) : '<span class="mut">未确认</span>';
-          return txt+' '+tri(k.st); })()}</dd></div>
-        <div><dt>可到岗</dt><dd class="sm">${(()=>{ const v=verifyOf(p.id).arrive||{};
-          /* 同理：有日期但状态未确认，仍显示待确认 */
-          const st = (v.state==='已确认' && v.date) ? 'ok' : 'pend';
-          const txt = v.date ? esc(v.date) : '<span class="mut">未确认</span>';
-          return txt+' '+tri(st)+(v.state!=='已确认'&&v.date?'<span class="xs mut">（日期有值但未经候选人确认）</span>':''); })()}</dd></div>
+        <div><dt>姓名</dt><dd class="sm">${esc(p.name)} <span class="xs mut">${esc(p.gender)} · ${p.age} 岁</span></dd></div>
+        <div><dt>手机号</dt><dd class="sm mono">${esc(p.phone)}</dd></div>
+        <div><dt>现居地</dt><dd class="sm">${esc((vf.city||{}).live || p.city || '—')}
+          <span class="xs mut">人员资料，不作为工作意愿</span></dd></div>
+        <div><dt>来源渠道</dt><dd class="sm">${esc(p.channel)} <span class="xs mut">${esc((CH(p.channel)||{}).type||'')}</span></dd></div>
         <div><dt>资料完整度</dt><dd><div class="barline" style="max-width:180px"><div class="bar ${p.complete>=85?'g':p.complete<65?'w':''}"><i style="width:${p.complete}%"></i></div><b>${p.complete}%</b></div></dd></div>
       </dl>
-      <div class="note" style="margin-top:8px">现居地不推断异地意愿，投递状态不推断可到岗 —— 详见「核实依据」页签。</div>
     </div>
 
-    <div class="sec"><div class="sec-t">原始简历（${files.length} 版）<span class="perm">内部全员可见</span></div>
+    <div class="sec"><div class="sec-t">求职意愿<span class="perm">候选人自述 · 是否满足岗位见「资料核实」</span></div>
+      <dl class="kv">
+        <div><dt>期望薪资</dt><dd class="sm">${esc(p.expect||'32-36 元/时')}</dd></div>
+        <div><dt>愿意工作城市</dt><dd class="sm">${esc(cs.want.length?cs.want.join('、'):'未确认')} ${tri(cs.st)}</dd></div>
+        <div><dt>可到岗</dt><dd class="sm">${esc(a.date || '未确认')} ${tri((a.state==='已确认' && a.date) ? 'ok' : 'pend')}
+          ${a.state!=='已确认'&&a.date?'<span class="xs mut">日期有值但未经候选人确认</span>':''}</dd></div>
+        <div><dt>夜班意愿</dt><dd class="sm">${esc(n.state||'未确认')}
+          <span class="xs mut">候选人自述，是否满足班制见「资料核实」</span></dd></div>
+      </dl>
+      <div class="note" style="margin-top:8px">这一栏是候选人自己说的。现居地<b>不</b>推断异地意愿，投递状态<b>不</b>推断可到岗 —— 与岗位是否相符，去「资料核实」按需求逐项看。</div>
+    </div>
+
+    <div class="sec"><div class="sec-t">能力经历</div>
+      <dl class="kv">
+        <div><dt>技能</dt><dd class="sm">${p.skills.map(esc).join(' / ')} <span class="xs mut">技能名不等于持证</span></dd></div>
+        <div><dt>证书</dt><dd class="sm">${certs.length
+          ? certs.map(c=>esc(c.name)+' '+certTag(c.state)).join(' ')
+          : '<span class="mut">无证书记录</span> <span class="xs mut">技能栏出现「电工」等词，不得据此判定持证</span>'}</dd></div>
+        <div><dt>工作经历</dt><dd class="sm">见下方简历原件 <span class="xs mut">平台不另存一份摘要，避免与原件对不上</span></dd></div>
+      </dl>
+    </div>
+
+    <div class="sec"><div class="sec-t">简历附件（${files.length} 版）<span class="perm">内部全员可见</span></div>
       ${files.map(f=>`<div class="res-file">
         <span class="rf-kind">${esc(f.kind)}</span>
         <div style="flex:1"><div class="sm"><b>${esc(f.name)}</b> <span class="xs mut">第 ${f.ver} 版 · ${esc(f.size)}</span></div>
           <div class="xs mut">${esc(f.time)} · ${esc(f.uploader)} 上传${f.online?'':' · 平台来源，无原件（仅结构化字段）'}</div></div>
         <span class="link xs" onclick="toast('打开原件预览（演示）')">预览</span>
         <span class="link xs" onclick="toast('已开始下载')">下载</span>
+        <span class="link xs" onclick="toast('这一版的时间与上传人见「沟通记录 → 档案记录」')">版本</span>
       </div>`).join('')||'<div class="mut sm">暂无原件（BOSS 导出的数据行不含附件）</div>'}
-      <div class="note" style="margin-top:9px">简历版本<b>不覆盖</b>，每次上传留一版，可回溯他报的薪资、补的证书什么时候变过。</div>
-      <div class="note" style="margin-top:6px"><b>查看权限：内部全员</b> —— 不分归属，任一专员都能看原件（避免"人不在我名下就查不到底子"）。候选人本人可在工人端看自己的简历；原始原件仅内部使用，不外发。</div>
-    </div>
-
-    <div class="sec"><div class="sec-t">上传履历（共 ${ups.length} 次）</div>
-      <div class="tl">${ups.map(u=>`<div class="tl-item"><div class="tl-d">${esc(u.time)} · ${esc(u.staff)} · ${esc(u.channel)}</div>
-        <div class="tl-t">第 ${u.ver} 版 · ${esc(u.file)} <span class="xs mut">解析出 ${u.factors} 项</span></div>
-        <div class="xs" style="color:var(--accent2)">${esc(u.diff)}</div></div>`).join('')}</div>
-    </div>
-
-    <div class="sec"><div class="sec-t">投递关系（${apps.length} 条）</div>
-      ${cur.map(a=>`<div class="app-row" onclick="huAppTo('${a.id}')">
-        <div style="flex:1"><div class="sm"><b>${esc(D(a.demandId).post)}</b> <span class="xs mut">· ${esc(D(a.demandId).client)}</span></div>
-          <div class="xs mut mono">${a.batchId?esc(B(a.batchId).code):'人才池捞入'} · ${esc(a.owner)} · ${esc(a.channel)}</div></div>
-        ${tierChip(a.tier)} ${nodeB(a.node)}<span class="link xs">看这一单</span></div>`).join('')}
-      ${his.length?`<div class="sec-t" style="margin-top:12px">历史投递</div>
-        ${his.map(a=>`<div class="app-row dim" onclick="huAppTo('${a.id}')">
-          <div style="flex:1"><div class="sm"><b>${esc(D(a.demandId).post)}</b> <span class="xs mut">· ${esc(D(a.demandId).client)}</span></div>
-            <div class="xs mut">结束原因：${esc(a.node==='已淘汰'?'客户/专员判定不匹配':'已关闭')} · 负责人 ${esc(a.owner)}</div></div>
-          ${nodeB(a.node)}<span class="link xs">看这一单</span></div>`).join('')}`:'<div class="mut sm" style="margin-top:8px">无历史投递</div>'}
+      <div class="note" style="margin-top:9px">简历版本<b>不覆盖</b>，每次上传留一版。上传人、上传时间这些<b>记录</b>在「沟通记录 → 档案记录」里查，不占这一页。</div>
     </div>`;
 }
 
-/* ---------- 页签 2 · 核实依据（证书 / 城市 / 到岗 / 夜班） ---------- */
-/* 按姓名索引：同一手机号重复投递复用同一档案 id，硬编码 PE00X 会错位 */
-const VER_CONFLICT = {
-  '马长青':[{need:'电工特种作业操作证是否在有效期',
-          a:'简历技能栏写「电工证书」', b:'2026-11-13 电话：「证过期了，正在复审」'}],
-  '陈志强':[{need:'低压电工证证件信息是否可辨',
-          a:'简历附件上传了证书照片', b:'照片模糊，证件号与发证日期看不清'}],
+/* =======================================================================
+   页 2 · 人才画像（表格）
+   -----------------------------------------------------------------------
+   一行一个画像项目：画像项目 / 当前判断 / 具体依据摘要 / 确认人及更新 / 操作。
+   沿用已有画像项目，不新增指标；没有判断就写「待了解」，不留空、不猜。
+   置信度放在「当前判断」单元格内，不另占一块。
+   ======================================================================= */
+const PT_ROWS = [
+  {dim:'稳定性', label:'稳定性',   hint:'沿用已有判断'},
+  {dim:'意向',   label:'求职意向', hint:'按对应需求看，不混用到其他投递'},
+  {dim:'履约',   label:'履约情况', hint:'到面 / 改期 / 跳票等事实'},
+  {dim:'适配',   label:'岗位适配', hint:'沿用已有判断'},
+  {dim:'风险',   label:'风险提示', hint:'仅内部可见'},
+];
+function huPortrait(p){
+  const pid = huPid(p);
+  const pts = ptOf(pid);
+  const app = (HU.appId && P(HU.appId) && P(HU.appId).personId === pid) ? P(HU.appId) : (appsOf(pid)[0]||null);
+  const dm = app ? D(app.demandId) : null;
+  const confB = c => `<span class="pt-conf c${c==='高'?'h':c==='中'?'m':'l'}" style="margin-left:6px">${esc(c)}置信</span>`;
+  const stale = t => (new Date(TODAY) - new Date(t.updated.slice(0,10)))/86400000 > 90;
+  const short = s => (s||'').length > 22 ? s.slice(0,22)+'…' : (s||'—');
+
+  const cols = [
+    {label:'画像项目', r:x=>`<div class="sm"><b>${esc(x.label)}</b></div><div class="t-sub">${esc(x.hint)}</div>`},
+    {label:'当前判断', r:x=>{
+      const list = pts.filter(t=>t.dim===x.dim);
+      if(!list.length) return '<span class="b n">待了解</span><div class="t-sub">还没有可用的判断</div>';
+      return list.map(t=>`<div style="margin-bottom:4px"><b class="sm">${esc(t.val)}</b>${confB(t.conf)}
+        ${stale(t)?'<span class="b n" style="margin-left:4px">已过期</span>':''}</div>`).join('');
+    }},
+    {label:'具体依据摘要', r:x=>{
+      const list = pts.filter(t=>t.dim===x.dim);
+      if(!list.length) return '<span class="mut sm">—</span>';
+      return list.map(t=>`<div class="sm" title="${esc(t.basis)}">${esc(short(t.basis))}</div>`).join('');
+    }},
+    {label:'确认人及更新', r:x=>{
+      const list = pts.filter(t=>t.dim===x.dim);
+      if(!list.length) return '<span class="mut sm">—</span>';
+      return list.map(t=>`<div class="sm">${esc(t.by)}</div><div class="t-sub mono">${esc(t.updated.slice(0,10))} · ${esc(t.src)}</div>`).join('');
+    }},
+    {label:'操作', r:x=>{
+      const list = pts.filter(t=>t.dim===x.dim);
+      return `<div class="acts">
+        <span class="link" onclick="huGo('logs')">看依据</span>
+        <span class="link" onclick="openModal(followModal('${esc(pid)}','archive'),'md-lg')">${list.length?'补充 / 修正':'补充依据'}</span>
+      </div>`;
+    }},
+  ];
+
+  return `
+    <div class="note" style="margin-bottom:12px">
+      <b>画像 = 我们对这个人的判断，不是他填的简历。</b>
+      候选人看不到这一页；只写可验证的行为，每条都能顺着「看依据」追到一次沟通。
+      ${dm?`本页「求职意向」对应需求 <b>${esc(dm.post)}</b>（<span class="mono">${esc(dm.code)}</span>）。`:''}
+    </div>
+    ${table(cols, PT_ROWS)}
+    <div class="xs mut" style="margin-top:8px">
+      沿用已有画像项目，本轮未新增指标；没有依据的项目显示「待了解」，不填默认值。
+      超过 90 天未更新的判断标「已过期」。画像只辅助人工决策，<b>不作自动淘汰依据</b>，也不外发。
+    </div>`;
+}
+
+/* =======================================================================
+   页 3 · 投递跟进（一条投递一个页面）
+   -----------------------------------------------------------------------
+   「某一次面试失败不代表全部投递失败」—— 所以一单一个地址
+   #person/<pid>/apply/<appId>，进度、联系记录、操作都只属于这一单。
+   ======================================================================= */
+const HU_NODE_NEXT = {
+  '新入库': {todo:'先跑匹配，看这一单的硬条件过没过', act:'重算匹配'},
+  '已匹配': {todo:'还没联系过，先做第一次触达', act:'记录首次联系'},
+  '触达中': {todo:'联系上了，等候选人补资料', act:'发补全链接'},
+  '补全中': {todo:'资料已提交，复核后提报客户', act:'复核通过'},
+  '待面试': {todo:'已约面试，等到面后登记结果', act:'登记面试结果'},
+  '面试通过': {todo:'客户已通过，推进到入职安排', act:'推进到待入职'},
+  '待入职': {todo:'已确认入职，安排报到、体检与建档', act:'报到登记'},
+  '已入职': {todo:'已到岗；如需补体检或建档材料在这里处理', act:'审核体检'},
+  '已淘汰': {todo:'这一单已结束，人员回到人才池；其他投递不受影响', act:'—'},
 };
-/* 愿意工作城市的三态（R5 / RG-004 · 第三项）
+function huApply(p){
+  const pid = huPid(p);
+  const all = appsOf(pid).slice().sort((x,y)=>(x.status==='跟进中'?0:1)-(y.status==='跟进中'?0:1));
+  const actId = HU.appId && all.some(a=>a.id===HU.appId) ? HU.appId : all[0].id;
+  const a = P(actId);
+  const d = D(a.demandId);
+  const idx = NODES.indexOf(a.node);
+  const nx = HU_NODE_NEXT[a.node] || {todo:'按流程推进', act:'推进'};
+  const steps = [
+    {n:'匹配', desc: a.tier? `档位 ${a.tier} · ${a.score} 分 · 已通过硬门槛` : '尚未运行匹配',
+      ops:[`<button class="btn xs" onclick="toast('已重算，档位 ${a.tier||'B'}')">重算</button>`,`<button class="btn xs" onclick="openMatchDetail('${a.id}','${d.id}')">看依据</button>`]},
+    {n:'触达', desc: a.lastContact==='—'? '尚未联系' : `上次 ${a.lastContact.slice(5)} · ${a.lastType}`,
+      ops:[`<button class="btn xs" onclick="openModal(followModal('${a.id}'))">记录联系</button>`,`<button class="btn xs danger" onclick="toast('已标为无意向，人员回到人才池')">标无意向</button>`]},
+    {n:'补全复核', desc: a.node==='补全中'? '已发链接，等待提交' : (idx>=3? '已复核通过' : '未开始'),
+      ops:[`<button class="btn xs" onclick="toast('补全链接已发送 → 候选人 APP 收到一条待办')">发补全链接</button>`,
+        `<button class="btn xs" onclick="copyFillLink('${a.personId}')">复制链接</button>`,
+        `<button class="btn xs" onclick="toast('复核通过，12 项因子已更新')">复核通过</button>`]},
+    {n:'面试', desc: ['待面试','面试通过'].includes(a.node)? (a.node==='面试通过'?'客户已确认通过':'已约面试，等待到面') : '未提报',
+      ops:[`<button class="btn xs" onclick="toast('已提报客户，等待排期')">提报面试</button>`,`<button class="btn xs" onclick="toast('已登记面试结果')">登记结果</button>`]},
+    {n:'入职安排', desc: a.node==='待入职'? '已确认，等待报到' : (a.node==='已入职'?'已报到':'未开始'),
+      ops:[`<button class="btn xs" onclick="toast('已推进到下一段')">推进</button>`,`<button class="btn xs danger" onclick="toast('已跳票，人员回到人才池')">跳票回池</button>`]},
+    {n:'体检与建档', desc: a.node==='已入职'? '体检通过，档案已建' : '未开始',
+      ops:[`<button class="btn xs" onclick="toast('体检报告已审核')">审核体检</button>`,`<button class="btn xs" onclick="toast('员工档案已建立')">完成建档</button>`]},
+  ];
+  const stepState = i => {
+    const map = {'新入库':0,'已匹配':1,'触达中':2,'补全中':3,'待面试':4,'面试通过':4,'待入职':5,'已入职':6,'已淘汰':1};
+    const cur = map[a.node]||0;
+    return i<cur? 'done' : i===cur? 'now' : 'todo';
+  };
+  const fl = FOLLOWS.filter(f=>f.personId===a.id).sort((x,y)=>y.time.localeCompare(x.time));
+  const others = all.filter(x=>x.id!==a.id);
+  const st = archiveState(p);
+
+  return `
+    <div class="arc-top" style="margin-bottom:12px">
+      <span class="sm"><b>人员</b> ${esc(p.name)} <span class="xs mut">${esc(p.gender)} · ${p.age}岁 · ${esc(p.phone)}</span></span>
+      <span class="sm"><b>岗位</b> <span class="arc-link" onclick="openDemand('${d.id}')">${esc(d.post)}</span></span>
+      <span class="sm"><b>客户</b> ${esc(d.client)}</span>
+      <span class="sm"><b>批次</b> ${a.batchId?esc(B(a.batchId).code):'人才池捞入'}</span>
+      <span class="sm"><b>当前阶段</b> ${nodeB(a.node)}</span>
+      <span class="sm">${statB(a.status)}</span>
+    </div>
+
+    <div class="note i" style="margin-bottom:12px">
+      <b>这一单现在要做：</b>${esc(nx.todo)}
+      <span class="xs mut">（操作都在下面这一段里，做完才进下一段，不会跳过步骤自动判完成）</span>
+    </div>
+
+    <div class="sec"><div class="sec-t">这一单的流程<span class="perm">第 ${Math.min(idx<0?1:idx+1,6)} / 6 段 · 负责人 ${esc(a.owner)}</span></div>
+      <div class="flow">${steps.map((s,i)=>`
+        <div class="flow-item ${stepState(i)}">
+          <div class="fv">${i+1}</div>
+          <div class="fb"><div class="ft"><span class="fn">${s.n}</span>
+            ${stepState(i)==='now'?'<span class="b a">当前</span>':''}</div>
+            <div class="fd">${s.desc}</div>
+            <div class="fops">${stepState(i)==='todo'?'':s.ops.join('')}</div>
+          </div>
+        </div>`).join('')}</div>
+    </div>
+
+    <div class="sec"><div class="sec-t">这一单的联系记录（${fl.length}）</div>
+      ${fl.length? `<div class="tl">${fl.map(f=>`<div class="tl-item hot"><div class="tl-d">${esc(f.time)} · ${esc(f.type)} · ${esc(f.staff)}</div>
+        <div class="tl-t">${esc(f.note)}</div></div>`).join('')}</div>`
+      : '<div class="mut sm">这一单还没有联系记录</div>'}
+      <div class="xs mut" style="margin-top:6px">只列这一单的联系；跨需求的合并时间线在「沟通记录」。</div>
+    </div>
+
+    ${others.length?`<div class="sec"><div class="sec-t">这个人的其他投递（${others.length}）<span class="perm">各走各的，互不影响</span></div>
+      ${others.map(x=>{const dd=D(x.demandId); return `<div class="app-row" onclick="huGo('apply','${x.id}')">
+        <div style="flex:1"><div class="sm"><b>${esc(dd.post)}</b> <span class="xs mut">· ${esc(dd.client)}</span></div>
+          <div class="xs mut mono">${x.batchId?esc(B(x.batchId).code):'人才池捞入'} · ${esc(x.owner)}</div></div>
+        ${tierChip(x.tier)} ${nodeB(x.node)}<span class="link xs">看这一单</span></div>`;}).join('')}
+      <div class="xs mut" style="margin-top:6px">某一次面试没过，不代表这个人在别的需求上也失败。</div>
+    </div>`:''}`;
+}
+function huApplyEmpty(p){
+  return `<div class="empty">这个人还没有任何投递 —— 从人才池「捞入批次」后会生成第一条</div>`;
+}
+
+/* =======================================================================
+   页 4 · 沟通记录（表格）
+   -----------------------------------------------------------------------
+   日期 / 关联需求 / 沟通方式 / 内容摘要 / 记录人 / 附件。
+   建档、上传、转交这些「记录」也在这里（简历页不放它们，但记录不能删）。
+   ======================================================================= */
+function huTalk(p, cs, apps){
+  const pid = huPid(p);
+  const ups = uploadsOf(pid), tr = transfersOf(pid);
+  const apps2 = apps || appsOf(pid);
+  const today = TODAY;
+  const days = t => Math.round((new Date(today+'T00:00:00') - new Date(t.slice(0,10)+'T00:00:00'))/86400000);
+  const last = cs[0], first = cs[cs.length-1];
+  const next = cs.map(c=>c.next).filter(Boolean).sort()[0];
+
+  const cols = [
+    {label:'日期', r:c=>`<div class="sm mono">${esc(c.time)}</div><div class="t-sub">${c.time.slice(0,10)===today?'今天':days(c.time)+' 天前'}</div>`},
+    {label:'关联需求', r:c=>c.demandId?`<div class="sm">${esc(D(c.demandId).post)}</div><div class="t-sub mono">${esc(D(c.demandId).code)}</div>`:'<span class="sm mut">未关联需求</span>'},
+    {label:'沟通方式', r:c=>`<span class="sm">${esc(c.type)}</span><div class="t-sub">${esc(c.purpose||'—')}</div>`},
+    {label:'内容摘要', r:c=>`<div class="sm">${esc(c.concl)}</div>${c.next?`<div class="t-sub">下次跟进 ${esc(c.next.slice(5))}</div>`:''}`},
+    {label:'记录人', r:c=>`<span class="sm">${esc(c.staff)}</span>`},
+    {label:'附件入口', r:c=>`<div class="acts">
+      <span class="link" onclick="toast('这条记录暂无录音 / 截图')">查看</span>
+      <span class="link" onclick="openModal(followModal('${esc(c.appId||pid)}'),'md-lg')">补充</span></div>`},
+    {label:'', r:c=>c.appId?`<span class="link xs" onclick="huAppTo('${c.appId}')">这一单</span>`:''},
+  ];
+
+  return `
+    <div class="arc-top" style="margin-bottom:12px">
+      <span class="sm">共沟通 <b>${cs.length}</b> 次</span>
+      <span class="sm">首次 <b>${first?esc(first.time.slice(5,10)):'—'}</b></span>
+      <span class="sm">最近 <b>${last?days(last.time)+' 天前':'—'}</b></span>
+      <span class="sm">下次跟进 <b>${next?esc(next.slice(5)):'—'}</b></span>
+      <div class="sp"></div>
+      <span class="xs mut">跨投递、跨专员合并</span>
+    </div>
+    ${last && days(last.time)>30 ? `<div class="note w" style="margin-bottom:12px">已 ${days(last.time)} 天未联系${days(last.time)>60?'（超过 60 天，建议回访或回池）':''}</div>`:''}
+
+    ${table(cols, cs, '这个人还没有沟通记录 —— 上面「＋ 新增沟通记录」补一条')}
+    <div class="xs mut" style="margin-top:8px">同一个人被不同专员、在不同需求下聊过，全部合成一条记录 —— 避免下一个人重复问「期望多少薪资」「什么时候能到岗」。附件的录音与截图随记录一起存，没有附件就显示「查看 → 暂无」。</div>
+
+    <div class="sec" style="margin-top:18px"><div class="sec-t">档案记录<span class="perm">建档 / 上传 / 转交，不在简历页</span></div>
+      <div class="xs mut" style="margin-bottom:8px">这些是「记录」，不是简历内容：简历页只放候选人给的东西，记录统一在这里查，一条都不删。</div>
+      <dl class="kv">
+        <div><dt>建档时间</dt><dd class="sm">${esc(p.createdAt)} <span class="xs mut">${days(p.createdAt)} 天前</span></dd></div>
+        <div><dt>建档人</dt><dd class="sm">${esc(p.createdBy)}</dd></div>
+        <div><dt>首次进入方式</dt><dd class="sm">${esc(p.entryMode)}</dd></div>
+        <div><dt>当前跟进人</dt><dd class="sm">${esc(p.follower||p.createdBy)} <span class="xs mut">${p.follower&&p.follower!==p.createdBy?'（已转交，见下）':'（与建档人一致）'}</span></dd></div>
+      </dl>
+      <div class="sec-t" style="margin-top:12px">上传履历（${ups.length} 次）</div>
+      <div class="tl">${ups.map(u=>`<div class="tl-item"><div class="tl-d">${esc(u.time)} · ${esc(u.staff)} · ${esc(u.channel)}</div>
+        <div class="tl-t">第 ${u.ver} 版 · ${esc(u.file)} <span class="xs mut">解析出 ${u.factors} 项</span></div>
+        <div class="xs" style="color:var(--accent2)">${esc(u.diff)}</div></div>`).join('')||'<div class="mut sm">无上传记录</div>'}</div>
+      ${tr.length?`<div class="sec-t" style="margin-top:12px">转交记录（${tr.length}）</div>
+        <div class="tl">${tr.map(t=>`<div class="tl-item"><div class="tl-d">${esc(t.at)}</div>
+          <div class="tl-t">${esc(t.from)} → <b>${esc(t.to)}</b></div>
+          <div class="xs mut">原因：${esc(t.why)}</div></div>`).join('')}</div>
+        <div class="xs mut" style="margin-top:6px">转交历史不可删除；转回自己也算一条。</div>`:''}
+    </div>`;
+}
+
+/* =======================================================================
+   页 5 · 资料核实（岗位对照表格）
+   -----------------------------------------------------------------------
+   核实项目 / 岗位要求 / 已有信息 / 核实结果 / 依据及时间 / 操作。
+   判断规则、三态口径完全沿用原来那一套（没有借改版动算法）。
+   从人员入口进来而没指定需求时，先选一条投递（huVerifyPick）——
+   不指定需求就没有「岗位要求」可对照，硬判就成了猜。
+   ======================================================================= */
+function huVerifyPage(p){
+  const pid = huPid(p);
+  const apps = appsOf(pid).filter(a=>a.status==='跟进中');
+  const all = apps.length ? apps : appsOf(pid);
+  if(!HU.demandId && all.length > 1) return huVerifyPick(p, all);
+  const a = HU.demandId ? (appsOf(pid).find(x=>x.demandId===HU.demandId) || all[0] || null) : (all[0]||null);
+  const dm = a ? D(a.demandId) : null;
+  return `
+    <div class="arc-top" style="margin-bottom:12px">
+      <span class="sm"><b>当前需求</b> ${dm?esc(dm.post):'未关联需求'}</span>
+      ${dm?`<span class="sm mono">${esc(dm.code)}</span>`:''}
+      ${dm?`<span class="sm"><b>客户</b> ${esc(dm.client)}</span>`:''}
+      ${dm?`<span class="sm"><b>生效版本</b> ${esc((activeVer(dm)||{}).v || '—')}</span>`:''}
+      ${a?`<span class="sm"><b>批次</b> ${a.batchId?esc(B(a.batchId).code):'人才池捞入'}</span>`:''}
+      <div class="sp"></div>
+      ${all.length>1?`<span class="link xs" onclick="huGo('verify')">换一条投递</span>`:''}
+    </div>
+    ${huVerify(p)}
+  `;
+}
+function huVerifyPick(p, apps){
+  return `
+    <div class="note i" style="margin-bottom:12px">
+      <b>资料核实是按岗位对照的，先选一条投递。</b>
+      同一个人投了几个需求，每个岗位要求的证书、城市、到岗时间可能都不一样 ——
+      不指定需求就判「符合 / 不符合」，等于替他猜岗位。
+    </div>
+    ${table([{label:'需求 / 岗位', r:a=>`<div class="sm"><b>${esc(D(a.demandId).post)}</b></div><div class="t-sub mono">${esc(D(a.demandId).code)}</div>`},
+      {label:'客户', r:a=>esc(D(a.demandId).client)},
+      {label:'当前阶段', r:a=>nodeB(a.node)},
+      {label:'批次', r:a=>a.batchId?esc(B(a.batchId).code):'人才池捞入'},
+      {label:'操作', r:a=>`<span class="link" onclick="huGo('verify','${a.id}','${a.demandId}')">按这个岗位核实</span>`}], apps)}`;
+}
+
+function huVerify(p){
+  const pid = huPid(p);
+  const v = verifyOf(pid);
+  const certs = v.certs || [], c = v.city || {}, a = v.arrive || {}, n = v.night || {};
+  const cs = cityStateOf(p);
+  const certState = certs.some(x=>x.state==='ok') ? 'ok' : certs.some(x=>x.state==='no') ? 'no' : 'pend';
+  const gaps = [];
+  if(cs.st === 'pend') gaps.push('愿意工作城市');
+  if(!(a.date && a.state==='已确认')) gaps.push('可到岗时间');
+  if(n.state !== '已确认愿意' && n.state !== '已确认不愿') gaps.push('夜班意愿');
+  if(!certs.some(x=>x.state==='ok')) gaps.push('已核验的证书');
+
+  /* 当前投递对应需求的生效版本（与匹配页同一口径，不能读本单待确认值） */
+  const curApp = (HU.appId && P(HU.appId)) ? P(HU.appId) : (appsOf(pid)[0] || null);
+  const dm = curApp ? D(curApp.demandId) : null;
+  const g = dm ? gateOf(dm) : {};
+  const arriveBy = String(g.arriveBy || '').match(/\d{4}-\d{2}-\d{2}/) ? String(g.arriveBy).match(/\d{4}-\d{2}-\d{2}/)[0] : '';
+  const av = dm ? activeVer(dm) : null;
+  const avTag = av ? `（生效 ${av.v}）` : '';
+  const dv = (String(a.date || '').match(/\d{4}-\d{2}-\d{2}/) || [])[0] || '';
+  const late = !!(dv && arriveBy && a.state === '已确认' && dv > arriveBy);
+  const arrSt = late ? 'no' : (a.state === '已确认' ? 'ok' : 'pend');
+  const arriveNote = late
+    ? `候选人确认的可到岗日期 ${dv} <b>晚于</b>需求（${esc(dm.post)}）生效版本${avTag}要求的最晚报到日 ${arriveBy}，按日期依据判为<b>已确认不符合</b>。`
+    : (a.state === '已确认' ? '' : '没有候选人确认的时间就不算可到岗，与是否有进行中投递无关');
+
+  const cityNeed = cs.dm ? `客户岗位所在城市 ${cs.need}（需求 ${cs.dm.post}）` : '客户岗位所在城市';
+  const cityNote = cs.st === 'no'
+    ? `客户岗位地点为 ${cs.need}，候选人明确不愿去该地，按依据判为已确认不符合`
+    : cs.st === 'ok' ? ''
+    : (cs.c.wantState === '已确认' ? '意愿已确认，但缺少对应需求的地点条件，暂不可判定' : '意愿缺失时一律待确认，不按现居地推断');
+
+  const act = (label) => `<div class="acts">
+    <span class="link" onclick="toast('打开${label}材料（演示）')">查看</span>
+    <span class="link" onclick="openModal(followModal('${esc(pid)}','archive'),'md-lg')">补充</span></div>`;
+
+  const certRow = certs.length
+    ? certs.map(x=>[
+        `作业证书 <span class="xs mut">${esc(x.name)}</span>`,
+        '客户要求的有效证件 <div class="t-sub">技术职称（技师 / 高级技师 / 工程师）不等于作业证书</div>',
+        `${esc(x.name)}${x.ev?`<div class="t-sub">${esc(x.ev)}</div>`:''}`,
+        tri(x.state),
+        `${esc(x.src||'—')}${x.at&&x.at!=='—'?`<div class="t-sub">${esc(x.at)}</div>`:''}${x.state==='ok'?'<div class="t-sub">已核验证件有效</div>':''}`,
+        act('证书')
+      ])
+    : [[
+        `作业证书 <span class="xs mut">无证书记录</span>`,
+        '客户要求的有效证件 <div class="t-sub">技术职称（技师 / 高级技师 / 工程师）不等于作业证书</div>',
+        '<span class="mut">无</span><div class="t-sub">技能栏出现「电工」「电工证书」等词，<b>不得</b>据此判定持证</div>',
+        tri('pend'),
+        '—<div class="t-sub">证据不足，未核验前不得视为持证</div>',
+        act('证书')
+      ]];
+
+  const rows = [
+    ...certRow,
+    [
+      '愿意工作城市',
+      esc(cityNeed),
+      `${esc(cs.want.length?cs.want.join('、'):'未确认')}<div class="t-sub">现居 ${esc(c.live||'—')}（人员资料，不替代工作意愿）</div>`,
+      tri(cs.st),
+      `${esc(cs.c.src||'—')}${cs.c.at&&cs.c.at!=='—'?`<div class="t-sub">${esc(cs.c.at)}</div>`:''}${cityNote?`<div class="t-sub">${cityNote}</div>`:''}`,
+      act('城市意愿')
+    ],
+    [
+      '可到岗日期',
+      dm?`需求最晚报到日 ${esc(arriveBy||'—')}${avTag}`:'需求最晚报到日',
+      esc(a.date||'未确认'),
+      tri(arrSt),
+      `${esc(a.src||'—')}${a.at&&a.at!=='—'?`<div class="t-sub">${esc(a.at)}</div>`:''}${arriveNote?`<div class="t-sub">${arriveNote}</div>`:''}`,
+      act('到岗')
+    ],
+    [
+      '夜班意愿',
+      '客户班制',
+      esc(n.state||'未确认'),
+      tri(n.state==='已确认愿意'?'ok':n.state==='已确认不愿'?'no':'pend'),
+      `${esc(n.src||'—')}${n.at&&n.at!=='—'?`<div class="t-sub">${esc(n.at)}</div>`:''}${n.state==='已确认不愿'?'<div class="t-sub">候选人明确拒绝，属已确认不符合</div>':''}`,
+      act('夜班')
+    ],
+  ];
+  const cols = ['核实项目','岗位要求','已有信息','核实结果','依据及时间','操作'];
+  const tbl = `<div class="tbl-wrap hu-tbl"><table><thead><tr>${cols.map(x=>`<th>${x}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r=>`<tr>${r.map((cell,i)=>`<td${i===0?' class="sm"':''}>${cell}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+
+  return `
+    <div class="xs mut" style="margin-bottom:8px">
+      核实依据只记<b>客户明示的硬条件</b>，每条都要有来源。现居地属于人员资料，<b>不</b>推断异地意愿；投递状态<b>不</b>推断可到岗；岗位没有要求的项目不强行给「符合」。
+    </div>
+    ${tbl}
+
+    ${(VER_CONFLICT[p.name]||[]).length?`<div class="sec" style="margin-top:16px"><div class="sec-t">信息冲突<span class="perm">待核实</span></div>
+      ${VER_CONFLICT[p.name].map(x=>`<div class="note r"><b>${esc(x.need)}</b><br>
+        · ${esc(x.a)}<br>· ${esc(x.b)}<br><span class="xs">两条记录不一致，暂按「信息待确认」处理，不静默选取有利值。</span></div>`).join('')}
+    </div>`:''}
+
+    <div class="sec" style="margin-top:16px"><div class="sec-t">信息缺口（${gaps.length}）</div>
+      ${gaps.length ? `<div class="sm">${gaps.map(g2=>`<span class="b w" style="margin:0 6px 6px 0">${esc(g2)}</span>`).join('')}</div>
+        <div class="note" style="margin-top:8px">缺口不会被自动当作「符合」或「不符合」，在匹配里统一显示为<b>信息待确认</b>。</div>`
+        : `<div class="sm">硬条件依据齐全，可进入匹配判断。</div>`}
+    </div>`;
+}
+
+/* ---------- 愿意工作城市的三态（R5 / RG-004 · 第三项） ----------
    「意愿已确认」只说明问过了，**不等于**「符合本岗位地点」：必须与当前查看的这次投递
    对应需求的**生效版本**地点比对，与 assessPerson 第 3 项同一口径。
-   否则同一人会在匹配页判不符合、在核实依据页判符合，两处结论相反。 */
+   否则同一人会在匹配页判不符合、在核实页判符合，两处结论相反。 */
 function cityStateOf(p){
-  const pid = p.personId || p.id;
+  const pid = huPid ? (p.personId || p.id) : p.id;
   const c = (verifyOf(pid) || {}).city || {};
-  /* 优先用当前查看的这次投递；HU.appId 属于别人时退回本档案的第一条投递，
-     避免直接在函数里渲染他人档案时拿错需求地点 */
   const huApp = (HU.appId && P(HU.appId)) ? P(HU.appId) : null;
-  const curApp = (huApp && huApp.personId === pid) ? huApp : (appsOf(pid)[0] || null);
+  const curApp = (huApp && huApp.personId === pid) ? huApp
+    : (HU.demandId ? (appsOf(pid).find(a=>a.demandId===HU.demandId) || null) : null)
+    || (appsOf(pid)[0] || null);
   const dm = (curApp && curApp.demandId) ? D(curApp.demandId) : null;
   const need = (dm && (gateOf(dm) || {}).city) || '';
   const want = c.want || [];
@@ -317,275 +707,13 @@ function cityStateOf(p){
   }
   return { c, want, need, dm, st };
 }
-
-function huVerify(p){
-  const v = verifyOf(p.id);
-  const certs = v.certs || [], c = v.city || {}, a = v.arrive || {}, n = v.night || {};
-  const cs = cityStateOf(p);
-  const certState = certs.some(x=>x.state==='ok') ? 'ok' : certs.some(x=>x.state==='no') ? 'no'
-    : certs.length ? 'pend' : 'pend';
-  const gaps = [];
-  if(cs.st === 'pend') gaps.push('愿意工作城市');
-  if(!(a.date && a.state==='已确认')) gaps.push('可到岗时间');
-  if(n.state !== '已确认愿意' && n.state !== '已确认不愿') gaps.push('夜班意愿');
-  if(!certs.some(x=>x.state==='ok')) gaps.push('已核验的证书');
-
-  const row = (label, state, need, got, src, ev, at, note) => `
-    <div class="tri-row">
-      <div class="tr-l"><b>${esc(label)}</b><div class="xs mut">要求：${esc(need)}</div></div>
-      <div class="tr-v">${tri(state)}<div class="sm" style="margin-top:3px">${esc(got)}</div>
-        <div class="tr-n">${src?`来源：${esc(src)}`:'来源：—'}${ev?` · 原文：${esc(ev)}`:''}${at&&at!=='—'?` · 确认于 ${esc(at)}`:''}
-        ${note?`<br>${esc(note)}`:''}</div></div>
-    </div>`;
-
-  return `
-  <div class="note" style="margin-bottom:14px">核实依据只记录<b>客户明示的硬条件</b>，每条都要有来源。技能关键词<b>不等于</b>持证；现居地<b>不推断</b>异地意愿；投递状态<b>不推断</b>可到岗。</div>
-
-  <div class="sec"><div class="sec-t">证书<span class="perm">独立字段 · 需核验</span></div>
-    <div class="xs mut" style="margin-bottom:9px">只记<b>作业证书</b>（低压电工证、焊工证、特种设备作业证等）。
-      职称（技师 / 高级技师 / 工程师）是等级评定，<b>不等于</b>作业证书，不写在这一栏，也不据此判为持证。</div>
-    ${certs.length ? certs.map(x=>row(x.name, x.state, '客户要求的有效证件', 
-        x.state==='ok'?'已核验证件有效':x.state==='no'?'候选人明确表示不满足':'待核验',
-        x.src, x.ev, x.at, x.state==='pend'?'证据不足，未核验前不得视为持证':'' )).join('')
-      : `<div class="tri-row"><div class="tr-l"><b>无证书记录</b><div class="xs mut">要求：按岗位</div></div>
-          <div class="tr-v">${tri('pend')}<div class="sm" style="margin-top:3px">没有可核验的证书</div>
-          <div class="tr-n">技能栏出现「电工」「电工证书」等词，<b>不得</b>据此判定持证；需索要证件照片并核验。</div></div></div>`}
-    ${v.certNote?`<div class="note w" style="margin-top:8px">${esc(v.certNote)}</div>`:''}
-  </div>
-
-  <div class="sec"><div class="sec-t">工作城市<span class="perm">现居 ≠ 愿意去</span></div>
-    ${row('现居地', c.liveState==='已核实'?'ok':'pend', '—', c.live||'—', c.src, '', c.at, '现居地本身不做匹配依据')}
-    ${(()=>{
-      /* 与当前投递对应需求生效版本的地点比对（同 assessPerson 第三项），
-         不能只看「意愿已确认」——那会把「问了，说只在深圳、惠州」显示成符合东莞。 */
-      const neeNeed = cs.dm ? `客户岗位所在城市 ${cs.need}（需求 ${cs.dm.post}）` : '客户岗位所在城市';
-      const got = cs.want.length ? cs.want.join('、') : '未确认';
-      const note = cs.st === 'no'
-        ? `客户岗位地点为 ${cs.need}，候选人明确不愿去该地，按依据判为已确认不符合`
-        : cs.st === 'ok' ? ''
-        : (cs.c.wantState === '已确认'
-            ? '意愿已确认，但缺少对应需求的地点条件，暂不可判定'
-            : '意愿缺失时一律待确认，不按现居地推断');
-      return row('愿意工作城市', cs.st, neeNeed, got, cs.c.src, '', cs.c.at, note);
-    })()}
-  </div>
-
-  <div class="sec"><div class="sec-t">可到岗时间<span class="perm">须候选人确认</span></div>
-    ${(()=>{
-      /* 与当前查看的这次投递对应需求比对最晚报到日（第 7 项）；没有投递记录时退回最近一次投递。
-         必须读**生效版本**的到岗日（gateOf），不能读本单调整里的待确认值（effVal）——
-         否则同一人在匹配页判不符合、在核实依据页判符合，两处结论相反（R4）。 */
-      const curApp = (HU.appId && P(HU.appId)) || appsOf(p.id)[0] || null;
-      const dm = curApp ? D(curApp.demandId) : null;
-      const g = dm ? gateOf(dm) : {};
-      const need = String(g.arriveBy || '').match(/\d{4}-\d{2}-\d{2}/)
-        ? String(g.arriveBy).match(/\d{4}-\d{2}-\d{2}/)[0] : '';
-      const av = dm ? activeVer(dm) : null;
-      const avTag = av ? `（生效 ${av.v}）` : '';
-      const dv = (String(a.date || '').match(/\d{4}-\d{2}-\d{2}/) || [])[0] || '';
-      const late = !!(dv && need && a.state === '已确认' && dv > need);
-      const st = late ? 'no' : (a.state === '已确认' ? 'ok' : 'pend');
-      const got = a.date ? a.date + ' 起可到岗' : '未确认';
-      const note = late
-        ? `候选人确认的可到岗日期 ${dv} <b>晚于</b>需求（${esc(dm.post)}）生效版本${avTag}要求的最晚报到日 ${need}，按日期依据判为<b>已确认不符合</b>。`
-        : (a.state === '已确认' ? '' : '没有候选人确认的时间就不算可到岗，与是否有进行中投递无关');
-      return row('可到岗日期', st, dm ? `需求最晚报到日 ${need || '—'}${avTag}` : '需求最晚报到日', got, a.src, '', a.at, note);
-    })()}
-  </div>
-
-  <div class="sec"><div class="sec-t">夜班意愿</div>
-    ${row('夜班', n.state==='已确认愿意'?'ok':n.state==='已确认不愿'?'no':'pend', '客户班制',
-        n.state||'未确认', n.src, '', n.at, n.state==='已确认不愿'?'候选人明确拒绝，属已确认不符合':'')}
-  </div>
-
-  ${(VER_CONFLICT[p.name]||[]).length?`<div class="sec"><div class="sec-t">信息冲突<span class="perm">待核实</span></div>
-    ${VER_CONFLICT[p.name].map(x=>`<div class="note r"><b>${esc(x.need)}</b><br>
-      · ${esc(x.a)}<br>· ${esc(x.b)}<br><span class="xs">两条记录不一致，暂按「信息待确认」处理，不静默选取有利值。</span></div>`).join('')}
-  </div>`:''}
-
-  <div class="sec"><div class="sec-t">信息缺口（${gaps.length}）</div>
-    ${gaps.length ? `<div class="sm">${gaps.map(g=>`<span class="b w" style="margin:0 6px 6px 0">${esc(g)}</span>`).join('')}</div>
-      <div class="note" style="margin-top:8px">缺口不会被自动当作「符合」或「不符合」，在匹配里统一显示为<b>信息待确认</b>。</div>`
-      : `<div class="sm">硬条件依据齐全，可进入匹配判断。</div>`}
-  </div>`;
-}
-
-/* ---------- 页签 3 · 人才画像 ---------- */
-function huPortrait(p){
-  const pts = ptOf(p.id);
-  const dims = ['稳定性','意向','履约','适配','风险'];
-  const stale = t => (new Date(TODAY) - new Date(t.updated.slice(0,10)))/86400000 > 90;
-  return `
-    <div class="note" style="margin-bottom:14px">
-      <b>画像 = 我们对这个人的判断，不是他填的简历。</b><br>
-      候选人看不到这一页；标签只写<b>可验证的行为</b>，不写主观评价，每条都能追溯到一次沟通。
-    </div>
-
-    <div class="sec"><div class="sec-t">事实层（与简历同源）</div>
-      <dl class="kv">
-        <div><dt>技能</dt><dd class="sm">${p.skills.map(esc).join(' / ')}</dd></div>
-        <div><dt>期望薪资</dt><dd class="sm">${esc(p.expect||'32-36 元/时')}</dd></div>
-        <div><dt>可到岗</dt><dd class="sm">${esc(p.arrive||'随时')}</dd></div>
-        <div><dt>资料完整度</dt><dd class="sm">${p.complete}%</dd></div>
-      </dl>
-    </div>
-
-    <div class="sec"><div class="sec-t">判断层（AI 推断 + 专员确认）<span class="perm">内部全员可见</span></div>
-      ${dims.map(d=>{
-        const list = pts.filter(t=>t.dim===d);
-        if(!list.length) return '';
-        return `<div class="pt-dim"><div class="pt-dim-n">${d}</div>
-          ${list.map(t=>`<div class="pt-tag ${d==='风险'?'risk':''} ${stale(t)?'stale':''}">
-            <div class="pt-h"><b>${esc(t.val)}</b>
-              <span class="pt-conf c${t.conf==='高'?'h':t.conf==='中'?'m':'l'}">${esc(t.conf)}置信</span>
-              ${stale(t)?'<span class="b n">已过期</span>':''}</div>
-            <div class="pt-b">${esc(t.basis)}</div>
-            <div class="pt-m">来源 ${esc(t.src)} · ${esc(t.by)} 确认 · 更新 ${esc(t.updated.slice(5,10))}</div>
-          </div>`).join('')}
-        </div>`;
-      }).join('')}
-      <div class="note" style="margin-top:9px"><b>风险标签对内部全员开放</b>（含管理员、招聘专员、客户负责人）——推荐时同步显示「曾被谁淘汰、为什么」，避免同一人被反复推给同一个客户。对外（候选人、客户正式材料）一律不出示。</div>
-    </div>
-
-    <div class="sec"><div class="sec-t">证据层</div>
-      <div class="sm mut">每个判断都挂到具体沟通，点标签可回看原文与录音片段；超过 90 天未更新自动标灰「已过期」。</div>
-      ${contactsOf(p.id).slice(0,3).map(c=>`<div class="ev-row">
-        <span class="xs mono mut">${esc(c.time.slice(5))}</span>
-        <span class="sm">${esc(c.purpose)} · ${esc(c.concl)}</span>
-        <span class="link xs" onclick="openModal(followModal('${p.id}','archive'),'md-lg')">回听</span></div>`).join('')}
-    </div>
-
-    <div class="sec"><div class="sec-t">合规</div>
-      <div class="note r">画像判断<b>仅辅助人工决策</b>，不得作为自动淘汰依据；不得对候选人展示或外发。</div>
-      <div class="note" style="margin-top:6px">录音/截图：<b>长期保留</b>（本期不做自动清理）；候选人明确要求删除时按删除申请处理。录音仅内部使用，不得外发。</div>
-    </div>`;
-}
-
-/* ---------- 页签 3 · 本次投递 ---------- */
-/* 一个人可以同时投多个需求：每条投递各自计分、各自推进、各自记联系。
-   所以这里不再「切一单」，而是把 N 条全部列出来、每条一个可折叠块：
-   收着时只看关键字段（岗位 / 客户 / 档位 / 节点 / 状态 / 分 / 负责人 / 编码），
-   需要操作时点标题展开。默认展开地址里那一单（app=），收起状态也不会被重画弹开。 */
-function huApply(p){
-  /* 在跟进中的排前面 —— 结束掉的（无意向/已淘汰）不用抢第一条的位置 */
-  const apps = appsOf(p.id).slice().sort((x,y)=>(x.status==='跟进中'?0:1)-(y.status==='跟进中'?0:1));
-  if(!apps.length) return `<div class="empty">这个人还没有任何投递 —— 从人才池「捞入批次」后会生成第一条</div>`;
-  const ids = huOpenMap(p.id, apps);
-  const actId = HU.appId || apps[0].id;
-
-  const one = a => {
-    const idx = NODES.indexOf(a.node);
-    const steps = [
-      {n:'匹配', desc: a.tier? `档位 ${a.tier} · ${a.score} 分 · 已通过硬门槛` : '尚未运行匹配',
-        ops:[`<button class="btn xs" onclick="toast('已重算，档位 ${a.tier||'B'}')">重算</button>`,`<button class="btn xs" onclick="toast('打开逐维度依据')">看依据</button>`]},
-      {n:'触达', desc: a.lastContact==='—'? '尚未联系' : `上次 ${a.lastContact.slice(5)} · ${a.lastType}`,
-        ops:[`<button class="btn xs" onclick="openModal(followModal('${a.id}'))">记录联系</button>`,`<button class="btn xs danger" onclick="toast('已标为无意向，人员回到人才池')">标无意向</button>`]},
-      {n:'补全复核', desc: a.node==='补全中'? '已发链接，等待提交' : (idx>=3? '已复核通过' : '未开始'),
-        ops:[`<button class="btn xs" onclick="toast('补全链接已发送 → 候选人 APP 收到一条待办')">发补全链接</button>`,
-          `<button class="btn xs" onclick="copyFillLink('${a.personId}')">复制链接</button>`,
-          `<button class="btn xs" onclick="toast('复核通过，12 项因子已更新')">复核通过</button>`]},
-      {n:'面试', desc: ['待面试','面试通过'].includes(a.node)? (a.node==='面试通过'?'客户已确认通过':'已约面试，等待到面') : '未提报',
-        ops:[`<button class="btn xs" onclick="toast('已提报客户，等待排期')">提报面试</button>`,`<button class="btn xs" onclick="toast('已登记面试结果')">登记结果</button>`]},
-      {n:'入职安排', desc: a.node==='待入职'? '已确认，等待报到' : (a.node==='已入职'?'已报到':'未开始'),
-        ops:[`<button class="btn xs" onclick="toast('已推进到下一段')">推进</button>`,`<button class="btn xs danger" onclick="toast('已跳票，人员回到人才池')">跳票回池</button>`]},
-      {n:'体检与建档', desc: a.node==='已入职'? '体检通过，档案已建' : '未开始',
-        ops:[`<button class="btn xs" onclick="toast('体检报告已审核')">审核体检</button>`,`<button class="btn xs" onclick="toast('员工档案已建立')">完成建档</button>`]},
-    ];
-    const stepState = i => {
-      const map = {'新入库':0,'已匹配':1,'触达中':2,'补全中':3,'待面试':4,'面试通过':4,'待入职':5,'已入职':6,'已淘汰':1};
-      const cur = map[a.node]||0;
-      return i<cur? 'done' : i===cur? 'now' : 'todo';
-    };
-    const fl = FOLLOWS.filter(f=>f.personId===a.id).sort((x,y)=>y.time.localeCompare(x.time));
-    const d = D(a.demandId);
-    const open = !!ids[a.id];
-    const on = a.id === actId;
-
-    return `
-    <div class="acc ${open?'open':''}" data-app="${esc(a.id)}">
-      <div class="acc-hd" onclick="huAppFold('${a.id}')" title="点标题${open?'收起':'展开'}这一单">
-        <span class="acc-arw">▶</span>
-        <b class="acc-post">${esc(d.post)}</b>
-        <span class="xs mut">${esc(d.client)} · ${esc(d.project)}</span>
-        ${on?'<span class="b a">当前</span>':''}
-        ${tierChip(a.tier)} ${nodeB(a.node)} ${statB(a.status)}
-        <span class="xs mut">匹配分 ${a.score}</span>
-        <span class="xs mut">负责人 ${esc(a.owner)}</span>
-        <div class="sp"></div>
-        <span class="acc-code">${esc(d.code)}</span>
-        <span class="acc-tog">${open?'收起 ▴':'展开 ▾'}</span>
-      </div>
-      ${open?`<div class="acc-bd">
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <b class="arc-link" onclick="openDemand('${a.demandId}')">${esc(d.post)}</b>
-          <span class="xs mut mono">${esc(d.code)} · ${a.batchId?esc(B(a.batchId).code):'人才池捞入'} · 负责人 ${esc(a.owner)}</span>
-          <div class="sp"></div>
-          <button class="btn xs" onclick="openModal(transferModal('${esc(p.id)}'))">转交这一单</button>
-        </div>
-
-        <div class="sec-t" style="margin-top:13px">进度（每个节点都能操作）</div>
-        <div class="flow">${steps.map((s,i)=>`
-          <div class="flow-item ${stepState(i)}">
-            <div class="fv">${i<stepState(0)?'':i+1}</div>
-            <div class="fb"><div class="ft"><span class="fn">${s.n}</span>
-              ${stepState(i)==='now'?'<span class="b a">当前</span>':''}</div>
-              <div class="fd">${s.desc}</div>
-              <div class="fops">${stepState(i)==='todo'? '':s.ops.join('')}</div>
-            </div>
-          </div>`).join('')}</div>
-
-        <div class="sec-t">这一单的联系记录（${fl.length}）</div>
-        ${fl.length? `<div class="tl">${fl.map(f=>`<div class="tl-item hot"><div class="tl-d">${f.time} · ${f.type} · ${esc(f.staff)}</div>
-          <div class="tl-t">${esc(f.note)}</div></div>`).join('')}</div>`
-        : '<div class="mut sm">这一单还没有联系记录</div>'}
-      </div>`:''}
-    </div>`;
-  };
-
-  const actN = apps.filter(a=>a.status==='跟进中').length;
-  return `
-    <div class="sec">
-      <div class="sec-t">本次投递 · 共 ${apps.length} 个需求${apps.length>1?`<span class="perm">跟进中 ${actN} · 已结束 ${apps.length-actN}</span>`:''}</div>
-      ${apps.length>1?`<div class="xs mut" style="margin:-3px 0 10px">同一个人在不同需求下各有一单，分数、节点、负责人、联系记录互不影响。点标题展开或收起。</div>`:''}
-      <div class="acc-list">${apps.map(one).join('')}</div>
-    </div>`;
-}
-
-/* ---------- 页签 4 · 沟通记录 ---------- */
-function huTalk(p, cs, apps){
-  const today = TODAY;
-  const days = t => Math.round((new Date(today+'T00:00:00') - new Date(t.slice(0,10)+'T00:00:00'))/86400000);
-  const last = cs[0], first = cs[cs.length-1];
-  const next = cs.map(c=>c.next).filter(Boolean).sort()[0];
-  const tr = transfersOf(p.id);
-  return `
-    <div class="sec"><div class="sec-t">汇总</div>
-      <div class="talk-sum">
-        <div><b>${cs.length}</b><span>共沟通</span></div>
-        <div><b>${first?first.time.slice(5,10):'—'}</b><span>首次</span></div>
-        <div><b>${last?days(last.time)+' 天前':'—'}</b><span>最近一次</span></div>
-        <div><b>${next?next.slice(5):'—'}</b><span>下次跟进</span></div>
-      </div>
-      ${last && days(last.time)>30 ? `<div class="note w" style="margin-top:10px">已 ${days(last.time)} 天未联系${days(last.time)>60?'（超过 60 天，建议回访或回池）':''}</div>`:''}
-    </div>
-
-    <div class="sec"><div class="sec-t">时间线（跨投递、跨专员合并）</div>
-      <div class="note" style="margin-bottom:10px">同一个人被不同专员、在不同需求下聊过，全部合成一条时间线——避免下一个人重复问“期望多少薪资”“什么时候能到岗”。</div>
-      <div class="tl">${cs.map(c=>`<div class="tl-item ${c.time.slice(0,10)===today?'hot':''}">
-        <div class="tl-d">${esc(c.time)} · ${esc(c.type)} · ${esc(c.staff)}${c.demandId?' · '+esc(D(c.demandId).post):' · 未关联需求'}</div>
-        <div class="tl-t"><span class="b a" style="margin-right:6px">${esc(c.purpose)}</span>${esc(c.concl)}</div>
-        <div class="xs mut" style="margin-top:2px">${c.next?'下次跟进 '+esc(c.next.slice(5)):'未设下次跟进'}
-          ${c.appId?` · <span class="link" onclick="huAppTo('${c.appId}')">这次对应的投递</span>`:''}</div>
-      </div>`).join('')||'<div class="mut sm">暂无沟通记录</div>'}</div>
-    </div>
-
-    ${tr.length?`<div class="sec"><div class="sec-t">转交记录（${tr.length}）</div>
-      <div class="tl">${tr.map(t=>`<div class="tl-item"><div class="tl-d">${esc(t.at)}</div>
-        <div class="tl-t">${esc(t.from)} → <b>${esc(t.to)}</b></div>
-        <div class="xs mut">原因：${esc(t.why)}</div></div>`).join('')}</div>
-      <div class="xs mut" style="margin-top:6px">转交历史不可删除；转回自己也算一条。</div>
-    </div>`:''}`;
-}
+/* 按姓名索引：同一手机号重复投递复用同一档案 id，硬编码 PE00X 会错位 */
+const VER_CONFLICT = {
+  '马长青':[{need:'电工特种作业操作证是否在有效期',
+          a:'简历技能栏写「电工证书」', b:'2026-11-13 电话：「证过期了，正在复审」'}],
+  '陈志强':[{need:'低压电工证证件信息是否可辨',
+          a:'简历附件上传了证书照片', b:'照片模糊，证件号与发证日期看不清'}],
+};
 
 /* ---------- 转交跟进 ---------- */
 function transferModal(pid){
@@ -705,7 +833,7 @@ function aiListHtml(r){
       ${list.map(x=>`<div class="ai-row">
         <input type="checkbox" class="ai-ck" ${AI.picked[x.p.id]?'checked':''} onchange="aiPick('${x.p.id}',this.checked)">
         <div style="flex:1;min-width:0">
-          <div class="sm"><b class="arc-link" onclick="openArchive('${x.p.id}','portrait')">${esc(x.p.name)}</b>
+          <div class="sm"><b class="arc-link" onclick="openArchive('${x.p.id}','profile')">${esc(x.p.name)}</b>
             <span class="xs mut">${x.p.age}岁 · ${esc(x.p.channel)} · ${x.p.complete}%</span>
             ${x.bad?`<span class="b w" title="推荐时带避坑提示">避坑</span>`:''}</div>
           <div class="xs mut">${x.hit.length?`命中 ${esc(x.hit.join('、'))}`:''}${x.short?' · '+esc(x.short):''}</div>

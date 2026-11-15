@@ -847,3 +847,20 @@ select.ed-in{padding:0 4px;cursor:pointer}
 /* 宽抽屉（确认单 / 版本 / 匹配详情） */
 .drawer.wide{width:min(980px,96vw)}
 
+
+/* ===== 人员五页（2026-11-15 第八批）=====
+   页签栏删掉后，页面之间靠这一行文字链接串起来；
+   表格里的「更多」是行内展开行，不用浮层，不会被横向滚动裁掉。 */
+.hu-links{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-2px 0 14px;padding:8px 12px;
+  background:var(--card2);border:1px solid var(--line);border-radius:var(--r2);font-size:14px}
+.hu-links .link{color:var(--accent)}
+.hu-dot{color:var(--ink4);margin:0 2px}
+.hu-page .sec{margin-bottom:16px}
+.hu-tbl table{font-size:14px}
+.hu-tbl th{white-space:nowrap}
+.hu-tbl td{vertical-align:top;line-height:1.6}
+.hu-tbl td:first-child{white-space:nowrap}
+.row-more>td{background:var(--card2);border-top:none;padding:0}
+.more-row{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:9px 16px;font-size:14px}
+.more-row .link{color:var(--accent)}
+.acts .link.on{font-weight:500;color:var(--ink)}

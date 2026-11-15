@@ -321,15 +321,9 @@ function routeHash(){
   }
   /* 批次人员：整页不是抽屉，地址 #batch/<id>/persons（2026-11-15 第七批） */
   if(S.page === 'batchPersons') return `#batch/${encodeURIComponent(BP.id||'')}/persons`;
-  if(S.page === 'personDetail'){
-    const tab = (HU && huTabOk(HU.tab)) ? HU.tab : 'resume';
-    /* 同一人可能有多条投递（例如 P1 与 P42 同人、分别投 D1 与 D7）。
-       只写人员编号的话，刷新后「本次投递」会被 HU.appId=null 冲回第一条。
-       默认投递（第一条）不写，避免地址噪音；非默认的把投递标识带上。 */
-    const first = (HU.pid ? appsOf(HU.pid) : [])[0];
-    const appQ = (HU.appId && (!first || first.id !== HU.appId)) ? `&app=${encodeURIComponent(HU.appId)}` : '';
-    return `#person/${encodeURIComponent(HU.pid||'')}/detail?tab=${tab}${appQ}`;
-  }
+  /* 人员：五个业务页各自一个地址（2026-11-15 第八批）。
+     投递跟进必须带投递标识 —— 同一人两条投递只写人员编号，刷新就会被冲回第一条。 */
+  if(S.page === 'personDetail') return huHash();
   if(S.page === 'custreqRaw'){
     return `#custreq/${encodeURIComponent(CR.cid||'')}/raw?item=${encodeURIComponent(CR.item||'')}`;
   }
@@ -383,18 +377,41 @@ function applyHash(){
     S.page = 'batchPersons';
     return true;
   }
+  /* 人员：五个业务页
+       #person/<pid>/resume | profile | logs          三个固定页
+       #person/<pid>/verify?demand=<did>              资料核实可带需求
+       #person/<pid>/apply/<appId>                    投递跟进=一条投递一个地址
+     旧地址 #person/<pid>/detail?tab=xxx 仍然认（按 HU_TAB_MAP 映射），
+     已经发出去的链接不该因为改版就打不开。 */
   if(seg[0] === 'person' && seg[1]){
     if(!pageOkForRole('personDetail')) return false;
     const sp = new URLSearchParams(qs || '');
-    const t = sp.get('tab');
-    HU.pid = seg[1];
-    HU.tab = huTabOk(t) ? t : 'resume';
-    /* 投递标识从地址恢复并校验归属：app 必须属于这个人，否则回落默认投递，
-       不能让刷新把「正在处理的这一单」静默换成另一单。 */
-    const app = sp.get('app');
-    const apps = appsOf(HU.pid);
-    HU.appId = (app && apps.some(a=>a.id===app)) ? app : ((apps[0]||{}).id || null);
+    const pid = seg[1];
+    HU.pid = pid;
+    const apps = appsOf(pid);
+    let view = seg[2] || 'resume';
+    let appId = '';
+    if(view === 'detail'){                       /* 兼容旧地址 */
+      view = HU_TAB_MAP[sp.get('tab')] || 'resume';
+      appId = sp.get('app') || '';
+    } else if(view === 'apply'){
+      appId = seg[3] || sp.get('app') || '';
+    }
+    HU.view = huViewOk(view) ? view : 'resume';
+    HU.demandId = sp.get('demand') || null;
+    HU.appId = (appId && apps.some(a=>a.id===appId)) ? appId
+      : (HU.demandId ? ((apps.find(a=>a.demandId===HU.demandId)||{}).id || null) : null)
+      || ((apps[0]||{}).id || null);
+    if(HU.view === 'verify' && !HU.demandId && HU.appId){
+      HU.demandId = P(HU.appId).demandId;         /* 有投递就用它的需求，不必再选 */
+    }
     S.page = 'personDetail';
+    /* 旧地址进来后把地址栏换成新地址：内容已经对了，地址还停在 detail?tab=
+       会让人以为没跳（刷新一次又变回去），也让「复制当前页链接」复制到旧格式。
+       replaceState 不派发 hashchange，不会二次渲染。 */
+    if(seg[2] === 'detail'){
+      try{ history.replaceState(history.state, '', huHash()); }catch(e){}
+    }
     return true;
   }
   if(seg[0] === 'custreq' && seg[1]){
@@ -417,7 +434,8 @@ function snapshotHere(){
   if(S.page === 'demandDetail' && DM.id)
     snap.dm = { id: DM.id, tab: DM.tab, scope: DM.scope, sub: DM.sub, back: DM.back };
   if(S.page === 'personDetail' && HU.pid)
-    snap.hu = { pid: HU.pid, tab: HU.tab, appId: HU.appId, navKey: HU.navKey, back: HU.back };
+    snap.hu = { pid: HU.pid, view: HU.view, appId: HU.appId, demandId: HU.demandId,
+      navKey: HU.navKey, back: HU.back };
   if(S.page === 'batchPersons' && BP.id)
     snap.bp = { id: BP.id, back: BP.back };
   if(S.page === 'custreqRaw' && CR.cid)
@@ -431,14 +449,15 @@ function trimSnap(s, d){
   const o = { page: s.page, f: s.f || {}, scroll: s.scroll || 0 };
   if(d <= 0) return o;
   if(s.dm) o.dm = { id: s.dm.id, tab: s.dm.tab, scope: s.dm.scope, sub: s.dm.sub, back: trimSnap(s.dm.back, d-1) };
-  if(s.hu) o.hu = { pid: s.hu.pid, tab: s.hu.tab, appId: s.hu.appId, navKey: s.hu.navKey, back: trimSnap(s.hu.back, d-1) };
+  if(s.hu) o.hu = { pid: s.hu.pid, view: s.hu.view, appId: s.hu.appId, demandId: s.hu.demandId,
+    navKey: s.hu.navKey, back: trimSnap(s.hu.back, d-1) };
   if(s.bp) o.bp = { id: s.bp.id, back: trimSnap(s.bp.back, d-1) };
   if(s.cr) o.cr = { cid: s.cr.cid, item: s.cr.item, back: trimSnap(s.cr.back, d-1) };
   return o;
 }
 function clearDetail(){
   DM.id = null; DM.tab = 'detail'; DM.back = null; DM.sub = null; DM.edit = false; DM.hist = {};
-  HU.pid = null; HU.appId = null; HU.tab = 'resume'; HU.back = null;
+  HU.pid = null; HU.appId = null; HU.view = 'resume'; HU.demandId = null; HU.back = null;
   BP.id = null; BP.back = null;
   CR.cid = null; CR.item = ''; CR.back = null;
 }
@@ -453,7 +472,8 @@ function restoreSnap(snap){
   if(snap.dm){ DM.id = snap.dm.id; DM.tab = snap.dm.tab || 'detail';
     DM.scope = snap.dm.scope || 'mine'; DM.sub = snap.dm.sub || null;
     DM.edit = false; DM.hist = {}; DM.back = snap.dm.back || null; }
-  if(snap.hu){ HU.pid = snap.hu.pid; HU.tab = snap.hu.tab || 'resume';
+  if(snap.hu){ HU.pid = snap.hu.pid; HU.view = snap.hu.view || 'resume';
+    HU.demandId = snap.hu.demandId || null;
     HU.appId = snap.hu.appId || null; HU.navKey = snap.hu.navKey || 'persons';
     HU.back = snap.hu.back || null; }
   if(snap.bp){ BP.id = snap.bp.id; BP.back = snap.bp.back || null; }
@@ -579,8 +599,13 @@ function toolbar({q, filters, right, chips}){
 }
 function table(cols, rows, empty){
   if(!rows.length) return `<div class="tbl-wrap"><div class="empty">${empty||'没有匹配的数据'}</div></div>`;
+  /* 行上带 _more 的（人员列表的「更多」菜单）在该行下面插一条整行展开行：
+     表格内展开，不用浮层 —— 不会挡住别的行，也不会被 .tbl-wrap 的横向滚动裁掉。 */
   return `<div class="tbl-wrap"><table><thead><tr>${cols.map(c=>`<th>${c.label}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td>${c.r? c.r(r) : esc(r[c.k])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    <tbody>${rows.map(r=>{
+      const main = `<tr>${cols.map(c=>`<td>${c.r? c.r(r) : esc(r[c.k])}</td>`).join('')}</tr>`;
+      return r._more ? main + `<tr class="row-more"><td colspan="${cols.length}">${r._more}</td></tr>` : main;
+    }).join('')}</tbody></table></div>`;
 }
 /* ---------- 真分页（v1.3 · 2026-11-15 第七批） ----------
    以前的 pager(n) 只画一个「1」：列表把全部记录一次铺完，页码是装饰。

@@ -316,6 +316,8 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
       drawer: !!document.querySelector('#drawer.on'),
       modal: !!document.querySelector('#modal.on'),
       tabs: Array.from(m.querySelectorAll('.arc-tab')).map(x=>x.innerText.trim()),
+      links: m.querySelectorAll('.hu-links .link').length,
+      body: m.innerText,
       hasNav: !!document.querySelector('.side'),
       title: (m.querySelector('.page-head h2')||{}).innerText||'',
       hasBack: !!m.querySelector('.pg-back') };
@@ -323,16 +325,24 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   await page.waitForTimeout(300);
   ok('RG012-31 名单点人名进档案独立页，不再开抽屉',
      arch.page === 'personDetail' && !arch.drawer && !arch.modal && arch.hasNav
-     && arch.hasBack && arch.title === arch.want && /^#person\/[^/]+\/detail\?tab=/.test(arch.hash),
+     && arch.hasBack && arch.title === arch.want
+     && /^#person\/[^/]+\/(resume|profile|logs|verify|apply)/.test(arch.hash),
      JSON.stringify(arch));
-  ok('RG012-32 档案页五页签（核实依据不再是悬空引用）',
-     arch.tabs.length === 5 && arch.tabs.join(',').includes('核实依据'), JSON.stringify(arch.tabs));
+  /* 第八批：五个页签拆成五个独立页面（各自地址），页头下只留一行文字链接。
+     要验的是「五个业务页都还找得到、核实不再悬空」，不是页签栏还在。 */
+  ok('RG012-32 档案页拆成五页后五个入口都在（核实依据不再是悬空引用）',
+     arch.tabs.length === 0 && arch.links === 4
+     && ['人才画像','投递跟进','沟通记录','资料核实'].every(n => arch.body.includes(n))
+     && arch.title === arch.want,
+     JSON.stringify({tabs:arch.tabs, links:arch.links, title:arch.title}));
 
   const archTab = await ev(() => { huSetTab('apply');
-    return { hash: location.hash, on: (document.querySelector('.arc-tab.on')||{}).innerText||'',
-             drawer: !!document.querySelector('#drawer.on') }; });
+    return { hash: location.hash, tabs: document.querySelectorAll('.arc-tab').length,
+             body: (document.querySelector('.main')||{}).innerText||'' }; });
   await page.waitForTimeout(250);
-  ok('RG012-33 档案页签写进地址（英文稳定键）', /tab=apply$/.test(archTab.hash) && archTab.on.includes('本次投递'), archTab.hash);
+  ok('RG012-33 档案子页写进地址（英文稳定键）',
+     /\/apply\/P\d+$/.test(archTab.hash) && archTab.tabs === 0 && archTab.body.includes('这一单的流程'),
+     archTab.hash);
 
   const archBack = await ev2(() => { huBack();
     return { page: S.page, hash: location.hash, rows: document.querySelectorAll('.tbl-wrap tbody tr').length }; });
@@ -348,7 +358,7 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
       drawer: !!document.querySelector('#drawer.on'),
       rows: document.querySelectorAll('.main .tbl-wrap tbody tr').length,
       hasSearch: !!document.querySelector('.main #lf-q') };
-    const row = document.querySelector('.main .tbl-wrap tbody tr [onclick*="openPerson"]');
+    const row = document.querySelector('.main .tbl-wrap tbody tr [onclick*="openPerson"], .main .tbl-wrap tbody tr [onclick*="openHuman"]');
     if(!row) return { skip:true, why:'批次人员页没有人员行', inPage };
     row.click();
     return { skip:false, inPage, page: S.page, hash: location.hash,
@@ -428,25 +438,24 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     const pair = [...new Set(PERSONS.map(x => x.personId))]
       .map(id => ({ pid: id, aps: appsOf(id) })).filter(x => x.aps.length > 1)[0];
     const wantApp = pair.aps[1], other = pair.aps[0];
-    const wantCode = D(wantApp.demandId).code, otherCode = D(other.demandId).code;
+    const wantPost = D(wantApp.demandId).post, otherPost = D(other.demandId).post;
     enter('R01');
     openPerson(wantApp.id);            /* 第二条投递（P42 / D7） */
     huSetTab('apply');
-    /* 多条投递时页面里可能开着不止一单，这里只取「当前这一单」的展开区 */
-    const secTxt = () => (document.querySelector('.main .acc.open[data-app="' + HU.appId + '"] .acc-bd') || {}).innerText || '';
-    const before = secTxt();
+    const bodyNow = () => (document.querySelector('.main .arc-top') || {}).innerText || '';
+    const before = bodyNow();
     const hashBefore = location.hash;
     /* 模拟刷新 / 新标签页打开地址：清掉内存态，只按地址恢复 */
-    HU.appId = null; HU.tab = 'resume';
+    HU.appId = null; HU.view = 'resume'; HU.demandId = null;
     applyHash(); render();
-    const after = secTxt();
-    return { wantApp: wantApp.id, wantCode, otherCode, hashBefore, hashAfter: location.hash,
+    const after = bodyNow();
+    return { wantApp: wantApp.id, wantPost, otherPost, hashBefore, hashAfter: location.hash,
       appId: HU.appId, page: S.page,
-      beforeOk: before.includes(wantCode), afterOk: after.includes(wantCode),
-      afterWrong: after.includes(otherCode) };
+      beforeOk: before.includes(wantPost), afterOk: after.includes(wantPost),
+      afterWrong: wantPost !== otherPost && after.includes(otherPost) };
   });
   ok('RG012-39 档案投递标识写进地址，重新解析后仍是同一单',
-     !appCtx.err && /app=/.test(appCtx.hashBefore) && appCtx.appId === appCtx.wantApp
+     !appCtx.err && /\/apply\/P\d+$/.test(appCtx.hashBefore) && appCtx.appId === appCtx.wantApp
      && appCtx.beforeOk && appCtx.afterOk && !appCtx.afterWrong,
      JSON.stringify(appCtx));
 
@@ -484,11 +493,11 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
     const okHash = applyHash(); render();
     const body = document.querySelector('.main').innerText;
     return { fromHash, post, onDemand, after, page: S.page, okHash,
-      hitPerson: /PE001/.test(body), missing: /找不到该人员|该页面暂未开放/.test(body) };
+      hitPerson: /张建国/.test(body), missing: /找不到该人员|该页面暂未开放/.test(body) };
   });
   ok('RG012-41 从档案进需求详情后返回，恢复的是完整档案地址',
      !backFull.err && backFull.onDemand.page === 'demandDetail'
-     && /^#person\/PE001\/detail\?tab=apply/.test(backFull.after)
+     && /^#person\/PE001\/apply\/P42/.test(backFull.after)
      && backFull.page === 'personDetail' && backFull.hitPerson && !backFull.missing,
      JSON.stringify(backFull));
 
@@ -591,12 +600,14 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   });
   await page.waitForTimeout(200);
   const h45c = await ev2(pid1 => {
-    /* 简历明细里点的是投递（P..），档案是 PE..：按投递反查 personId 再排除同一个人 */
+    /* 第八批：简历明细里点人名走 openHuman('PE...')，人员列表走 openPerson('P...')。
+       两种 onclick 都要认：openHuman 第一个参数就是人员编号，openPerson 是投递编号。 */
     const cand = [...document.querySelectorAll('.main .tbl-wrap tbody tr [onclick*="openHuman"], .main .tbl-wrap tbody tr [onclick*="openPerson"]')];
     const pick = cand.find(el => {
       const m = (el.getAttribute('onclick') || '').match(/open(Person|Human)\('([^']+)'/);
-      const app = m ? P(m[2]) : null;
-      return app && app.personId !== pid1;
+      if(!m) return false;
+      const pid = m[1] === 'Human' ? m[2] : ((P(m[2])||{}).personId);
+      return pid && pid !== pid1;
     });
     if(!pick) return { err:'简历明细里没有第二个人可点' };
     pick.click();
@@ -646,10 +657,13 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   const h46d = await ev2(() => {
     const body = document.querySelector('.main').innerText;
     const sel = [...document.querySelectorAll('.main .toolbar select')];
+    /* 第八批在工具栏最前面加了「全部跟进」，「需求」下拉不再是第 3 个 ——
+       按选项里有没有需求名来认，不按位置认。 */
+    const dmSel = sel.find(s => [...s.options].some(o => o.value === DEMANDS[0].id));
     return { page: S.page, hash: location.hash, dm: S.f.dm || '', st: S.f.st || '',
       rows: document.querySelectorAll('.main .tbl-wrap tbody tr').length,
       empty: /没有匹配的数据/.test(body),
-      selDm: (sel[2] || {}).value, inText: /人员列表/.test(body) };
+      selDm: dmSel ? dmSel.value : '', inText: /人员列表/.test(body) };
   });
   ok('RG012-46 浏览器退回人员列表，恢复该列表自己的筛选（不串用需求列表的筛选）',
      !h46a.err && !h46b.err && h46a.rows > 0
@@ -660,37 +674,36 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      && h46d.selDm === h46a.dm && h46d.inText,
      JSON.stringify({ h46a, h46b, h46c, h46d }));
 
-  /* 45：一个人投多个需求 —— 每条投递都列出来（不是切换器），各自可折叠；
-     展开哪一单，地址里的 app= 就跟到哪一单；收起后重画不许自己弹开。 */
+  /* 47：一个人投多个需求 —— 第八批把「档案里五页签 + 多单折叠」改成
+     「一条投递一个页面」：多单在人员列表各占一行（姓名旁标「同投 N」），
+     投递跟进页里用「这个人的其他投递」切换，切换时地址跟着换。
+     原来验的是折叠交互，现在验的是「多单一条都不少、切过去还是同一单」。 */
   const multi = await ev2(() => {
     const pair = [...new Set(PERSONS.map(x => x.personId))]
       .map(id => ({ pid: id, aps: appsOf(id) })).filter(x => x.aps.length > 1)[0];
     if(!pair) return { err: '没有多条投递的人' };
     enter('R01');
-    HU.open = null;                 /* 夹具：清掉上一条用例留下的展开状态 */
+    HU.open = null;
+    const name = PERSONS.find(x => x.id === pair.aps[0].id).name;
+    go('persons');
+    setF('q', name);
+    const rows = [...document.querySelectorAll('.main .tbl-wrap tbody tr')];
+    const n = rows.length, sameBadge = rows.some(r => /同投/.test(r.innerText));
     openPerson(pair.aps[0].id);
     huSetTab('apply');
-    const cards = () => [...document.querySelectorAll('.main .acc')];
-    /* 按 data-app 取，不按位置取 —— 跟进中的会排在已结束的前面 */
-    const hd = id => document.querySelector('.main .acc[data-app="' + id + '"] .acc-hd');
-    const openIds = () => [...document.querySelectorAll('.main .acc.open')].map(x => x.dataset.app);
-    const n = cards().length, want = pair.aps.length;
-    const open0 = openIds().length;
-    hd(pair.aps[1].id).click();                      /* 展开第二条投递 */
-    const open1 = openIds(), appId1 = HU.appId, hash1 = location.hash, page1 = S.page;
-    hd(pair.aps[1].id).click();                      /* 再点一次：收起 */
-    const open2 = openIds().length;
-    render();                                        /* 重画：收起的不能自己弹回来 */
-    const open3 = openIds().length;
-    return { n, want, open0, open1, open2, open3, appId1, hash1, page1,
-      want2: pair.aps[1].id, pid: pair.pid, pidNow: HU.pid };
+    const h1 = location.hash, a1 = HU.appId;
+    const others = [...document.querySelectorAll('.main .app-row')];
+    const goOther = others.find(el => /huGo\('apply'/.test(el.getAttribute('onclick') || ''));
+    if(!goOther) return { err: '投递跟进页没有「其他投递」入口', n, sameBadge, h1, a1 };
+    goOther.click();
+    return { n, want: pair.aps.length, sameBadge, h1, a1, h2: location.hash, a2: HU.appId,
+      page2: S.page, pidNow: HU.pid, pid: pair.pid };
   });
-  ok('RG012-47 多条投递全部列出、每条可折叠、展开时地址跟随',
-     !multi.err && multi.n === multi.want && multi.want >= 2 && multi.open0 === 1
-     && multi.open1.length === 2 && multi.open1.includes(multi.want2)
-     && multi.appId1 === multi.want2 && /app=/.test(multi.hash1 || '')
-     && multi.page1 === 'personDetail' && multi.pidNow === multi.pid
-     && multi.open2 === 1 && multi.open3 === 1,
+  ok('RG012-47 一人多单一条不少，且能在投递跟进页切到另一单（地址跟随）',
+     !multi.err && multi.n === multi.want && multi.want >= 2 && multi.sameBadge
+     && /\/apply\/P\d+$/.test(multi.h1) && multi.a1
+     && multi.h2 !== multi.h1 && multi.a2 && multi.a2 !== multi.a1
+     && multi.page2 === 'personDetail' && multi.pidNow === multi.pid,
      JSON.stringify(multi));
 
   /* 48~52：需求明细只展开「最新一版要什么样的人」；每个版本改了什么进独立历史页。

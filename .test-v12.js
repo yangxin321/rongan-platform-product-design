@@ -364,7 +364,10 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   await ev(() => { enter('R04'); openPerson(PERSONS.find(x=>x.name==='赵鹏').id); huSetTab('verify'); });
   await page.waitForTimeout(350);
   const zCity = await ev(() => {
-    const row = Array.from(document.querySelectorAll('.tri-row')).find(r=>r.innerText.includes('愿意工作城市'));
+    /* 第八批：资料核实从 .tri-row 改成表格行；旧产物仍是 .tri-row，两种都认 */
+    const tr = Array.from(document.querySelectorAll('.tbl-wrap tbody tr'))
+      .find(r=>r.innerText.includes('愿意工作城市'));
+    const row = tr || Array.from(document.querySelectorAll('.tri-row')).find(r=>r.innerText.includes('愿意工作城市'));
     return { row: row ? row.innerText.replace(/\n+/g, ' ') : '',
              assess: assessPerson(PERSONS.find(x=>x.name==='赵鹏'), D('D1')).find(x=>x.key==='city').state };
   });
@@ -386,7 +389,9 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   await ev(() => { openPerson(PERSONS.find(x=>x.name==='李海涛').id); huSetTab('verify'); });
   await page.waitForTimeout(300);
   const lCity = await ev(() => {
-    const row = Array.from(document.querySelectorAll('.tri-row')).find(r=>r.innerText.includes('愿意工作城市'));
+    const tr = Array.from(document.querySelectorAll('.tbl-wrap tbody tr'))
+      .find(r=>r.innerText.includes('愿意工作城市'));
+    const row = tr || Array.from(document.querySelectorAll('.tri-row')).find(r=>r.innerText.includes('愿意工作城市'));
     return row ? row.innerText.replace(/\n+/g, ' ') : '';
   });
   ok('RG004-13 意愿含岗位城市时仍判已核实符合', lCity.includes('已核实符合'), lCity);
