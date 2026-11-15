@@ -274,6 +274,7 @@ function dmTabOk(t){ return DM_TABS.some(x=>x.k===t); }
 
 function openDemand(id, tab){
   const from = S.page;
+  markScrollOut();                  /* 必须在 render 之前：之后列表已经滚到 0 */
   if(DM.id !== id){
     DM.scope = 'mine';
     DM.back = { page: from, f: Object.assign({}, S.f), scroll: mainScroll() };

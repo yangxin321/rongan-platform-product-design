@@ -45,6 +45,7 @@ function custRank(it){ return it.st==='none' ? (it.req?0:3) : it.st==='vague' ? 
 /* 进入某个需求项的原文页 */
 function openCustRaw(cid, item){
   const from = S.page;
+  markScrollOut();                  /* 先记住列表滚到哪了，render 之后就是 0 了 */
   if(CR.cid !== cid) CR.back = { page: from, f: Object.assign({}, S.f), scroll: mainScroll() };
   CR.cid = cid; CR.item = item || '';
   S.page = 'custreqRaw';

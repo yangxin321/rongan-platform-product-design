@@ -54,7 +54,18 @@ function mainSel(){ return S.role==='R01'?'全部':S.who; }
 /* ---------- 渲染入口 ---------- */
 function boot(){
   const el = document.getElementById('root');
+  /* 只读确认单地址必须能独立打开：新标签页 / 刷新都直接落到确认单，不先拦在角色首页。
+     客户方无账号，进入只读页即视为「不使用任何内部角色」，故顺手清掉记住的角色。 */
+  const cm = (location.hash || '').match(/^#?cust=(.+)$/);
+  if(cm){
+    S.role = null;
+    try{ localStorage.removeItem('rg-role'); }catch(e){}
+    el.innerHTML = viewCustLink(decodeURIComponent(cm[1]));
+    window.scrollTo(0,0);
+    return;
+  }
   const keep = localStorage.getItem('rg-role');
+  /* 首次启动才按地址恢复（刷新 / 直达详情页）；主动选角色不走这里 */
   if(keep && ROLES[keep]) { enter(keep, true); } else { S.role=null; el.innerHTML = viewLanding(); }
 }
 function viewLanding(){
@@ -228,10 +239,16 @@ function exitCustLink(){
   window.scrollTo(0,0);
 }
 
-function enter(role, silent){
+/* restore=true 只在首次启动时用：按地址定位到详情页。
+   主动点角色卡片进来时**不继承上一个角色的地址** —— 否则 R01 的 #demands 会把 E01 顶到「暂未开放」。 */
+function enter(role, restore){
   S.role = role; S.f={}; S.who = ROLES[role].who;
   S.page = DEFAULT_PAGE[role];
-  applyHash();                       /* 地址优先：刷新 / 直达详情页时按 hash 定位 */
+  /* 换角色必须把上一个角色的「正在看哪条记录」清干净：详情页注册成 any，
+     不清的话切到求职者端还会继续显示上一个角色的人员档案 */
+  DM.id=null; HU.pid=null; HU.appId=null; HU.back=null; HU.navKey='persons';
+  CR.cid=null; CR.item=''; CR.back=null;
+  if(restore) applyHash();           /* 地址优先：刷新 / 直达详情页时按 hash 定位 */
   localStorage.setItem('rg-role', role);
   render();
   navHash(routeHash(), 'replace');
@@ -239,9 +256,12 @@ function enter(role, silent){
 function exitRole(){
   localStorage.removeItem('rg-role'); S.role=null;
   DM.id=null; HU.pid=null; HU.appId=null; HU.back=null; CR.cid=null; CR.item=''; CR.back=null;
+  /* 清地址：留着上一个角色的 #demands，下次进来会被当成直达地址 */
+  try{ history.replaceState(null, '', location.pathname + location.search); }catch(e){ location.hash = ''; }
   document.getElementById('root').innerHTML = viewLanding();
 }
 function go(page){
+  markScrollOut();                  /* 切页前先记住列表滚到哪了，render 之后滚到 0 就晚了 */
   if(page !== 'demandDetail') DM.id = null;
   if(page !== 'personDetail'){ HU.pid = null; HU.appId = null; HU.back = null; }
   if(page !== 'custreqRaw'){ CR.cid = null; CR.item = ''; CR.back = null; }
@@ -259,14 +279,29 @@ const SCROLL_MEM = 'rg-scroll-v13';
 function mainScroll(){ const m=document.getElementById('main'); return m? m.scrollTop : 0; }
 function setMainScroll(v){ const m=document.getElementById('main'); if(m) m.scrollTop = v||0; }
 function scrollMem(){ try{ return JSON.parse(sessionStorage.getItem(SCROLL_MEM)||'{}'); }catch(e){ return {}; } }
+/* 离开一个页面前，滚动位置会先被 render + setMainScroll(0) 冲掉，
+   所以在切换动作的**第一行**就把「旧地址 + 旧滚动」记下来，等 navHash 真正改地址时再落盘。 */
+let SCROLL_OUT = null;
+function markScrollOut(){ SCROLL_OUT = { h: location.hash || ('#'+S.page), v: mainScroll() }; }
 function saveScrollHere(){
+  const key = SCROLL_OUT ? SCROLL_OUT.h : (location.hash || ('#'+S.page));
+  const val = SCROLL_OUT ? SCROLL_OUT.v : mainScroll();
+  SCROLL_OUT = null;
   const mp = scrollMem();
-  mp[location.hash || ('#'+S.page)] = mainScroll();
+  mp[key] = val;
   try{ sessionStorage.setItem(SCROLL_MEM, JSON.stringify(mp)); }catch(e){}
 }
 function restoreScrollHere(){
   const mp = scrollMem();
   setMainScroll(mp[location.hash || ('#'+S.page)] || 0);
+}
+/* 页面是否属于当前角色：地址恢复时不能把 R01 的详情页塞给 E01。
+   需求 / 档案 / 客户原话三类详情页是内部角色专用（外部客户走 #cust= 独立分支，求职者端无这些入口）。 */
+function pageOkForRole(page){
+  const p = PAGES[page];
+  if(!p) return false;
+  if(page==='demandDetail'||page==='personDetail'||page==='custreqRaw') return S.role!=='E01';
+  return !!(p[S.role] || p.any);
 }
 function routeHash(){
   if(S.page === 'demandDetail'){
@@ -275,7 +310,12 @@ function routeHash(){
   }
   if(S.page === 'personDetail'){
     const tab = (HU && huTabOk(HU.tab)) ? HU.tab : 'resume';
-    return `#person/${encodeURIComponent(HU.pid||'')}/detail?tab=${tab}`;
+    /* 同一人可能有多条投递（例如 P1 与 P42 同人、分别投 D1 与 D7）。
+       只写人员编号的话，刷新后「本次投递」会被 HU.appId=null 冲回第一条。
+       默认投递（第一条）不写，避免地址噪音；非默认的把投递标识带上。 */
+    const first = (HU.pid ? appsOf(HU.pid) : [])[0];
+    const appQ = (HU.appId && (!first || first.id !== HU.appId)) ? `&app=${encodeURIComponent(HU.appId)}` : '';
+    return `#person/${encodeURIComponent(HU.pid||'')}/detail?tab=${tab}${appQ}`;
   }
   if(S.page === 'custreqRaw'){
     return `#custreq/${encodeURIComponent(CR.cid||'')}/raw?item=${encodeURIComponent(CR.item||'')}`;
@@ -284,7 +324,7 @@ function routeHash(){
 }
 let NAV_SELF = false;               /* 自己改的地址不再触发一次渲染 */
 function navHash(h, mode){
-  if(!h || location.hash === h) return;
+  if(!h || location.hash === h){ SCROLL_OUT = null; return; }
   saveScrollHere();
   NAV_SELF = true;
   if(mode === 'push'){
@@ -302,6 +342,7 @@ function applyHash(){
   const [path, qs] = raw.split('?');
   const seg = path.split('/').filter(Boolean);
   if(seg[0] === 'demand' && seg[1]){
+    if(!pageOkForRole('demandDetail')) return false;
     DM.id = seg[1];
     const t = new URLSearchParams(qs || '').get('tab');
     DM.tab = dmTabOk(t) ? t : 'detail';
@@ -309,20 +350,28 @@ function applyHash(){
     return true;
   }
   if(seg[0] === 'person' && seg[1]){
-    HU.pid = seg[1]; HU.appId = null;
-    const t = new URLSearchParams(qs || '').get('tab');
+    if(!pageOkForRole('personDetail')) return false;
+    const sp = new URLSearchParams(qs || '');
+    const t = sp.get('tab');
+    HU.pid = seg[1];
     HU.tab = huTabOk(t) ? t : 'resume';
+    /* 投递标识从地址恢复并校验归属：app 必须属于这个人，否则回落默认投递，
+       不能让刷新把「正在处理的这一单」静默换成另一单。 */
+    const app = sp.get('app');
+    const apps = appsOf(HU.pid);
+    HU.appId = (app && apps.some(a=>a.id===app)) ? app : ((apps[0]||{}).id || null);
     S.page = 'personDetail';
     return true;
   }
   if(seg[0] === 'custreq' && seg[1]){
+    if(!pageOkForRole('custreqRaw')) return false;
     CR.cid = seg[1];
     CR.item = new URLSearchParams(qs || '').get('item') || '';
     S.page = 'custreqRaw';
     return true;
   }
-  if(PAGES[seg[0]]){ S.page = seg[0]; return true; }
-  return false;                     /* 无效地址：保持原页面，不静默跳转 */
+  if(pageOkForRole(seg[0])){ S.page = seg[0]; return true; }
+  return false;                     /* 无效地址 / 不属于该角色：保持原页面，不静默跳转 */
 }
 function onHashNav(){
   if(NAV_SELF){ NAV_SELF = false; return; }

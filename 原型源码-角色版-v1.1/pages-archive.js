@@ -51,6 +51,7 @@ function archiveState(p){
 /* 统一入口：openArchive(personId, tab) / openPerson(appId) 都到这里 → 进独立页 */
 function openHuman(pid, tab, appId){
   const from = S.page;
+  markScrollOut();                  /* 先记住来源列表滚到哪了，render 之后就是 0 了 */
   if(HU.pid !== pid){
     HU.back = { page: from, f: Object.assign({}, S.f), scroll: mainScroll() };
     HU.navKey = from;

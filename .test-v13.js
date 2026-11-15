@@ -369,6 +369,91 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   ok('RG012-36 已生效且无待处理版本：不给重复登记送审入口（R1-3）',
      !r13.noDemand && !r13.hasReg && r13.hasChange && r13.saysNoRepeat, JSON.stringify(r13));
 
+  /* ---------- Codex 复审 P2 四条（地址路由回归） ---------- */
+
+  /* 37：列表滚下去 → 进详情 → 浏览器后退，必须回到原滚动位置（不是顶部） */
+  await ev(() => { enter('R01'); go('persons'); });
+  await page.waitForTimeout(200);
+  const sc0 = await ev(() => {
+    const m = document.getElementById('main');
+    m.scrollTop = 520;
+    return m.scrollTop;
+  });
+  await ev(() => {
+    const l = document.querySelector('.main .tbl-wrap tbody tr [onclick*="openPerson"], .main .tbl-wrap tbody tr .arc-link');
+    l.click();
+  });
+  await page.waitForTimeout(300);
+  const scIn = await ev(() => ({ page: S.page, sc: document.getElementById('main').scrollTop }));
+  await page.goBack(); await page.waitForTimeout(400);
+  const scBack = await ev(() => ({ page: S.page, hash: location.hash, sc: document.getElementById('main').scrollTop }));
+  ok('RG012-37 浏览器后退还原列表滚动位置',
+     sc0 > 400 && scIn.page === 'personDetail' && scBack.page === 'persons'
+     && scBack.hash === '#persons' && scBack.sc > 400,
+     JSON.stringify({ sc0, scIn, scBack }));
+
+  /* 38：切角色不继承上一个角色的地址（R01 的 #demands 不能把 E01 顶到「暂未开放」） */
+  await ev(() => { enter('R01'); go('demands'); });
+  await page.waitForTimeout(200);
+  await ev(() => document.querySelector('.side-role button').click());   /* 切换 */
+  await page.waitForTimeout(200);
+  const landing = await ev(() => ({ role: S.role, hasCards: !!document.querySelector('.roles') }));
+  await ev(() => document.querySelector('[onclick*="enter(\'E01\')"]').click());
+  await page.waitForTimeout(300);
+  const switched = await ev(() => {
+    const m = document.querySelector('.main');
+    return { role: S.role, page: S.page, hash: location.hash,
+      open: /该页面暂未开放/.test(m.innerText), first: m.innerText.slice(0, 40) };
+  });
+  ok('RG012-38 切换角色后落在新角色默认页，不继承旧地址',
+     landing.role === null && landing.hasCards
+     && switched.role === 'E01' && switched.page === 'jobs'
+     && switched.hash === '#jobs' && !switched.open,
+     JSON.stringify({ landing, switched }));
+
+  /* 39：同一人多条投递，刷新（重新解析地址）不能把「本次投递」换成另一单 */
+  const appCtx = await ev2(() => {
+    const pair = [...new Set(PERSONS.map(x => x.personId))]
+      .map(id => ({ pid: id, aps: appsOf(id) })).filter(x => x.aps.length > 1)[0];
+    const wantApp = pair.aps[1], other = pair.aps[0];
+    const wantCode = D(wantApp.demandId).code, otherCode = D(other.demandId).code;
+    enter('R01');
+    openPerson(wantApp.id);            /* 第二条投递（P42 / D7） */
+    huSetTab('apply');
+    const secTxt = () => (document.querySelector('.main .sec') || {}).innerText || '';
+    const before = secTxt();
+    const hashBefore = location.hash;
+    /* 模拟刷新 / 新标签页打开地址：清掉内存态，只按地址恢复 */
+    HU.appId = null; HU.tab = 'resume';
+    applyHash(); render();
+    const after = secTxt();
+    return { wantApp: wantApp.id, wantCode, otherCode, hashBefore, hashAfter: location.hash,
+      appId: HU.appId, page: S.page,
+      beforeOk: before.includes(wantCode), afterOk: after.includes(wantCode),
+      afterWrong: after.includes(otherCode) };
+  });
+  ok('RG012-39 档案投递标识写进地址，重新解析后仍是同一单',
+     !appCtx.err && /app=/.test(appCtx.hashBefore) && appCtx.appId === appCtx.wantApp
+     && appCtx.beforeOk && appCtx.afterOk && !appCtx.afterWrong,
+     JSON.stringify(appCtx));
+
+  /* 40：只读确认单地址可独立打开（新标签页 / 刷新），不落到角色首页 */
+  const custUrl = FILE.split('#')[0] + '#cust=LK-D1-V11';
+  const p2 = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await p2.goto(custUrl); await p2.waitForTimeout(500);
+    const cust = await p2.evaluate(() => {
+      const t = document.getElementById('root').innerText;
+      return { doc: /需求确认单/.test(t), readonly: /只读/.test(t),
+        landing: /选择你的角色/.test(t), noNav: !document.querySelector('.side') };
+    });
+    ok('RG012-40 只读确认单地址独立打开（不先落角色首页）',
+       cust.doc && cust.readonly && !cust.landing && cust.noNav, JSON.stringify(cust));
+  } catch (e) {
+    ok('RG012-40 只读确认单地址独立打开（不先落角色首页）', false, String(e.message || e));
+  } finally { await p2.close(); }
+  await ev(() => { enter('R01'); });
+
   /* 全页渲染无错（详情页在路由里，需单独过一遍） */
   const pages = ['demands','batches','persons','pool','logs','custreq','confirms','clinks','dicts','factors','std','dash','conversion','perms','home'];
   let renderErr = '';
