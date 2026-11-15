@@ -562,6 +562,64 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
      dupVer.n1 === dupVer.n0 + 1 && dupVer.n2 === dupVer.n1 && dupVer.sameName === 1,
      JSON.stringify(dupVer));
 
+  /* 第五轮回归：缺资料≠不符合（R5 不得自动淘汰），优先证≠硬条件 */
+  const ageMiss = await ev(() => {
+    DEMANDS.unshift({ id:'DT10', code:'XQ-TEST-10', client:'测试客户', cs:'测试', ps:'电工',
+      project:'年龄缺失', post:'电工 · 熟手', head:1, hired:0, price:'30 元/时', city:'东莞',
+      deadline:'2026-12-20', valid:'2026-12-20 ~ 待定', confirm:'已确认', alloc:'未分配',
+      status:'已确认', req:[], owner:'李文静', stdId:'SJ-DG-D3', stdVer:'v1.1',
+      stdList:'EL-DG-D3', stdOverride:[] });
+    DEMAND_GATE.DT10 = { city:'东莞', age:[18,45], gender:'不限', night:'不需要', trade:'电工',
+      skill:[], cert:[], certMust:false, arriveBy:'2026-12-20' };
+    /* 年龄与性别都留空：空串会被数值比较当成 0 岁，历史实现会直接判「不符合」。
+       其余条件临时置为已核实，让汇总值只受年龄影响，否则城市/夜班会把结论带偏。 */
+    const pid = PERSONS[0].personId, keep = VERIFY[pid];
+    VERIFY[pid] = { certs:[],
+      city:{ live:'东莞', liveState:'已核实', want:['东莞'], wantState:'已确认', src:'测试', at:'2026-11-14 09:00' },
+      arrive:{ date:'2026-11-20', state:'已确认', src:'测试', at:'2026-11-14 09:00' },
+      night:{ state:'已确认愿意', src:'测试', at:'2026-11-14 09:00' } };
+    const fake = Object.assign({}, PERSONS[0], { age:'', gender:'', skills:[] });
+    const it = assessPerson(fake, D('DT10'));
+    const a = it.find(x=>x.key==='age') || {}, g2 = it.find(x=>x.key==='gender') || {};
+    const out = { ageState:a.state, genderState:g2.state, ageNeed:a.need, sum:triSum(it), note:a.note||'' };
+    VERIFY[pid] = keep;
+    const i = DEMANDS.findIndex(x=>x.id==='DT10'); if(i>=0) DEMANDS.splice(i,1); delete DEMAND_GATE.DT10;
+    return out;
+  });
+  ok('RG002-52 年龄性别缺资料判待确认而非不符合',
+     ageMiss.ageState === 'pend' && ageMiss.genderState === 'ok' && ageMiss.sum === 'pend'
+     && ageMiss.note.includes('不得'), JSON.stringify(ageMiss));
+
+  const certKind = await ev(() => {
+    const pick = (name, did) => {
+      const p = PERSONS.find(x=>x.name===name) || PERSONS[0];
+      const it = assessPerson(p, D(did));
+      const c = it.find(x=>x.key==='cert') || {};
+      return { state:c.state, need:c.need||'', soft:!!c.soft, hardKeys:it.filter(x=>!x.soft).map(x=>x.key) };
+    };
+    return { d1:pick('张建国','D1'), d4:pick('郑海峰','D4') };   /* D1 优先 / D4 必备 */
+  });
+  ok('RG002-53 优先证书标注且不参与硬条件判定',
+     certKind.d1.soft === true && certKind.d1.need.includes('优先')
+     && certKind.d4.soft === false && certKind.d4.need.includes('必备'),
+     JSON.stringify(certKind));
+
+  const triFilter = await ev(() => {
+    enter('R04'); go('persons');
+    const n = () => document.querySelectorAll('.tbl-wrap tbody tr').length;
+    const nAll = n();
+    statFilter('tri','no');
+    const nNo = n();
+    const rowsAllNo = Array.from(document.querySelectorAll('.tbl-wrap tbody tr'))
+      .every(tr => !!tr.querySelector('.b.r'));
+    statFilter('tri','');
+    const nBack = n();
+    return { nAll, nNo, nBack, rowsAllNo };
+  });
+  ok('RG002-54 人员列表硬条件筛选真实过滤',
+     triFilter.nNo > 0 && triFilter.nNo < triFilter.nAll && triFilter.rowsAllNo
+     && triFilter.nBack === triFilter.nAll, JSON.stringify(triFilter));
+
   /* ---- 匹配模式切换 ---- */
   await ev(() => { enter('R04'); go('batches'); runMatch('B1','batch'); }); await page.waitForTimeout(300);
   const mb = await txt('.modal');

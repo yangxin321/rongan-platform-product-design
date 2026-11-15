@@ -163,12 +163,15 @@ function personsPage(){
   const isR04 = S.role==='R04';
   let rows = PERSONS.slice();
   if(isR04) rows = rows.filter(p=>p.owner===S.who);
-  const q=(S.f.q||'').trim(), nd=S.f.nd||'', dm=S.f.dm||'', ow=S.f.ow||'', stt=S.f.st||'';
+  const q=(S.f.q||'').trim(), nd=S.f.nd||'', dm=S.f.dm||'', ow=S.f.ow||'', stt=S.f.st||'', triF=S.f.tri||'';
   if(q) rows = rows.filter(p=>(p.name+p.phone+p.skills.join('')).includes(q));
   if(stt) rows = rows.filter(p=>p.status===stt);
   if(nd) rows = rows.filter(p=>p.node===nd);
   if(dm) rows = rows.filter(p=>p.demandId===dm);
   if(ow) rows = rows.filter(p=>p.owner===ow);
+  /* 硬条件筛选：按「该人 × 该需求」的逐项判定汇总值过滤，
+     口径与「硬条件」列完全同源（assessPerson + triSum），避免下拉框形同虚设。 */
+  if(triF) rows = rows.filter(p=>triSum(assessPerson(p, D(p.demandId))) === triF);
 
   const actions = `<button class="btn" onclick="toast('已导出当前筛选 '+${rows.length}+' 条')">导出</button>
     <button class="btn pri" onclick="openModal(addPersonModal())">＋ 加人</button>`;
@@ -181,7 +184,7 @@ function personsPage(){
     {label:'当前节点', r:p=>nodeB(p.node)},
     {label:'硬条件', r:p=>{
       const d = D(p.demandId), items = assessPerson(p, d), sum = triSum(items);
-      const bad = items.filter(i=>i.state!=='ok');
+      const bad = items.filter(i=>i.state!=='ok' && !i.soft);
       return `<div style="cursor:pointer" onclick="event.stopPropagation();openMatchDetail('${p.id}','${d.id}')" title="点开看逐项依据">
         ${triS(sum)}<div class="t-sub">${bad.length?bad.length+' 项待核 / 不符':'全部已核实'}</div></div>`;
     }},
@@ -1190,7 +1193,7 @@ function runMatch(bid, forceScope){
       </div>
 
       ${rows.map(r=>{
-        const bad = r.items.filter(i=>i.state!=='ok');
+        const bad = r.items.filter(i=>i.state!=='ok' && !i.soft);
         const why = bad.length
           ? bad.map(i=>`${i.label.split(' / ')[0]}${i.state==='no'?'不符合':'待确认'}`).join(' · ')
           : '全部硬条件已核实符合';

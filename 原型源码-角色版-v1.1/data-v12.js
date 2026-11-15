@@ -22,8 +22,10 @@ function tri(s, extra){
 }
 function triS(s){ const m = TRI[s] || TRI.pend; return `<span class="b ${m.tone}">${m.mark}</span>`; }
 function triSum(list){
-  if((list||[]).some(x=>x.state==='no')) return 'no';
-  if((list||[]).some(x=>x.state==='pend')) return 'pend';
+  /* soft 项（客户标为优先/加分的证书等）照实显示状态，但不参与 Pass 判定 */
+  const hard = (list||[]).filter(x=>!x.soft);
+  if(hard.some(x=>x.state==='no')) return 'no';
+  if(hard.some(x=>x.state==='pend')) return 'pend';
   return 'ok';
 }
 const TRI_SUM_TXT = { ok:'全部硬条件已核实符合', pend:'存在信息缺口，暂不可判定', no:'存在已确认不符合的硬条件' };
@@ -186,9 +188,9 @@ function assessPerson(p, d){
   const g = gateOf(d);
   const v = verifyOf(p.personId);
   const out = [];
-  const push = (key, state, need, got, src, ev, at, note)=>{
+  const push = (key, state, need, got, src, ev, at, note, soft)=>{
     const meta = CAND_KEYS.find(k=>k.key===key) || {};
-    out.push({ key, no:meta.no, label:meta.label, grade:meta.grade, state, need, got, src, ev, at, note });
+    out.push({ key, no:meta.no, label:meta.label, grade:meta.grade, state, need, got, src, ev, at, note, soft:!!soft });
   };
 
   /* 3 用工地点 / 工作意愿 */
@@ -219,19 +221,43 @@ function assessPerson(p, d){
     push('arrive', st, g.arriveBy||'—', got, a.src||'—', '', a.at||'—', note);
   }
 
-  /* 10 年龄区间（客户明示条件，非能力判断） */
+  /* 10 年龄区间（客户明示条件，非能力判断）
+     三种情况必须分开：客户没设限制 / 有年龄且符合 / 没年龄资料。
+     原实现把空字符串年龄直接做数值比较（被判成 0 岁）→ 一律「不符合」，
+     违反 R5「缺资料不得自动淘汰」。缺年龄一律 pend。 */
   {
-    const [lo,hi] = g.age || [0,99];
-    const okAge = p.age >= lo && p.age <= hi;
-    push('age', okAge?'ok':'no', `${lo}–${hi} 岁`, `${p.age} 岁`, '人员档案', '',
-      '—', okAge ? '仅按客户明示条件比对，不作为能力替代指标' : '超出客户明示年龄区间，已标为待业务与合规复核');
+    const hasReq = Array.isArray(g.age) && g.age.length === 2;
+    const ageNum = (p.age === null || p.age === undefined || p.age === '') ? NaN : Number(p.age);
+    const hasAge = ageNum === ageNum;
+    let st, needTxt, got, src, note;
+    if(!hasReq){
+      st = 'ok'; needTxt = '客户未设年龄限制'; got = hasAge ? `${ageNum} 岁` : '无年龄资料';
+      src = hasAge ? '人员档案' : '无来源'; note = '客户未设年龄限制，仅记录本人年龄';
+    } else if(!hasAge){
+      st = 'pend'; needTxt = `${g.age[0]}–${g.age[1]} 岁`; got = '无年龄资料'; src = '无来源';
+      note = '年龄未登记，需补充档案；缺资料不得据此判定不符合';
+    } else {
+      const okAge = ageNum >= g.age[0] && ageNum <= g.age[1];
+      st = okAge ? 'ok' : 'no'; needTxt = `${g.age[0]}–${g.age[1]} 岁`; got = `${ageNum} 岁`; src = '人员档案';
+      note = okAge ? '仅按客户明示条件比对，不作为能力替代指标'
+                   : '超出客户明示年龄区间，已标为待业务与合规复核';
+    }
+    push('age', st, needTxt, got, src, '', '—', note);
   }
 
-  /* 11 性别要求 */
+  /* 11 性别要求 —— 同年龄：没登记性别不等于不符合 */
   {
     const need = g.gender || '不限';
-    const st = (need==='不限') ? 'ok' : (p.gender===need?'ok':'no');
-    push('gender', st, need, p.gender, '人员档案', '', '—', need==='不限'?'客户未设限制':'客户明示条件');
+    let st, got, note;
+    if(need === '不限'){
+      st = 'ok'; got = p.gender || '未登记'; note = '客户未设限制';
+    } else if(!p.gender){
+      st = 'pend'; got = '性别未登记'; note = '档案未登记性别，需补充；缺资料不得据此判定不符合';
+    } else {
+      st = p.gender === need ? 'ok' : 'no'; got = p.gender;
+      note = st === 'ok' ? '客户明示条件' : '客户明示性别条件，与档案不一致，需人工复核';
+    }
+    push('gender', st, need, got, p.gender ? '人员档案' : '无来源', '', '—', note);
   }
 
   /* 22 工种 —— 先分「无资料」与「明确不匹配」，缺资料不等于不符合 */
@@ -266,23 +292,34 @@ function assessPerson(p, d){
     push('skill', st, need.join('、')||'—', got, skills.length ? '简历技能栏' : '无来源', '', '—', note);
   }
 
-  /* 26 证书：独立字段 + 核验状态；技能名不得推断持证 */
+  /* 26 证书：独立字段 + 核验状态；技能名不得推断持证
+     certMust 区分「必备证」与「优先/加分证」：
+     —— 优先证仍按证据真实呈现（无证据就是待确认，不能凭空判符合，R5 的对称要求），
+        但打 soft 标记，不进 triSum / 不参与 Pass 判定，只影响加分与排序。
+     —— 老需求快照里没有 certMust 字段，按必备处理（保守，与历史判定一致）。 */
   {
     const need = g.cert || [];
+    const must = g.certMust !== false;
     if(!need.length){
       push('cert', 'ok', '无证书要求', '—', '需求快照', '', '—', '该需求未设证书硬条件');
     } else {
       const rec = (v.certs||[]).find(c => need.some(n => c.name.includes(n) || n.includes(c.name)));
-      let st = 'pend', got = '无证书记录', note = '技能关键词不得推断为持证';
+      let st = 'pend', got = '无证书记录', note = must
+        ? '必备证书无记录，需补证或核验；不得因技能关键词推断持证'
+        : '客户标注为优先/加分项，无证据不影响硬条件判定';
       if(rec){
         got = `${rec.name}（${rec.state==='ok'?'已核验':rec.state==='no'?'明确不满足':'待核验'}）`;
         st = rec.state === 'ok' ? 'ok' : rec.state === 'no' ? 'no' : 'pend';
         note = rec.state === 'pend' ? '证据不足，需补充证件或核验' : '';
-        if(rec.state === 'no') note = '候选人明确表示不满足';
-        push('cert', st, need.join('、'), got, rec.src||'—', rec.ev||'', rec.at||'—', note);
+        if(rec.state === 'no'){
+          note = must ? '候选人明确表示不满足（该证为客户必备条件）' : '该证为客户优先/加分项，未持不影响硬条件判定';
+        }
+        if(!must && rec.state !== 'ok') note += '；优先项不参与 Pass 判定';
+        push('cert', st, `${need.join('、')}（${must?'必备':'优先'}）`, got, rec.src||'—', rec.ev||'', rec.at||'—', note, !must);
       } else {
-        if(v.certNote) note = v.certNote;
-        push('cert', st, need.join('、'), got, '—', '', '—', note);
+        if(v.certNote && must) note = v.certNote;
+        else if(v.certNote) note = v.certNote + '；优先项不参与 Pass 判定';
+        push('cert', st, `${need.join('、')}（${must?'必备':'优先'}）`, got, '—', '', '—', note, !must);
       }
     }
   }
