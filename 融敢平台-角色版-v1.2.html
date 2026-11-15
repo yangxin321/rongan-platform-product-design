@@ -2877,7 +2877,9 @@ function assessPerson(p, d){
 
   /* 22 工种 —— 先分「无资料」与「明确不匹配」，缺资料不等于不符合 */
   {
-    const kw = TRADE_KW[d.id] || [];
+    /* 老需求有手写关键词表；新建需求没有，就用它自己的条件快照（工种 + 技能项）当关键词，
+       否则新需求一建出来，所有有简历的人都会被判成「技能栏未出现关键词」= 不符合。 */
+    const kw = TRADE_KW[d.id] || [].concat(g.skill||[], String(g.trade||'').split(/[\s\/·、]+/)).filter(Boolean);
     const skills = p.skills || [];
     const hit = skills.find(s => kw.some(k => s.includes(k)));
     const st = hit ? 'ok' : (skills.length ? 'no' : 'pend');
@@ -3004,6 +3006,7 @@ DEMAND_VERS.D4.push({v:'v1.1', status:'已退回', audit:'已退回', at:'2026-1
 const VER_OPEN = ['待客户确认','待重新确认','待内部审核','已退回'];
 const VER_TONE = {'生效':'g','待客户确认':'w','待重新确认':'w','待内部审核':'i','已退回':'r','已被取代':'n'};
 function versOf(d){ return DEMAND_VERS[d.id] || []; }
+function versAll(){ return Object.keys(DEMAND_VERS).reduce((a,k)=>a.concat(DEMAND_VERS[k]),[]); }
 function activeVer(d){ const l = versOf(d).filter(v=>v.status==='生效'); return l.length ? l[l.length-1] : null; }
 function openVer(d){ const l = versOf(d).filter(v=>VER_OPEN.includes(v.status)); return l.length ? l[l.length-1] : null; }
 /* 兼容旧名：pendingVer = 尚未生效的那一版（可能是待确认 / 待审核 / 已退回） */
@@ -3048,6 +3051,48 @@ function addReg(rec){
 function newRegId(){
   const n = Object.keys(REGS).reduce((s,k)=>s+REGS[k].length,0)+1;
   return 'RG-'+String(n).padStart(3,'0');
+}
+
+/* ---------- 时间解析 ----------
+   两个时间都是人手工敲的自由文本，**不能按字符串比大小**：
+   "2026-11-13 9:00" 与 "2026-11-13 10:05" 字符串比较会把 9:00 判成更大（"1" < "9"）。
+   统一解析成毫秒数再比；格式不合法直接拒绝，不做猜测。 */
+const TS_RE = /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})$/;
+function parseTs(str){
+  const m = TS_RE.exec(String(str==null?'':str).trim());
+  if(!m) return NaN;
+  const [_, y, mo, d, h, mi] = m.map(Number);
+  if(mo<1||mo>12||d<1||d>31||h>23||mi>59) return NaN;
+  return Date.UTC(y, mo-1, d, h, mi);
+}
+/* 规范化成 YYYY-MM-DD HH:mm；解析不了返回空串（不悄悄替换成今天） */
+function normTs(str){
+  const ms = parseTs(str);
+  if(isNaN(ms)) return '';
+  const d = new Date(ms);
+  const p = n => String(n).padStart(2,'0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+}
+function tsOrderOk(fbAt, regAt){
+  const fb = parseTs(fbAt), rg = parseTs(regAt);
+  if(isNaN(fb) || isNaN(rg)) return {ok:false, why:'时间格式无法解析，应为 2026-11-13 09:12'};
+  if(fb > rg) return {ok:false, why:'登记时间早于反馈发生时间，请核对'};
+  return {ok:true};
+}
+
+/* 审核历史：每轮「谁、何时、通过还是退回、什么意见」追加保存，不覆盖。
+   旧数据只有单个 auditNote 字段，这里补成数组，保证退回意见不丢。 */
+versAll().forEach(v=>{
+  if(Array.isArray(v.audits)) return;
+  v.audits = [];
+  if(v.audit === '已通过' || v.audit === '已退回'){
+    v.audits.push({act: v.audit==='已退回'?'back':'pass', by:v.auditBy||'—', at:v.auditAt||'—', note:v.auditNote||''});
+  }
+});
+function auditsOf(v){ return (v && Array.isArray(v.audits)) ? v.audits : []; }
+function lastBack(v){
+  const l = auditsOf(v).filter(a=>a.act==='back');
+  return l.length ? l[l.length-1] : null;
 }
 
 /* 演示样本：先写 3 条有细节的，其余已生效版本补标准记录 */
@@ -7717,6 +7762,50 @@ function ndS4(st, s){
 }
 
 /* ---------- 生成 ---------- */
+/* 条件快照：把「选中的标准岗位标准 + 本单调整」落成一份 gate。
+   客户只读页与匹配都只读这一份 —— 不生成快照，缺的条件会被当成「无要求」，
+   客户看到「—／无硬性要求／不需要夜班」，却不是自己填的那一套。 */
+function ndGate(st, s){
+  const val = no => {
+    const v = st.draft[no];
+    if(v === '' || v == null) return (s.vals||{})[no];
+    return v;
+  };
+  const NONE = /^(无|无硬性|无硬性要求|不限|无要求|无证书要求|不强制|无夜班)$/;
+  const arr = v => {
+    if(Array.isArray(v)) return v.map(x=>String(x).trim()).filter(x=>x && !NONE.test(x));
+    if(!v) return [];
+    return String(v).split(/[、,，/;；·\s]+/).map(x=>x.trim()).filter(x=>x && !NONE.test(x));
+  };
+  const raw = no => String(val(no)==null?'':val(no)).trim();
+
+  /* 年龄：'18-45' / '18~40' / '不限' → [18,45] / null（null = 客户未设限，不参与否决） */
+  const m = raw(10).match(/(\d{2})\s*[-~～至到]\s*(\d{2})/);
+  const age = m ? [+m[1], +m[2]] : null;
+
+  /* 性别：只有明确「男 / 女」才是硬条件；「男女不限 / 女工优先」按不限处理 */
+  const gRaw = raw(11);
+  const gender = /^男$/.test(gRaw) ? '男' : /^女$/.test(gRaw) ? '女' : '不限';
+
+  /* 夜班：两班倒 / 三班 / 常夜才需要确认夜班意愿，长白班 / 不限不需要 */
+  const night = /两班倒|三班|四班|常夜|夜班/.test(raw(19)) ? '需要' : '不需要';
+
+  /* 证书：写了「优先 / 非强制 / 加分」的是软条件，其余按硬条件 */
+  const certRaw = raw(26), cert = arr(certRaw);
+  const certMust = cert.length > 0 && !/优先|非强制|不强制|加分|非必须/.test(certRaw);
+
+  return {
+    city: st.city || '',
+    age, gender, night,
+    trade: raw(22) || s.trade || '',
+    skill: arr(val(25)),
+    cert, certMust,
+    arriveBy: st.deadline || '',
+    /* 快照出处，便于回溯「这个值是从哪份标准、哪一版来的」 */
+    from: {stdId:s.id, stdVer:s.ver, list:s.list, at:TODAY},
+  };
+}
+
 function ndCreate(){
   ndSync();
   const st = ndState(), s = stdOf(st.sid);
@@ -7745,9 +7834,13 @@ function ndCreate(){
   });
   ndReset();
   closeAll();
-  /* v1.2：新需求=待客户确认，先立版本、再发受控只读链接；未确认前不生效 */
+  /* v1.2：新需求=待客户确认，先立版本、再发受控只读链接；未确认前不生效
+     条件快照必须当场生成：客户只读页、审核后的匹配读的都是这一份 */
+  const gate = ndGate(st, s);
+  DEMAND_GATE[id] = Object.assign({}, gate, {skill:gate.skill.slice(), cert:gate.cert.slice()});
   DEMAND_VERS[id] = [{v:'v1.0', status:'待客户确认', at:'2026-11-14 08:20',
-    by:(S.who||'李文静')+'（代客户登记）', way:'链接已发出', n:47, note:'新建需求，客户尚未反馈', changes:[]}];
+    by:(S.who||'李文静')+'（代客户登记）', way:'链接已发出', n:47, note:'新建需求，客户尚未反馈', changes:[],
+    audits:[], gate:Object.assign({}, gate, {skill:gate.skill.slice(), cert:gate.cert.slice()})}];
   MATCH_STAMP[id] = {ver:'—', at:'2026-11-14 08:20', stale:true};
   const tok = genLink(id, 'v1.0', S.who||'李文静');
   toast(`需求已生成：${s.name} · ${st.people} 人 · 标准 ${s.ver}${ov.length?' · 本单调整 '+ov.length+' 项':''} · 待客户确认 · 链接 ${tok}`);
@@ -8337,6 +8430,19 @@ function demandConfirmDrawer(id){
   </div>`);
 }
 
+/* 审核历史：一轮一行，按时间正序（第 1 轮 → 最新） */
+function auditHistHtml(v, compact){
+  const l = auditsOf(v);
+  if(!l.length) return '';
+  const rows = l.map((a,i)=>`<div class="sm" style="padding:6px 0;border-bottom:1px solid var(--line2)">
+      <span class="b ${a.act==='back'?'r':'g'}">第 ${i+1} 轮 · ${a.act==='back'?'退回':'通过'}</span>
+      <span class="xs mut">　${esc(a.by||'—')} · ${esc(a.at||'—')}${a.reg?` · ${esc(a.reg)}`:''}</span>
+      <div class="xs ${a.act==='back'?'':'mut'}" style="margin-top:2px">${esc(a.note||'—')}</div>
+    </div>`).join('');
+  return `<div class="sec-t" style="margin-top:${compact?'8px':'11px'}">审核记录 ${l.length} 轮（不覆盖，逐轮保留）</div>
+    <div style="margin-top:2px">${rows}</div>`;
+}
+
 /* ---------- 代登记记录展示（8 字段，两个时间两个人分开看） ---------- */
 function regTable(r){
   const miss = regMissing(r);
@@ -8364,6 +8470,7 @@ function regBlock(d, v){
       <span class="xs mut">共 ${hist.length} 条记录</span></div>
     ${r?regTable(r):`<div class="note w">该版本还没有代登记记录。客户口头反馈回来后，点「代登记客户反馈」逐项录入，才能送内部审核。</div>`}
     ${v.auditNote?`<div class="note ${v.audit==='已退回'?'r':'i'}" style="margin-top:9px"><b>${v.audit==='已退回'?'退回意见':'审核意见'}</b>：${esc(v.auditNote)}${v.auditBy?`　— ${esc(v.auditBy)} · ${esc(v.auditAt||'')}`:''}</div>`:''}
+    ${auditsOf(v).length>1?auditHistHtml(v, true):''}
   </div>`;
 }
 
@@ -8384,7 +8491,8 @@ function regDrawer(did, ver){
       这不是客户点出来的记录。<b>客户从不登录、不点击。</b>下面每个字段都是我方按客户原话抄录，
       系统会同时保留<b>客户什么时候说的</b>和<b>我在什么时候抄进来的</b>，两者都要有依据才能送审。
     </div>
-    ${redo?`<div class="note w" style="margin-bottom:14px">上一轮被退回：${esc(target.auditNote||'—')}<br>补充后重新提交，旧记录不删除，作为历史保留。</div>`:''}
+    ${redo?`<div class="note w" style="margin-bottom:14px">上一轮被退回（${esc((lastBack(target)||{}).at||'—')} · ${esc((lastBack(target)||{}).by||'—')}）：${esc((lastBack(target)||{}).note||'—')}
+      <br>补充后重新提交，前面几轮的退回意见不删除，作为历史保留（本版已审 ${auditsOf(target).length} 轮）。</div>`:''}
 
     <div class="sec" style="padding-top:0"><div class="sec-t">必填 8 项</div>
     <div class="frow">
@@ -8435,17 +8543,27 @@ function regSave(did, ver){
   const miss = regMissing(rec);
   const err = [];
   if(miss.length) err.push(`还有 ${miss.length} 项没填：${miss.join('、')}`);
-  if(rec.fbAt && rec.regAt && rec.fbAt > rec.regAt) err.push('登记时间早于反馈发生时间，请核对');
+  /* 时间按值比，不按字符串比；格式不合法直接拦下，不猜 */
+  const fbOk = !!normTs(rec.fbAt), rgOk = !!normTs(rec.regAt);
+  if(rec.fbAt && !fbOk) err.push('反馈发生时间格式不对，应为 2026-11-13 09:12');
+  if(rec.regAt && !rgOk) err.push('登记时间格式不对，应为 2026-11-13 09:12');
+  if(fbOk && rgOk){
+    const ord = tsOrderOk(rec.fbAt, rec.regAt);
+    if(!ord.ok) err.push(ord.why);
+    rec.fbAt = normTs(rec.fbAt);
+    rec.regAt = normTs(rec.regAt);
+  }
   if(err.length){
     const box = document.getElementById('rg_err');
     if(box) box.innerHTML = `<div class="note r">${err.map(esc).join('<br>')}</div>`;
     toast('登记未保存：'+err[0]);
     return;
   }
+  /* 上一轮的退回意见已经追加在 version.audits 里，这里不再覆盖写 prevAudit —— 
+     退回几轮就留几条，补充送审不清空历史。 */
   addReg(rec);
   const d = D(did), v = versOf(d).find(x=>x.v===ver);
   if(v){
-    if(v.status==='已退回'){ v.prevAudit = {note:v.auditNote||'', by:v.auditBy||'', at:v.auditAt||''}; }
     v.status = '待内部审核'; v.audit = '待审核'; v.auditNote = ''; v.auditBy = ''; v.auditAt = '';
   }
   if(!activeVer(d)) d.confirm = '待内部审核';
@@ -8483,6 +8601,18 @@ function auditDrawer(did){
   </div>`);
 }
 
+/* 每轮审核都追加到 version.audits，并把结论回写到被审的那条代登记记录 ——
+   退回几轮就留几轮意见，补充送审不清历史。 */
+function auditAppend(v, rec, act, by, at, note){
+  v.audits = Array.isArray(v.audits) ? v.audits : [];
+  v.audits.push({act, by, at, note, reg: rec ? rec.id : null});
+  if(rec){
+    rec.audit = act==='pass' ? '已通过' : '已退回';
+    rec.auditBy = by; rec.auditAt = at; rec.auditNote = note;
+  }
+  return v.audits[v.audits.length-1];
+}
+
 function auditAct(did, act){
   const d = D(did), v = openVer(d);
   if(!v) return toast('没有待审核的版本');
@@ -8490,9 +8620,13 @@ function auditAct(did, act){
   const at = nowTs(), by = S.who || '王浩';
   if(act === 'pass'){
     if(miss.length) return toast('缺 '+miss.length+' 项登记依据，不能通过：'+miss[0]);
+    /* 送审时校验过的时间，通过时再校验一次：记录可能被后续改动 */
+    const ord = tsOrderOk(r.fbAt, r.regAt);
+    if(!ord.ok) return toast('该登记记录不可通过：'+ord.why);
     versOf(d).forEach(x=>{ if(x.status==='生效') x.status = '已被取代'; });
     v.status = '生效'; v.audit = '已通过'; v.auditBy = by; v.auditAt = at;
     v.auditNote = '代登记依据齐全，第 '+(r?r.id:'—')+' 条记录与变更项一致';
+    auditAppend(v, r, 'pass', by, at, v.auditNote);
     v.by = (r?r.regBy:by)+'（代客户登记）'; v.way = r?r.fbChannel:'—'; v.at = r?r.regAt:at;
     d.confirm = '已确认';
     MATCH_STAMP[did] = {ver:v.v, at:at, stale:true};
@@ -8503,6 +8637,7 @@ function auditAct(did, act){
   const note = (document.getElementById('au_note')||{}).value || '';
   if(!note.trim()) { toast('退回必须写原因'); return; }
   v.status = '已退回'; v.audit = '已退回'; v.auditBy = by; v.auditAt = at; v.auditNote = note.trim();
+  auditAppend(v, r, 'back', by, at, note.trim());
   if(!activeVer(d)) d.confirm = '已退回';
   closeAll(); refreshTable();
   toast(`${v.v} 已退回，需补充客户依据后重新送审`);
@@ -8535,6 +8670,7 @@ function openVers(did){
             <td class="sm mut">${esc(c.from)}</td><td class="sm"><b>${esc(c.to)}</b></td></tr>`).join('')}</tbody>
         </table></div>`:'<div class="xs mut" style="margin-top:8px">首版，无字段变更</div>'}
       ${v.auditNote?`<div class="note ${v.audit==='已退回'?'r':'i'}" style="margin-top:10px">${v.audit==='已退回'?'退回意见':'审核意见'}：${esc(v.auditNote)}</div>`:''}
+      ${auditHistHtml(v)}
       ${v.status==='待重新确认'||v.status==='待内部审核'?`<div class="note r" style="margin-top:10px">旧版（生效中）的确认<b>不自动继承</b>到本版。本版未生效前，不作为匹配依据。</div>`:''}
       ${lastReg(d.id, v.v)?`<div class="xs mut" style="margin-top:9px">最近一条代登记 ${esc(lastReg(d.id,v.v).id)} · 反馈人 ${esc(lastReg(d.id,v.v).fbPerson)} · 反馈 ${esc(lastReg(d.id,v.v).fbAt)} · 登记 ${esc(lastReg(d.id,v.v).regAt)}</div>`:''}
     </div></div>`).join('')}
@@ -8555,10 +8691,10 @@ function confirmReg(did, act){
     const base = cur ? cur.v : 'v1.0';
     const next = 'v'+(Number(String(base).replace('v','').split('.')[0])+1)+'.0';
     versOf(d).push({v:next, status:'待重新确认', audit:'未送审', at:nowTs(), by:'金诚', way:'待客户反馈',
-      n:47, note:'我方发起变更，等待客户反馈',
+      n:47, note:'我方发起变更，等待客户反馈', audits:[],
       changes:[{f:'工效条款', from:'按原版本', to:'待客户确认'}],
       /* 新版条件先留在待确认版本上；生效前不参与匹配（gateOf 读的是生效版本） */
-      gate:Object.assign({}, gateOf(d))});
+      gate:(function(g){ return Object.assign({}, g, {skill:(g.skill||[]).slice(), cert:(g.cert||[]).slice()}); })(gateOf(d))});
     d.confirm = activeVer(d) ? '变更待重确认' : '待客户确认';
     MATCH_STAMP[did] = {ver:base, at:nowTs(), stale:true};
     closeAll(); refreshTable();

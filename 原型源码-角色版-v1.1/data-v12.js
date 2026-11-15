@@ -236,7 +236,9 @@ function assessPerson(p, d){
 
   /* 22 工种 —— 先分「无资料」与「明确不匹配」，缺资料不等于不符合 */
   {
-    const kw = TRADE_KW[d.id] || [];
+    /* 老需求有手写关键词表；新建需求没有，就用它自己的条件快照（工种 + 技能项）当关键词，
+       否则新需求一建出来，所有有简历的人都会被判成「技能栏未出现关键词」= 不符合。 */
+    const kw = TRADE_KW[d.id] || [].concat(g.skill||[], String(g.trade||'').split(/[\s\/·、]+/)).filter(Boolean);
     const skills = p.skills || [];
     const hit = skills.find(s => kw.some(k => s.includes(k)));
     const st = hit ? 'ok' : (skills.length ? 'no' : 'pend');
@@ -363,6 +365,7 @@ DEMAND_VERS.D4.push({v:'v1.1', status:'已退回', audit:'已退回', at:'2026-1
 const VER_OPEN = ['待客户确认','待重新确认','待内部审核','已退回'];
 const VER_TONE = {'生效':'g','待客户确认':'w','待重新确认':'w','待内部审核':'i','已退回':'r','已被取代':'n'};
 function versOf(d){ return DEMAND_VERS[d.id] || []; }
+function versAll(){ return Object.keys(DEMAND_VERS).reduce((a,k)=>a.concat(DEMAND_VERS[k]),[]); }
 function activeVer(d){ const l = versOf(d).filter(v=>v.status==='生效'); return l.length ? l[l.length-1] : null; }
 function openVer(d){ const l = versOf(d).filter(v=>VER_OPEN.includes(v.status)); return l.length ? l[l.length-1] : null; }
 /* 兼容旧名：pendingVer = 尚未生效的那一版（可能是待确认 / 待审核 / 已退回） */
@@ -407,6 +410,48 @@ function addReg(rec){
 function newRegId(){
   const n = Object.keys(REGS).reduce((s,k)=>s+REGS[k].length,0)+1;
   return 'RG-'+String(n).padStart(3,'0');
+}
+
+/* ---------- 时间解析 ----------
+   两个时间都是人手工敲的自由文本，**不能按字符串比大小**：
+   "2026-11-13 9:00" 与 "2026-11-13 10:05" 字符串比较会把 9:00 判成更大（"1" < "9"）。
+   统一解析成毫秒数再比；格式不合法直接拒绝，不做猜测。 */
+const TS_RE = /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})$/;
+function parseTs(str){
+  const m = TS_RE.exec(String(str==null?'':str).trim());
+  if(!m) return NaN;
+  const [_, y, mo, d, h, mi] = m.map(Number);
+  if(mo<1||mo>12||d<1||d>31||h>23||mi>59) return NaN;
+  return Date.UTC(y, mo-1, d, h, mi);
+}
+/* 规范化成 YYYY-MM-DD HH:mm；解析不了返回空串（不悄悄替换成今天） */
+function normTs(str){
+  const ms = parseTs(str);
+  if(isNaN(ms)) return '';
+  const d = new Date(ms);
+  const p = n => String(n).padStart(2,'0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+}
+function tsOrderOk(fbAt, regAt){
+  const fb = parseTs(fbAt), rg = parseTs(regAt);
+  if(isNaN(fb) || isNaN(rg)) return {ok:false, why:'时间格式无法解析，应为 2026-11-13 09:12'};
+  if(fb > rg) return {ok:false, why:'登记时间早于反馈发生时间，请核对'};
+  return {ok:true};
+}
+
+/* 审核历史：每轮「谁、何时、通过还是退回、什么意见」追加保存，不覆盖。
+   旧数据只有单个 auditNote 字段，这里补成数组，保证退回意见不丢。 */
+versAll().forEach(v=>{
+  if(Array.isArray(v.audits)) return;
+  v.audits = [];
+  if(v.audit === '已通过' || v.audit === '已退回'){
+    v.audits.push({act: v.audit==='已退回'?'back':'pass', by:v.auditBy||'—', at:v.auditAt||'—', note:v.auditNote||''});
+  }
+});
+function auditsOf(v){ return (v && Array.isArray(v.audits)) ? v.audits : []; }
+function lastBack(v){
+  const l = auditsOf(v).filter(a=>a.act==='back');
+  return l.length ? l[l.length-1] : null;
 }
 
 /* 演示样本：先写 3 条有细节的，其余已生效版本补标准记录 */

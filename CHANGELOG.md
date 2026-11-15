@@ -202,3 +202,29 @@
 
 - 角色版 `bc510d63dcc2ca32014e9152556a00f0`、解释版 `f5bed1e0acd54b3c785f8c5e0283879f`
 - 线上 8095 已覆盖，上一版备为 `index.before-r2.backup.html` / `explain.before-r2.backup.html`
+
+---
+
+## 追加 · 第三轮外部审查（3 处 blocker）修复
+
+| # | 审查意见（位置） | 问题 | 修复 |
+|---|---|---|---|
+| ⑨ | `pages-nd.js:319` | 新建需求只保存标准引用与本单调整，没有初始化 `DEMAND_GATE[id]` 或版本 `gate`；`custLinkPayload` / `gateOf` 只读这两处 → 客户只读页专业技能显示「—」、证书「无硬性要求」、夜班「不需要」，与向导里填的不是一套；代登记、审核通过也不补齐 | 新增 `ndGate(st, s)`：把「选中标准 + 本单调整」落成条件快照（city/age/gender/night/trade/skill/cert/certMust/arriveBy，带 `from{stdId,stdVer,list,at}` 出处），`ndCreate` 当场写入 `DEMAND_GATE[id]` 与 v1.0 的 `gate`；`confirmReg` 生成新版时深拷贝条件数组 |
+| ⑩ | `pages-vers.js:263` | 退回意见只存单个 `prevAudit`，第二轮就覆盖第一轮；`auditAct` 也不把结论写回 `REGS` 记录 → 退回原因丢失，版本历史与代登记区块都不展示 history | 版本加 `audits:[]` 追加数组（`act/by/at/note/reg`），`auditAppend()` 统一写入并同步回写代登记记录 `audit/auditBy/auditAt/auditNote`；新增 `auditHistHtml()` 在版本历史与代登记区块逐轮展示；补充送审不再覆盖任何旧意见 |
+| ⑪ | `pages-vers.js:252` | 反馈时间与登记时间都是自由文本，直接字符串比较 —— `"2026-11-13 10:05" > "2026-11-13 9:00"` 为 false，早于反馈的登记时间被放行 | 新增 `parseTs/normTs/tsOrderOk`：按 `YYYY-MM-DD HH:mm` 解析成毫秒比较，不合法直接拒绝并提示格式；保存时把时间规范成补零格式；审核通过前再校验一次 |
+
+### 顺带修的
+
+- `assessPerson` 的工种关键词表 `TRADE_KW[d.id]` 对新需求为空 → 所有有简历的人都被判「技能栏未出现关键词」= 不符合。改为回退到该需求自己的条件快照（`gate.trade + gate.skill`）
+- 审核历史在 `data-v12.js` 载入时对旧数据做一次补齐（`audit` 单值 → `audits` 数组），历史版本不必手改
+
+### 验证
+
+- 断言 **87 → 95 条，全部 PASS，0 JS 错误**；本地 file:// 与线上 8095 各跑一遍（线上仅 favicon 404）
+- 新增回归：`RG002-36`（新建需求当场生成快照，含技能/证书/夜班/年龄/到岗日）、`RG002-37`（版本与只读链接同一份快照）、`RG002-38`（只读页显示实际条件）、`RG002-39`（两轮退回意见都保留）、`RG002-40`（结论回写代登记记录）、`RG002-41`（版本历史逐轮展示）、`RG002-42`（登记早于反馈被按时间值拒绝，并断言字符串比较会放过）、`RG002-43`（时间格式不合法被拒）
+- 快照用例跑完即清理（需求/版本/gate/链接全部撤销），不影响后续断言
+
+### 产物
+
+- 角色版 `e2469f8a02b0d311163fa1a419feeac6`、解释版 `d2020c3f13a829b6486796f03d15a11c`
+- 线上 8095 已覆盖，上一版备为 `index.before-r3.backup.html` / `explain.before-r3.backup.html`

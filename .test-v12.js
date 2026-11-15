@@ -192,6 +192,111 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   ok('RG002-35 版本历史显示审核状态与记录条数', vh.includes('审核：') && vh.includes('代登记记录'));
   await ev(() => closeAll());
 
+  /* ---- 第三轮 ⑨：新建需求必须当场生成条件快照 ---- */
+  const ndres = await ev(() => {
+    enter('R01');
+    ndEnter('SJ-DG-D3-L');
+    const st = ndState();
+    Object.assign(st, {client:'快照测试客户', project:'快照测试项目', people:'4', price:'35 元/时',
+      city:'青岛', deadline:'2026-12-20', term:'3 个月'});
+    ndPaint();
+    st.draft[25] = ['配盘接线','通电测试'];
+    st.draft[26] = ['低压电工证'];
+    st.draft[19] = '两班倒';
+    st.draft[10] = '18-40';
+    st.draft[11] = '男女不限';
+    ndCreate();
+    const d = DEMANDS[0], g = DEMAND_GATE[d.id] || {};
+    const v0 = (DEMAND_VERS[d.id]||[])[0] || {};
+    const l = CLINKS.find(x=>x.demandId===d.id) || {};
+    const pay = custLinkPayload(l.tok);
+    window.__NDT__ = {id:d.id, tok:l.tok};
+    return {id:d.id, skill:g.skill||[], cert:g.cert||[], night:g.night, age:g.age, arrive:g.arriveBy,
+      verSkill:((v0.gate||{}).skill)||[], ok:pay.ok, pgSkill:((pay.gate||{}).skill)||[]};
+  });
+  ok('RG002-36 新建需求当场生成条件快照', ndres.skill.includes('配盘接线') && ndres.cert.includes('低压电工证')
+    && ndres.night === '需要' && ndres.arrive === '2026-12-20' && String(ndres.age) === '18,40',
+    JSON.stringify(ndres));
+  ok('RG002-37 版本与只读链接读同一份快照', ndres.verSkill.includes('配盘接线') && ndres.ok && ndres.pgSkill.includes('配盘接线'));
+  await ev(() => openCustLinkDemo(window.__NDT__.tok)); await page.waitForTimeout(300);
+  const ndpg = await txt('.cust-doc');
+  ok('RG002-38 新建需求只读页显示实际条件而非无要求',
+    ndpg.includes('配盘接线') && ndpg.includes('低压电工证'));
+  await ev(() => { const id = window.__NDT__.id;
+    const i = DEMANDS.findIndex(x=>x.id===id); if(i>=0) DEMANDS.splice(i,1);
+    delete DEMAND_VERS[id]; delete DEMAND_GATE[id]; delete MATCH_STAMP[id];
+    for(let k=CLINKS.length-1;k>=0;k--) if(CLINKS[k].demandId===id) CLINKS.splice(k,1);
+    exitCustLink(); enter('R01'); });
+  await page.waitForTimeout(150);
+
+  /* ---- 第三轮 ⑩：退回意见按轮次保留，不覆盖 ---- */
+  const hist = await ev(() => {
+    DEMANDS.unshift({id:'DZ', code:'XQ-DZ', client:'测试客户', cs:'测试', ps:'电工', project:'测试项目',
+      post:'装配电工 · 组长', head:2, hired:0, price:'35 元/时', city:'青岛', deadline:'2026-12-20',
+      valid:'2026-12-20 ~ 待定', confirm:'已确认', alloc:'未分配', status:'招聘中', pinned:false, req:[],
+      owner:'李文静', stdId:'SJ-DG-D3-L', stdVer:'v1.0', stdList:'EL-DG-D3', stdOverride:[]});
+    DEMAND_VERS.DZ = [{v:'v1.0', status:'生效', audit:'已通过', at:'2026-11-01 09:00', by:'金诚', way:'微信',
+      n:47, note:'首版', changes:[], audits:[]}];
+    MATCH_STAMP.DZ = {ver:'v1.0', at:'2026-11-01 09:00', stale:false};
+    DEMAND_VERS.DZ.push({v:'v1.1', status:'待内部审核', audit:'待审核', at:'2026-11-13 10:30', by:'金诚', way:'微信',
+      n:47, note:'客户改到岗日', audits:[], changes:[{f:'最晚报到日', from:'2026-12-20', to:'2026-12-15'}],
+      gate:{arriveBy:'2026-12-15'}});
+    REGS.DZ = [];
+    addReg({id:newRegId(), demandId:'DZ', ver:'v1.1', fbPerson:'张工', fbChannel:'微信', fbAt:'2026-11-13 10:05',
+      fbContent:'改到 12-15', fbAttach:'微信截图 1 张', regBy:'金诚', regAt:'2026-11-13 10:30', audit:'待审核'});
+    auditDrawer('DZ');
+    document.getElementById('au_note').value = '第一轮退回：缺客户原话截图';
+    auditAct('DZ','back');
+    regDrawer('DZ');
+    document.getElementById('rg_fbAt').value = '2026-11-13 15:00';
+    document.getElementById('rg_fbAttach').value = '微信截图 2 张（补充原话）';
+    document.getElementById('rg_regAt').value = '2026-11-13 15:20';
+    regSave('DZ','v1.1');
+    auditDrawer('DZ');
+    document.getElementById('au_note').value = '第二轮退回：变更值未写死';
+    auditAct('DZ','back');
+    const v = versOf(D('DZ')).find(x=>x.v==='v1.1');
+    const regs = regsOfVer('DZ','v1.1');
+    return {n:(v.audits||[]).length, notes:(v.audits||[]).map(a=>a.note).join(' || '),
+      regN:regs.length, regAudit:regs.map(r=>r.audit)};
+  });
+  ok('RG002-39 两轮退回意见都保留', hist.n === 2 && hist.notes.includes('第一轮') && hist.notes.includes('第二轮'),
+    JSON.stringify(hist));
+  ok('RG002-40 审核结论回写代登记记录', hist.regN === 2 && hist.regAudit.every(a=>a === '已退回'));
+
+  await ev(() => openVers('DZ')); await page.waitForTimeout(250);
+  const dzv = await txt('#drawer');
+  ok('RG002-41 版本历史逐轮展示审核记录',
+    dzv.includes('审核记录') && dzv.includes('第一轮退回') && dzv.includes('第二轮退回'));
+
+  /* ---- 第三轮 ⑪：两个时间按值比，不按字符串比 ---- */
+  const ord1 = await ev(() => {
+    const n0 = regsOfVer('DZ','v1.1').length;
+    regDrawer('DZ');
+    document.getElementById('rg_fbAt').value = '2026-11-13 10:05';
+    document.getElementById('rg_regAt').value = '2026-11-13 9:00';
+    regSave('DZ','v1.1');
+    const err = (document.getElementById('rg_err')||{}).innerText || '';
+    return {n0, n1:regsOfVer('DZ','v1.1').length, err, strCmp:('2026-11-13 10:05' > '2026-11-13 9:00')};
+  });
+  ok('RG002-42 登记时间早于反馈按时间值拒绝（字符串比较会放过）',
+    ord1.n1 === ord1.n0 && ord1.err.includes('早于') && ord1.strCmp === false, JSON.stringify(ord1));
+
+  const ord2 = await ev(() => {
+    const n0 = regsOfVer('DZ','v1.1').length;
+    regDrawer('DZ');
+    document.getElementById('rg_fbAt').value = '2026/11/13 10:05';
+    document.getElementById('rg_regAt').value = '2026-11-13 11:00';
+    regSave('DZ','v1.1');
+    const err = (document.getElementById('rg_err')||{}).innerText || '';
+    return {n0, n1:regsOfVer('DZ','v1.1').length, err};
+  });
+  ok('RG002-43 时间格式不合法被拒', ord2.n1 === ord2.n0 && ord2.err.includes('格式'), JSON.stringify(ord2));
+
+  await ev(() => { const i = DEMANDS.findIndex(x=>x.id==='DZ'); if(i>=0) DEMANDS.splice(i,1);
+    delete DEMAND_VERS.DZ; delete MATCH_STAMP.DZ; delete REGS.DZ; closeAll(); });
+  await page.waitForTimeout(150);
+
   /* ---- RG-004 ---- */
   await ev(() => { enter('R04'); go('persons'); openPerson('P1'); huSetTab('verify'); });
   await page.waitForTimeout(400);

@@ -286,6 +286,50 @@ function ndS4(st, s){
 }
 
 /* ---------- 生成 ---------- */
+/* 条件快照：把「选中的标准岗位标准 + 本单调整」落成一份 gate。
+   客户只读页与匹配都只读这一份 —— 不生成快照，缺的条件会被当成「无要求」，
+   客户看到「—／无硬性要求／不需要夜班」，却不是自己填的那一套。 */
+function ndGate(st, s){
+  const val = no => {
+    const v = st.draft[no];
+    if(v === '' || v == null) return (s.vals||{})[no];
+    return v;
+  };
+  const NONE = /^(无|无硬性|无硬性要求|不限|无要求|无证书要求|不强制|无夜班)$/;
+  const arr = v => {
+    if(Array.isArray(v)) return v.map(x=>String(x).trim()).filter(x=>x && !NONE.test(x));
+    if(!v) return [];
+    return String(v).split(/[、,，/;；·\s]+/).map(x=>x.trim()).filter(x=>x && !NONE.test(x));
+  };
+  const raw = no => String(val(no)==null?'':val(no)).trim();
+
+  /* 年龄：'18-45' / '18~40' / '不限' → [18,45] / null（null = 客户未设限，不参与否决） */
+  const m = raw(10).match(/(\d{2})\s*[-~～至到]\s*(\d{2})/);
+  const age = m ? [+m[1], +m[2]] : null;
+
+  /* 性别：只有明确「男 / 女」才是硬条件；「男女不限 / 女工优先」按不限处理 */
+  const gRaw = raw(11);
+  const gender = /^男$/.test(gRaw) ? '男' : /^女$/.test(gRaw) ? '女' : '不限';
+
+  /* 夜班：两班倒 / 三班 / 常夜才需要确认夜班意愿，长白班 / 不限不需要 */
+  const night = /两班倒|三班|四班|常夜|夜班/.test(raw(19)) ? '需要' : '不需要';
+
+  /* 证书：写了「优先 / 非强制 / 加分」的是软条件，其余按硬条件 */
+  const certRaw = raw(26), cert = arr(certRaw);
+  const certMust = cert.length > 0 && !/优先|非强制|不强制|加分|非必须/.test(certRaw);
+
+  return {
+    city: st.city || '',
+    age, gender, night,
+    trade: raw(22) || s.trade || '',
+    skill: arr(val(25)),
+    cert, certMust,
+    arriveBy: st.deadline || '',
+    /* 快照出处，便于回溯「这个值是从哪份标准、哪一版来的」 */
+    from: {stdId:s.id, stdVer:s.ver, list:s.list, at:TODAY},
+  };
+}
+
 function ndCreate(){
   ndSync();
   const st = ndState(), s = stdOf(st.sid);
@@ -314,9 +358,13 @@ function ndCreate(){
   });
   ndReset();
   closeAll();
-  /* v1.2：新需求=待客户确认，先立版本、再发受控只读链接；未确认前不生效 */
+  /* v1.2：新需求=待客户确认，先立版本、再发受控只读链接；未确认前不生效
+     条件快照必须当场生成：客户只读页、审核后的匹配读的都是这一份 */
+  const gate = ndGate(st, s);
+  DEMAND_GATE[id] = Object.assign({}, gate, {skill:gate.skill.slice(), cert:gate.cert.slice()});
   DEMAND_VERS[id] = [{v:'v1.0', status:'待客户确认', at:'2026-11-14 08:20',
-    by:(S.who||'李文静')+'（代客户登记）', way:'链接已发出', n:47, note:'新建需求，客户尚未反馈', changes:[]}];
+    by:(S.who||'李文静')+'（代客户登记）', way:'链接已发出', n:47, note:'新建需求，客户尚未反馈', changes:[],
+    audits:[], gate:Object.assign({}, gate, {skill:gate.skill.slice(), cert:gate.cert.slice()})}];
   MATCH_STAMP[id] = {ver:'—', at:'2026-11-14 08:20', stale:true};
   const tok = genLink(id, 'v1.0', S.who||'李文静');
   toast(`需求已生成：${s.name} · ${st.people} 人 · 标准 ${s.ver}${ov.length?' · 本单调整 '+ov.length+' 项':''} · 待客户确认 · 链接 ${tok}`);
