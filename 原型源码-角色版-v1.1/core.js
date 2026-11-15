@@ -121,6 +121,16 @@ function openCustLinkDemo(tok){
   document.getElementById('root').innerHTML = viewCustLink(t);
   window.scrollTo(0,0);
 }
+/* 年龄区间的展示文字：客户原文优先（'18–45'），没有原文再用解析出的区间。
+   客户自己写的才是依据，解析只是给匹配用。 */
+function custAgeTxt(g){
+  const raw = String((g && g.ageRaw) || '').trim();
+  if(raw && !/^(不限|无|无要求|无硬性要求)$/.test(raw)){
+    return /岁/.test(raw) ? raw : raw + ' 岁';
+  }
+  const a = (g && g.age) || [];
+  return a.length === 2 ? `${a[0]}–${a[1]} 岁` : '不限';
+}
 function viewCustLink(tok){
   const r = custLinkPayload(tok);
   const back = `<div class="cust-back"><button class="btn xs" onclick="exitCustLink()">← 返回演示首页</button><span class="xs mut">演示导航，正式环境客户看不到此按钮</span></div>`;
@@ -143,10 +153,13 @@ function viewCustLink(tok){
     </div></div>`;
   }
   const d = r.d, g = r.gate, ver = r.ver || {};
+  /* 第一节与第二节必须同源：都取「链接对应的那一版」的条件快照。
+     只读页展示的是某一版，d.deadline / d.city 是需求对象上的基础值，
+     审核通过新版后不会跟着变，客户就会在同一张单上看到两个日期。 */
   const gateRows = [
     ['用工地点', g.city||'—','工作城市意愿，不以现居地推断'],
     ['最晚报到日', g.arriveBy||'—','候选人确认的可到岗日期'],
-    ['年龄区间', (g.age||[]).join('–')+' 岁','客户明示条件'],
+    ['年龄区间', custAgeTxt(g), '客户明示条件'],
     ['性别要求', g.gender||'不限','客户明示条件'],
     ['工种 / 等级', `${d.post}（${g.trade||'—'}）`,''],
     ['专业技能项', (g.skill||[]).join('、')||'—',''],
@@ -170,10 +183,10 @@ function viewCustLink(tok){
 
     <div class="sec"><div class="sec-t">一、岗位与地点</div>
       <dl class="kv">
-        <div><dt>用工地点</dt><dd>${esc(d.city)}</dd></div>
+        <div><dt>用工地点</dt><dd>${esc(g.city||d.city)}</dd></div>
         <div><dt>需求人数</dt><dd class="mono">${d.head} 人</dd></div>
         <div><dt>工期</dt><dd>${esc(d.term||'3 个月')}</dd></div>
-        <div><dt>最晚报到</dt><dd class="mono">${esc(d.deadline)}</dd></div>
+        <div><dt>最晚报到</dt><dd class="mono">${esc(g.arriveBy||d.deadline)}</dd></div>
       </dl></div>
 
     <div class="sec"><div class="sec-t">二、岗位条件（请逐项确认）</div>

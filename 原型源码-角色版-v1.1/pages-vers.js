@@ -147,7 +147,7 @@ function demandConfirmDrawer(id){
     ${pv&&(pv.status==='待客户确认'||pv.status==='待重新确认')
       ? `<button class="btn pri" onclick="regDrawer('${d.id}')">代登记客户反馈（${esc(pv.v)}）</button>`:''}
     ${!pv?`<button class="btn pri" onclick="regDrawer('${d.id}')">代登记客户反馈</button>`:''}
-    ${d.confirm==='已确认'||av?`<button class="btn" onclick="confirmReg('${d.id}','change')">标记条件已变更</button>`:''}
+    ${(d.confirm==='已确认'||av)&&!pv?`<button class="btn" onclick="confirmReg('${d.id}','change')">标记条件已变更</button>`:''}
   </div>`);
 }
 
@@ -406,8 +406,18 @@ function openVers(did){
 function confirmReg(did, act){
   const d = D(did);
   if(act === 'ok'){ return regDrawer(did); }
+  /* 已有未结版本（待客户确认 / 待重新确认 / 待内部审核 / 已退回）时不再生成新版本。
+     否则第二次点会算出同一个 v2.0，追加两个同号版本：regSave 用 find 取第一个送审，
+     openVer / auditAct 取最后一个审核 —— 被送审和被审核不是同一个对象（AGENTS R2）。 */
+  const ov = openVer(d);
+  if(ov){
+    toast(`已有未结版本 ${ov.v}（${ov.status}），请先完成该版的客户反馈 → 代登记 → 内部审核，再发起下一次变更`);
+    return openVers(did);
+  }
   /* 标记条件变更 */
   showAsk('标记为「条件已变更，需重新确认」','变更后旧的客户确认作废，需生成新版本重新走「客户反馈 → 我方代登记 → 内部审核」；已发出的匹配结果同时失效。', ()=>{
+    /* 弹窗停留期间状态可能变化（如另一处已生成版本），落笔前再确认一次 */
+    if(openVer(d)){ closeAll(); toast('已有未结版本，未重复生成'); return openVers(did); }
     const cur = activeVer(d);
     const base = cur ? cur.v : 'v1.0';
     const next = 'v'+(Number(String(base).replace('v','').split('.')[0])+1)+'.0';

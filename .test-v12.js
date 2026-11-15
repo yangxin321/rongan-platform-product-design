@@ -469,6 +469,99 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   ok('RG002-18 未确认需求明确不生效', dd8.includes('未生效') && dd8.includes('不得作为匹配与推荐依据'));
   await ev(() => closeAll());
 
+  /* ---- 回归 #5：标准值里的否定表达与连接号不能把条件吃掉 ----
+     SJ-IQC-S2 真实保存 10:'18–45'（en dash）、26:['无强制证']。
+     只认 ASCII '-' 会把客户明示上限当成无限制；'无强制证' 会被造出一个同名必备证书。 */
+  const iqcGate = await ev(() => {
+    const s = STD_JOBS.find(x => x.id === 'SJ-IQC-S2');
+    const st = { sid:'SJ-IQC-S2', draft:{}, dirty:{}, city:'中山', deadline:'2026-12-20', people:'2' };
+    const g = ndGate(st, s);
+    return { age:g.age, ageRaw:g.ageRaw, cert:g.cert, certMust:g.certMust, trade:g.trade };
+  });
+  ok('RG002-19 标准年龄区间的连接号可解析',
+     Array.isArray(iqcGate.age) && iqcGate.age[0] === 18 && iqcGate.age[1] === 45,
+     JSON.stringify(iqcGate));
+  ok('RG002-20 无强制证归一为空证书要求',
+     Array.isArray(iqcGate.cert) && iqcGate.cert.length === 0 && iqcGate.certMust === false,
+     JSON.stringify(iqcGate));
+  /* 客户明示上限必须真的拦住人：46 岁在「18–45」这一单的年龄项不能判符合 */
+  ok('RG002-21 超出客户明示年龄上限判不符合', await ev(() => {
+      const bak = DEMAND_GATE.DT9;
+      DEMANDS.unshift({ id:'DT9', code:'XQ-TEST-09', client:'测试客户', cs:'测试', ps:'品质',
+        project:'年龄校验', post:'IQC · 熟手', head:1, hired:0, price:'35 元/时', city:'中山',
+        deadline:'2026-12-20', valid:'2026-12-20 ~ 待定', confirm:'已确认', alloc:'未分配',
+        status:'已确认', req:[], owner:'李文静', stdId:'SJ-IQC-S2', stdVer:'v1.0',
+        stdList:'EL-IQC-S2', stdOverride:[] });
+      DEMAND_GATE.DT9 = { city:'中山', age:[18,45], gender:'不限', night:'不需要', trade:'品质',
+        skill:[], cert:[], certMust:false, arriveBy:'2026-12-20' };
+      DEMAND_VERS.DT9 = [{ v:'v1.0', status:'生效', audit:'已通过', at:'2026-11-10 09:00',
+        by:'金诚（代客户登记）', way:'微信', n:47, note:'', changes:[], gate:DEMAND_GATE.DT9 }];
+      const p = PERSONS.find(x => x.age > 45);
+      const it = p ? assessPerson(p, D('DT9')) : [];
+      const a = it.find(x => x.key === 'age') || {};
+      const out = { hasP:!!p, age:p && p.age, state:a.state };
+      DEMANDS.shift(); delete DEMAND_GATE.DT9; delete DEMAND_VERS.DT9;
+      return out;
+    }), '');
+
+  /* 只读确认单：第一节与第二节必须同一版来源（同一个截止日期，不能出现两个） */
+  const sameSrc = await ev(() => {
+    DEMANDS.unshift({ id:'DT7', code:'XQ-TEST-07', client:'测试客户', cs:'测试', ps:'电工',
+      project:'只读页同源', post:'装配电工 · 大工', head:2, hired:0, price:'30 元/时', city:'东莞',
+      deadline:'2026-11-30', valid:'2026-11-30 ~ 待定', confirm:'已确认', alloc:'未分配',
+      status:'已确认', req:[], owner:'李文静', stdId:'SJ-DG-D3', stdVer:'v1.1',
+      stdList:'EL-DG-D3', stdOverride:[] });
+    DEMAND_GATE.DT7 = { city:'东莞', age:[18,45], gender:'不限', night:'不需要', trade:'电工',
+      skill:[], cert:[], certMust:false, arriveBy:'2026-11-30' };
+    DEMAND_VERS.DT7 = [
+      { v:'v1.0', status:'已被取代', at:'2026-11-01 09:00', by:'金诚', way:'微信', n:47, note:'',
+        changes:[], gate:{ arriveBy:'2026-11-30' } },
+      { v:'v1.1', status:'生效', audit:'已通过', at:'2026-11-12 17:20', by:'金诚（代客户登记）',
+        way:'电话', n:47, note:'', changes:[], gate:{ arriveBy:'2026-11-28' } },
+    ];
+    const tok = genLink('DT7', 'v1.1', '金诚');
+    openCustLinkDemo(tok);
+    const doc = document.querySelector('.cust-doc');
+    const sec1 = doc ? (doc.querySelectorAll('.sec')[0] || {}).innerText || '' : '';
+    const sec2 = doc ? (doc.querySelectorAll('.sec')[1] || {}).innerText || '' : '';
+    const out = { hasDoc:!!doc, sec1, sec2 };
+    exitCustLink();
+    DEMANDS.shift(); delete DEMAND_GATE.DT7; delete DEMAND_VERS.DT7;
+    CLINKS.splice(CLINKS.findIndex(l => l.tok === tok), 1);
+    return out;
+  });
+  ok('RG002-22 只读页第一节与第二节同源',
+     sameSrc.hasDoc && sameSrc.sec1.includes('2026-11-28') && !sameSrc.sec1.includes('2026-11-30')
+     && sameSrc.sec2.includes('2026-11-28'), JSON.stringify(sameSrc));
+
+  /* 已有未结版本时不得再生成同名新版本（否则送审与审核不是同一个对象） */
+  const dupVer = await ev(() => {
+    enter('R01'); go('confirms');   /* 弹窗 / 抽屉容器只在角色外壳里存在 */
+    DEMANDS.unshift({ id:'DT6', code:'XQ-TEST-06', client:'测试客户', cs:'测试', ps:'电工',
+      project:'版本唯一', post:'装配电工 · 大工', head:2, hired:0, price:'30 元/时', city:'东莞',
+      deadline:'2026-11-30', valid:'2026-11-30 ~ 待定', confirm:'已确认', alloc:'未分配',
+      status:'已确认', req:[], owner:'李文静', stdId:'SJ-DG-D3', stdVer:'v1.1',
+      stdList:'EL-DG-D3', stdOverride:[] });
+    DEMAND_GATE.DT6 = { city:'东莞', age:[18,45], gender:'不限', night:'不需要', trade:'电工',
+      skill:[], cert:[], certMust:false, arriveBy:'2026-11-30' };
+    DEMAND_VERS.DT6 = [{ v:'v1.0', status:'生效', audit:'已通过', at:'2026-11-10 09:00',
+      by:'金诚（代客户登记）', way:'微信', n:47, note:'', changes:[], gate:DEMAND_GATE.DT6 }];
+    const d = D('DT6'), n0 = versOf(d).length;
+    confirmReg('DT6', 'change');                       /* 第一次：弹确认框 */
+    const btn = document.getElementById('askOk');
+    if(btn) btn.click();                               /* 落笔生成 v2.0 */
+    const n1 = versOf(d).length, vNew = versOf(d).slice(-1)[0].v;
+    confirmReg('DT6', 'change');                       /* 第二次：应被拦住 */
+    const n2 = versOf(d).length;
+    const sameName = versOf(d).filter(v => v.v === vNew).length;
+    closeAll();
+    DEMANDS.shift(); delete DEMAND_GATE.DT6; delete DEMAND_VERS.DT6;
+    return { n0, n1, n2, vNew, sameName };
+  });
+  ok('RG002-23 已有未结版本不重复生成版本号',
+     dupVer.n1 === dupVer.n0 + 1 && dupVer.n2 === dupVer.n1 && dupVer.sameName === 1,
+     JSON.stringify(dupVer));
+
   /* ---- 匹配模式切换 ---- */
   await ev(() => { enter('R04'); go('batches'); runMatch('B1','batch'); }); await page.waitForTimeout(300);
   const mb = await txt('.modal');

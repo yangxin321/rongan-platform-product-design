@@ -286,6 +286,21 @@ function ndS4(st, s){
 }
 
 /* ---------- 生成 ---------- */
+/* 条件的否定表达不是值，是「没有要求」：
+   标准值里真实存在 26:['无强制证']（SJ-IQC-S2）、14:'无硬性要求'。
+   不归一化就会造出一个名叫「无强制证」的必备证书，全员证书项进待确认（AGENTS R5）。 */
+const ND_NONE = /^(无|无硬性|无硬性要求|不限|无要求|无证书要求|无强制证|无强制证书|无硬性证书|无需证书|不需要证书|不强制|无夜班)$/;
+const ndIsNone = x => {
+  const t = String(x == null ? '' : x).trim();
+  /* 允许带括号说明：「无强制证（岗前培训即可）」同样是没有要求 */
+  return ND_NONE.test(t) || ND_NONE.test(t.replace(/[（(][^()（）]*[)）]/g, '').trim());
+};
+const ndArr = v => {
+  if(Array.isArray(v)) return v.map(x=>String(x).trim()).filter(x=>x && !ndIsNone(x));
+  if(!v) return [];
+  return String(v).split(/[、,，/;；·\s]+/).map(x=>x.trim()).filter(x=>x && !ndIsNone(x));
+};
+
 /* 条件快照：把「选中的标准岗位标准 + 本单调整」落成一份 gate。
    客户只读页与匹配都只读这一份 —— 不生成快照，缺的条件会被当成「无要求」，
    客户看到「—／无硬性要求／不需要夜班」，却不是自己填的那一套。 */
@@ -295,17 +310,22 @@ function ndGate(st, s){
     if(v === '' || v == null) return (s.vals||{})[no];
     return v;
   };
-  const NONE = /^(无|无硬性|无硬性要求|不限|无要求|无证书要求|不强制|无夜班)$/;
-  const arr = v => {
-    if(Array.isArray(v)) return v.map(x=>String(x).trim()).filter(x=>x && !NONE.test(x));
-    if(!v) return [];
-    return String(v).split(/[、,，/;；·\s]+/).map(x=>x.trim()).filter(x=>x && !NONE.test(x));
-  };
+  const arr = ndArr;
   const raw = no => String(val(no)==null?'':val(no)).trim();
 
-  /* 年龄：'18-45' / '18~40' / '不限' → [18,45] / null（null = 客户未设限，不参与否决） */
-  const m = raw(10).match(/(\d{2})\s*[-~～至到]\s*(\d{2})/);
-  const age = m ? [+m[1], +m[2]] : null;
+  /* 年龄：'18-45' / '18~40' / '不限' → [18,45] / null（null = 客户未设限，不参与否决）
+     标准值里实际写的是 en dash（'18–45'，SJ-IQC-S2 等），只认 ASCII '-' 会把「客户明示上限」
+     当成「无限制」，超过上限的人在年龄项被判符合（AGENTS R8）。破折号几种写法都要认。 */
+  const ageRaw = raw(10);
+  const m = ageRaw.match(/(\d{2})\s*[-–—−－~～至到]\s*(\d{2})/);
+  let age = m ? [+m[1], +m[2]] : null;
+  if(!age){
+    /* 「45 岁以下 / 18 岁以上」也是客户明示条件，不能因为没有区间号就丢掉 */
+    const hi = ageRaw.match(/(\d{2})\s*岁?\s*(以下|以内)/);
+    const lo = ageRaw.match(/(\d{2})\s*岁?\s*(以上|起)/);
+    if(hi) age = [0, +hi[1]];
+    else if(lo) age = [+lo[1], 99];
+  }
 
   /* 性别：只有明确「男 / 女」才是硬条件；「男女不限 / 女工优先」按不限处理 */
   const gRaw = raw(11);
@@ -320,7 +340,7 @@ function ndGate(st, s){
 
   return {
     city: st.city || '',
-    age, gender, night,
+    age, ageRaw, gender, night,
     trade: raw(22) || s.trade || '',
     skill: arr(val(25)),
     cert, certMust,
@@ -341,7 +361,9 @@ function ndCreate(){
   const trade = st.draft[22] || s.trade, grade = st.draft[23] || s.grade;
   req.push(`${trade} · ${grade} · 独立作业`);
   if(Array.isArray(st.draft[25]) && st.draft[25].length) req.push('技能：' + st.draft[25].slice(0,5).join('、'));
-  if(Array.isArray(st.draft[26]) && st.draft[26].length) req.push('证书：' + st.draft[26].join('、'));
+  /* 「无强制证」不是证书名，不进需求摘要 */
+  const reqCert = ndArr(Array.isArray(st.draft[26]) ? st.draft[26] : (s.vals||{})[26]);
+  if(reqCert.length) req.push('证书：' + reqCert.join('、'));
   if(st.draft[29]) req.push(String(st.draft[29]));
   if(st.draft[19]) req.push('班制：' + st.draft[19]);
 
