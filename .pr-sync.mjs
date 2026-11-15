@@ -129,9 +129,22 @@ async function cmdCheck({ mark = false, all = false }) {
 
 async function cmdReply(id, text) {
   const body = text.startsWith('@') ? fs.readFileSync(text.slice(1), 'utf8') : text;
-  const isInline = /^ic/.test(id);
+  /* id 三种写法：
+       ic<数字> → 强制行内回复（线程内）
+       cv<数字> → 强制会话评论
+       <数字>   → 自动判断：是 review comment 就线程内回复，否则当会话评论
+     裸数字曾被当成会话评论，回复跑出线程、丢失上下文，故加自动判断。 */
+  let isInline = /^ic/.test(id);
+  if (!isInline && !/^cv/.test(id)) {
+    try {
+      /* 注意：取单条行内评论是 /pulls/comments/{id}（不带 PR 号），
+         而回复是 /pulls/{PR}/comments/{id}/replies —— 两者路径不同，别混用 */
+      await api(`/repos/${REPO}/pulls/comments/${id}`);
+      isInline = true;
+    } catch (e) { isInline = false; }
+  }
   if (isInline) {
-    const cid = Number(id.slice(2));
+    const cid = Number(id.replace(/^ic/, ''));
     const r = await api(`/repos/${REPO}/pulls/${PR}/comments/${cid}/replies`, 'POST', { body });
     console.log('已回复行内评论:', r.html_url);
   } else {
