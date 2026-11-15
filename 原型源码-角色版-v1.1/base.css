@@ -73,6 +73,11 @@ input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
 .page-head h2{font-size:23px;font-weight:600;letter-spacing:-.3px}
 .page-head p{font-size:13px;color:var(--ink3);margin-top:5px;max-width:760px}
 .page-actions{display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap}
+/* 独立详情页的返回条（v1.3 · RG-012）：页面内返回，不靠浏览器按钮 */
+.pg-back{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--ink3);cursor:pointer;margin:-4px 0 12px;padding:3px 8px 3px 4px;border-radius:6px;transition:.14s}
+.pg-back:hover{color:var(--ink);background:var(--bg2)}
+.dm-page .arc-top{margin-bottom:0}
+.dm-page .arc-tabs{margin:12px 0 16px}
 
 /* ---------- buttons ---------- */
 .btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:7px;font-size:13px;border:1px solid var(--line);background:#fff;color:var(--ink2);transition:.14s;white-space:nowrap}

@@ -10,13 +10,12 @@ function demandsPage(){
   if(q) rows = rows.filter(d => (d.post+d.client+d.project+d.code).includes(q));
   if(st) rows = rows.filter(d => d.status===st);
 
-  const totalHead = rows.reduce((a,d)=>a+d.head,0), totalHired = rows.reduce((a,d)=>a+d.hired,0);
   const actions = isR04
     ? `<button class="btn" onclick="toast('已按缺口排序')">按缺口排序</button><button class="btn" onclick="toast('已导出 4 条需求')">导出</button>`
     : `<button class="btn pri" onclick="ndEnter()">＋ 新建需求</button><button class="btn" onclick="toast('已导出需求清单')">导出</button>`;
 
   const cols = [
-    {label:'需求 / 岗位', r:d=>`<div class="t-name"><span class="link-post" title="点开看岗位详情（用工标准 / 技能胜任 / 商务条件）" onclick="event.stopPropagation();pmOpen('${d.id}')">${esc(d.post)}</span></div><div class="t-sub"><span class="arc-link mono" onclick="event.stopPropagation();openDemand('${d.id}')">${esc(d.code)}</span> · ${esc(d.client)}</div>`},
+    {label:'需求 / 岗位', r:d=>`<div class="t-name"><span class="link-post" title="点开进入这条需求的独立详情页（需求明细 / 简历明细 / 招聘进度）" onclick="openDemand('${d.id}','detail')">${esc(d.post)}</span></div><div class="t-sub"><span class="arc-link mono" onclick="openDemand('${d.id}','detail')">${esc(d.code)}</span> · ${esc(d.client)}</div>`},
     {label:'项目', r:d=>`<div class="sm">${esc(d.project)}</div><div class="t-sub">${esc(d.city)}</div>`},
     {label:'人数 / 缺口', r:d=>`<div class="num"><b>${d.head}</b> 人</div><div class="t-sub">缺口 <b style="color:var(--bad)">${d.head-d.hired}</b> · 已入职 ${d.hired}</div><div class="t-sub" style="color:var(--ink2)">在投 <b>${personsOf(d.id).length}</b></div>`},
     {label:'分配', r:d=>{
@@ -37,67 +36,19 @@ function demandsPage(){
   ];
 
   return `<div class="page">
-    ${head('需求列表', isR04? '我参与招聘的需求 · 点岗位名看详情（标准 / 技能 / 商务），点编号进抽屉干活' : '客户确认后落下的可执行需求 · 一个需求一个岗位一个人数', actions)}
-    ${isR04 ? todoStrip() : ''}
-    ${stats([
-      {lab:'需求数', val:rows.length, unit:'个', foot:'我参与的需求'},
-      {lab:'需求总人数', val:totalHead, unit:'人'},
-      {lab:'已入职', val:totalHired, unit:'人', foot:`到岗率 ${pct(totalHired,totalHead)}%`},
-      {lab:'缺口', val:totalHead-totalHired, unit:'人', accent:true, foot:'含未分配人数'},
-    ])}
+    ${head('需求列表', isR04? '我参与招聘的需求 · 点岗位名或编号进入独立详情页' : '客户确认后落下的可执行需求 · 一个需求一个岗位一个人数', actions)}
     ${toolbar({q:'搜索岗位 / 客户 / 项目 / 编号', filters:[{k:'st',opts:[{v:'',label:'全部状态'},{v:'招聘中',label:'招聘中'},{v:'待分配',label:'待分配'},{v:'已完成',label:'已完成'}]}], right:`<span class="sm mut">共 ${rows.length} 条</span>`})}
     ${table(cols, rows)}
     ${pager(rows.length)}
   </div>`;
 }
 
-/* ---------- 需求列表顶部 · 我要干的事（P0-5） ---------- */
-const TODO_GRP = [
-  {k:'面', n:'待面试', tone:'w', act:'约面 / 登记结果', nodes:['待面试']},
-  {k:'入', n:'入职跟进', tone:'g', act:'推进到岗', nodes:['面试通过','待入职']},
-  {k:'意', n:'意向跟进', tone:'i', act:'记录联系', nodes:['已匹配','触达中','补全中','新入库']},
-];
-function todoList(k){
-  const g = TODO_GRP.find(x=>x.k===k) || TODO_GRP[0];
-  return PERSONS.filter(p=>p.owner===S.who && p.status==='跟进中' && g.nodes.includes(p.node));
-}
-function todoStrip(){
-  const me = S.who;
-  const mineP = PERSONS.filter(p=>p.owner===me && p.status==='跟进中');
-  const focus = FOCUS.filter(f=>f.staff===me);
-  const cards = TODO_GRP.map(g=>{
-    const n = mineP.filter(p=>g.nodes.includes(p.node)).length;
-    return `<div class="td-card ${n?'':'dim'}" onclick="openTodo('${g.k}')">
-      <div class="td-n"><b class="b ${g.tone}">${g.n}</b><span class="td-c">${n}</span></div>
-      <div class="td-a">${g.act} →</div>
-    </div>`;
-  }).join('');
-  const sys = focus.length
-    ? `<div class="td-sys">${focus.map(f=>`<span class="td-si ${f.level==='bad'?'r':f.level==='warn'?'w':''}" onclick="handleFocus('${f.target}')">${esc(f.title)}</span>`).join('')}</div>`
-    : '<span class="xs mut">今天没有系统提醒</span>';
-  return `<div class="td-strip">
-    <div class="td-h"><b>我要干的事</b><span class="xs mut">点卡片看名单 · 这些每天都要过一遍，别压在最后一页</span></div>
-    <div class="td-row">${cards}</div>
-    <div class="td-sysrow"><span class="xs mut">系统提醒</span>${sys}</div>
-  </div>`;
-}
-function openTodo(k){
-  const g = TODO_GRP.find(x=>x.k===k) || TODO_GRP[0];
-  const list = todoList(k);
-  const rows = list.map(p=>`<div class="td-pr" onclick="closeAll();openPerson('${p.id}')">
-    <div class="avatar">${esc(p.name.slice(0,1))}</div>
-    <div style="flex:1;min-width:0"><div class="sm"><b>${esc(p.name)}</b> <span class="xs mut">· ${esc(D(p.demandId).post)}</span></div>
-      <div class="xs mut">${esc(p.skills[0]||'')} · 上次 ${p.lastContact==='—'?'未联系':p.lastContact.slice(5)}</div></div>
-    ${nodeB(p.node)}
-    <span class="xs mut">${esc(g.act)}</span>
-  </div>`).join('');
-  openModal(`<div class="md-h"><div><h3>${g.n} · ${list.length} 人</h3>
-      <p>${esc(g.act)} · 点人名进详情，看简历或记沟通</p></div>
-    <button class="dr-x" onclick="closeAll()">×</button></div>
-  <div class="md-b">${rows || '<div class="empty">这一类现在没有人</div>'}</div>
-  <div class="md-f"><button class="btn" onclick="closeAll()">关闭</button>
-    <button class="btn pri" onclick="closeAll();go('persons')">去人员列表</button></div>`);
-}
+/* ---------- 列表顶部「我要干的事」已移除（v1.3 · RG-012）----------
+   原来的三张卡（待面试 / 入职跟进 / 意向跟进）+ 系统提醒放在需求列表最上面，
+   占掉首屏却只对 R04 有用，R01/R02 打开列表第一眼看不到需求。
+   现在：能力留在独立工作台「我的首页」的第二张卡「需要我跟的事」里（同一份分阶段名单，
+   点人名直接进人详情，数量与列表一致），列表本身只放记录。
+   不要在这里加回任何卡片 / 待办 / 汇总数字 —— 要加就先改 Issue #6 的 AC-1。 */
 
 /* ---------- 批次列表 ---------- */
 function sameDayCount(b){ return BATCHES.filter(x=>x.demandId===b.demandId && x.date===b.date).length; }
@@ -298,89 +249,113 @@ function logsPage(){
 /* ================= 抽屉 ================= */
 
 /* =============================================================
-   需求详情：一个抽屉，三个页签（2026-11-14 · P0-3）
+   需求详情：独立页面 + 三个页签（v1.3 · RG-012 / 2026-11-15）
    -------------------------------------------------------------
    [ 需求明细 ]（默认，可改） [ 简历明细 ]（列同人员列表） [ 招聘进度 ]
-   以前首屏是 8 个 KV 框（人数/工价/地点/有效期…），正好是他"不需要每天看着"的原始数据。
-   现在第一眼看到的是"这个岗位要求什么样的人"，进度挪到第三页签。
+   以前是右侧抽屉：遮罩压着列表、看不到系统导航、地址留不住，
+   刷新就丢、返回就回到第一页。现在整页占满主内容区，导航还在，
+   地址是 #demand/<id>/detail?tab=<detail|resume|progress>，刷新与返回都能落回原处。
+   页签键用语义名（detail/resume/progress），不用数字下标 —— 以后加页签不会错位。
    ============================================================= */
 const DM_TABS = [
   {k:'detail',   n:'需求明细', tip:'要求什么样的人'},
   {k:'resume',   n:'简历明细', tip:'像人员列表那样看人'},
   {k:'progress', n:'招聘进度', tip:'漏斗与批次'},
 ];
-let DM = {id:null, tab:'detail', scope:'mine'};
+/* back：进详情前记下的「从哪来」（页面 / 筛选 / 滚动），供页面内返回原样还原 */
+let DM = {id:null, tab:'detail', scope:'mine', back:null};
+
+function dmTabOk(t){ return DM_TABS.some(x=>x.k===t); }
 
 function openDemand(id, tab){
-  if(DM.id!==id){ DM.scope = 'mine'; }
+  const from = S.page;
+  if(DM.id !== id){
+    DM.scope = 'mine';
+    DM.back = { page: from, f: Object.assign({}, S.f), scroll: mainScroll() };
+  }
   DM.id = id;
-  DM.tab = tab || 'detail';
-  dmPaint();
+  DM.tab = dmTabOk(tab) ? tab : 'detail';
+  S.page = 'demandDetail';
+  closeAll();
+  render();
+  setMainScroll(0);
+  navHash(routeHash(), 'push');
 }
-function dmSetTab(t){ DM.tab = t; dmPaint(); }
-function dmPaint(){ openDrawer(dmHtml()); }
+function dmSetTab(t){
+  if(!dmTabOk(t) || DM.tab === t) return;
+  DM.tab = t;
+  dmRender(false);
+}
+function dmSetScope(s){ DM.scope = s; dmRender(false); }
+/* 只重画主内容区，不重建外壳，避免导航闪一下 */
+function dmRender(push){
+  const m = document.getElementById('main');
+  const sc = m ? m.scrollTop : 0;
+  S.page = 'demandDetail';
+  render();
+  setMainScroll(push === false ? sc : 0);
+  navHash(routeHash(), push ? 'push' : 'replace');
+}
+/* 页面内返回：优先回到进来时的列表并还原筛选与滚动，没有来源就去需求列表 */
+function dmBack(){
+  const b = DM.back;
+  DM.id = null; DM.tab = 'detail'; DM.back = null;
+  if(b && b.page && PAGES[b.page]){
+    S.page = b.page;
+    S.f = Object.assign({}, b.f || {});
+    render();
+    setMainScroll(b.scroll || 0);
+    navHash('#' + b.page, 'replace');
+    return;
+  }
+  go('demands');
+}
 
-/* ---------- 岗位详情弹窗（点岗位名 · P0-4） ----------
-   看标准用弹窗（宽、一屏看完），干活用抽屉（含简历明细） */
-function pmOpen(did){
-  DM.id = did;                       /* dmDetail 里的编辑器要读 DM.id */
-  openModal(pmHtml(did), 'md-xl');
-}
-function pmHtml(did){
-  const d = D(did);
-  const ps = personsOf(did), mine = ps.filter(p=>p.owner===S.who).length;
-  return `<div class="md-h"><div>
-      <h3>${esc(d.post)}</h3>
-      <p>${esc(d.code)} · ${esc(d.client)} · ${esc(d.project)} · ${esc(d.city)}</p>
-    </div><button class="dr-x" onclick="closeAll()">×</button></div>
-  <div class="md-b">
-    <div class="pm-top">
-      ${demandB(d.status)} ${confirmB(d.confirm)}
-      <span class="sm">需求 <b>${d.head}</b> 人 · 已入职 <b>${d.hired}</b> · 缺口 <b style="color:var(--bad)">${d.head-d.hired}</b> · 在投 <b>${ps.length}</b>${S.role==='R04'?` · 我投了 <b>${mine}</b>`:''}</span>
-      <div class="sp"></div>
-      <span class="sm mut">最迟到岗 <b class="mono">${esc(d.deadline)}</b></span>
-    </div>
-    <div class="note i" style="margin-bottom:14px">这一窗是<b>岗位详情</b>：用工标准 / 技能胜任 / 商务条件。要看简历明细、批次、分配，点下面「看简历明细」进抽屉。</div>
-    ${dmDetail(d)}
-  </div>
-  <div class="md-f">
-    <button class="btn" onclick="closeAll()">关闭</button>
-    <button class="btn" onclick="closeAll();openDemand('${did}','detail')">在抽屉里改</button>
-    <button class="btn pri" onclick="closeAll();openDemand('${did}','resume')">看简历明细（${ps.length}）</button>
-  </div>`;
-}
+/* 点岗位名的旧入口（R04 首页等）统一走同一个详情页，不再开弹窗 */
+function pmOpen(did){ openDemand(did, 'detail'); }
 
 function dmHtml(){
-  const d = D(DM.id), ps = personsOf(d.id), al = allocOf(d.id);
+  const d = D(DM.id);
+  if(!d || !d.id) return dmMissingHtml();
+  const ps = personsOf(d.id), al = allocOf(d.id);
   const isR04 = S.role==='R04';
   const mineN = dmMine(d.id).length;
   const badge = {detail:'', resume:`${mineN}/${ps.length}`, progress:'', };
-  return `
-    <div class="dr-h">
-      <div><h3>${esc(d.post)}</h3>
-        <div class="sub">${esc(d.code)} · ${esc(d.client)} · ${esc(d.project)}</div></div>
-      <button class="dr-x" onclick="closeAll()">×</button></div>
-    <div class="dr-b">
-      <div class="arc-top">
-        <span class="b i">${esc(d.status)}</span>
-        ${confirmB(d.confirm)}
-        <span class="sm">需求 <b>${d.head}</b> 人 · 已入职 <b>${d.hired}</b> · 缺口 <b style="color:var(--bad)">${d.head-d.hired}</b></span>
-        <div class="sp"></div>
-        <span class="sm mut">${esc(d.city)} · 最迟到岗 <b class="mono">${esc(d.deadline)}</b></span>
-      </div>
-
-      <div class="arc-tabs">
-        ${DM_TABS.map(t=>`<span class="arc-tab ${DM.tab===t.k?'on':''}" onclick="dmSetTab('${t.k}')">
-          ${t.n}${badge[t.k]?` <i class="vis n">${badge[t.k]}</i>`:''}</span>`).join('')}
-      </div>
-
-      ${DM.tab==='detail' ? dmDetail(d) : DM.tab==='resume' ? dmResume(d) : dmProgress(d, al, ps)}
+  const fromList = DM.back && DM.back.page === 'demands';
+  const acts = isR04
+    ? `<button class="btn" onclick="openModal(uploadNewBatchModal(),'md-lg')">↑ 传简历</button><button class="btn pri" onclick="go('batches')">建今日批次</button>`
+    : `<button class="btn" onclick="openAlloc('${d.id}')">分配需求</button><button class="btn pri" onclick="toast('已发起客户重确认')">发起重确认</button>`;
+  return `<div class="page dm-page">
+    <div class="pg-back" onclick="dmBack()">← 返回${fromList?'需求列表':'上一页'}</div>
+    ${head(esc(d.post), `${esc(d.code)} · ${esc(d.client)} · ${esc(d.project)} · ${esc(d.city)} · 最迟到岗 ${esc(d.deadline)}`, acts)}
+    <div class="arc-top">
+      ${demandB(d.status)} ${confirmB(d.confirm)}
+      <span class="sm">需求 <b>${d.head}</b> 人 · 已入职 <b>${d.hired}</b> · 缺口 <b style="color:var(--bad)">${d.head-d.hired}</b> · 在投 <b>${ps.length}</b></span>
+      <div class="sp"></div>
+      <span class="xs mut mono">#demand/${esc(d.id)}/detail?tab=${DM.tab}</span>
     </div>
-    <div class="dr-f">
-      <button class="btn" onclick="closeAll()">关闭</button>
-      ${isR04? `<button class="btn pri" onclick="closeAll();go('batches')">建今日批次</button>`
-        : `<button class="btn" onclick="closeAll();openAlloc('${d.id}')">分配需求</button><button class="btn pri" onclick="toast('已发起客户重确认')">发起重确认</button>`}
-    </div>`;
+
+    <div class="arc-tabs">
+      ${DM_TABS.map(t=>`<span class="arc-tab ${DM.tab===t.k?'on':''}" title="${esc(t.tip)}" onclick="dmSetTab('${t.k}')">
+        ${t.n}${badge[t.k]?` <i class="vis n">${badge[t.k]}</i>`:''}</span>`).join('')}
+    </div>
+
+    ${DM.tab==='detail' ? dmDetail(d) : DM.tab==='resume' ? dmResume(d) : dmProgress(d, al, ps)}
+  </div>`;
+}
+
+/* 地址里的需求不存在（刷新后内存演示数据已重置 / 编号写错）：说清原因，给返回入口，不静默跳别处 */
+function dmMissingHtml(){
+  return `<div class="page">
+    <div class="pg-back" onclick="go('demands')">← 返回需求列表</div>
+    ${head('找不到这条需求','地址指向的需求不在当前演示数据里')}
+    <div class="note w">
+      <div><b>需求编号</b> <span class="mono">${esc(DM.id || '—')}</span> 没有匹配到记录。</div>
+      <div style="margin-top:6px">常见原因：演示数据存在内存里，刷新页面后新增/改过的记录会回到初始状态；或者编号被改动过。</div>
+      <div style="margin-top:6px">这不是权限问题，系统也不会自动跳到别的需求上。</div>
+    </div>
+    <div style="margin-top:12px"><button class="btn pri" onclick="go('demands')">返回需求列表</button></div>
+  </div>`;
 }
 
 /* ---------- 页签 1 · 需求明细（可改） ---------- */
@@ -526,8 +501,8 @@ function dmResume(d){
         <span class="xs mut" style="font-weight:400">列与人员列表完全一致 · 不按批次切、不限时间</span></div>
       <div class="seg" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
         <span class="sm">范围</span>
-        <span class="chip ${DM.scope==='mine'?'on':''}" onclick="DM.scope='mine';dmPaint()">我的 ${mine.length}</span>
-        <span class="chip ${DM.scope==='all'?'on':''}" onclick="DM.scope='all';dmPaint()">全部 ${all.length}</span>
+        <span class="chip ${DM.scope==='mine'?'on':''}" onclick="dmSetScope('mine')">我的 ${mine.length}</span>
+        <span class="chip ${DM.scope==='all'?'on':''}" onclick="dmSetScope('all')">全部 ${all.length}</span>
         <div class="sp"></div>
         <span class="xs mut">「我的」= 我负责或我当前跟进的人</span>
       </div>
@@ -1386,6 +1361,8 @@ function batchMatchAll(){
 /* 注册共用页 */
 ['demands','batches','persons','pool','logs'].forEach(k=>{ PAGES[k] = PAGES[k]||{}; });
 PAGES.demands = {R01:demandsPage, R02:demandsPage, R04:demandsPage};
+/* 需求详情独立页：#demand/<id>/detail?tab=<detail|resume|progress>（不在菜单里，由列表/首页/档案进入） */
+PAGES.demandDetail = {any: dmHtml};
 PAGES.batches = {R01:batchesPage, R04:batchesPage};
 PAGES.persons = {R01:personsPage, R04:personsPage};
 PAGES.pool    = {R01:poolPage, R04:poolPage};

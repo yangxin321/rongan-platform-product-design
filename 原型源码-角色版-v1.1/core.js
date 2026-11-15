@@ -229,15 +229,89 @@ function exitCustLink(){
 }
 
 function enter(role, silent){
-  S.role = role; S.page = DEFAULT_PAGE[role]; S.f={}; S.who = ROLES[role].who;
+  S.role = role; S.f={}; S.who = ROLES[role].who;
+  S.page = DEFAULT_PAGE[role];
+  applyHash();                       /* 地址优先：刷新 / 直达详情页时按 hash 定位 */
   localStorage.setItem('rg-role', role);
   render();
+  navHash(routeHash(), 'replace');
 }
-function exitRole(){ localStorage.removeItem('rg-role'); S.role=null; document.getElementById('root').innerHTML = viewLanding(); }
-function go(page){ S.page = page; S.f={}; closeAll(); render(); }
+function exitRole(){ localStorage.removeItem('rg-role'); S.role=null; DM.id=null; document.getElementById('root').innerHTML = viewLanding(); }
+function go(page){
+  if(page !== 'demandDetail') DM.id = null;
+  S.page = page; S.f = {}; closeAll(); render();
+  setMainScroll(0);
+  navHash('#' + page, 'push');
+}
+
+/* ---------- 地址路由（v1.3 · RG-012） ----------
+   列表 #demands；需求详情 #demand/<id>/detail?tab=<detail|resume|progress>。
+   地址只承载「在哪一页、哪条记录、哪个页签」，界面筛选与滚动另存 sessionStorage；
+   不写凭据，也不代表业务数据持久化 —— 刷新后内存演示记录仍会回到初始状态。
+   页签用语义键，不用会随排序改变的数字下标。 */
+const SCROLL_MEM = 'rg-scroll-v13';
+function mainScroll(){ const m=document.getElementById('main'); return m? m.scrollTop : 0; }
+function setMainScroll(v){ const m=document.getElementById('main'); if(m) m.scrollTop = v||0; }
+function scrollMem(){ try{ return JSON.parse(sessionStorage.getItem(SCROLL_MEM)||'{}'); }catch(e){ return {}; } }
+function saveScrollHere(){
+  const mp = scrollMem();
+  mp[location.hash || ('#'+S.page)] = mainScroll();
+  try{ sessionStorage.setItem(SCROLL_MEM, JSON.stringify(mp)); }catch(e){}
+}
+function restoreScrollHere(){
+  const mp = scrollMem();
+  setMainScroll(mp[location.hash || ('#'+S.page)] || 0);
+}
+function routeHash(){
+  if(S.page === 'demandDetail'){
+    const tab = (DM && dmTabOk(DM.tab)) ? DM.tab : 'detail';
+    return `#demand/${encodeURIComponent(DM.id||'')}/detail?tab=${tab}`;
+  }
+  return '#' + (S.page || '');
+}
+let NAV_SELF = false;               /* 自己改的地址不再触发一次渲染 */
+function navHash(h, mode){
+  if(!h || location.hash === h) return;
+  saveScrollHere();
+  NAV_SELF = true;
+  if(mode === 'push'){
+    try{ history.pushState(null, '', h); NAV_SELF = false; return; }catch(e){}
+  } else {
+    try{ history.replaceState(null, '', h); NAV_SELF = false; return; }catch(e){}
+  }
+  location.hash = h;                /* file:// 等不支持 pushState 时退回 hash */
+  setTimeout(()=>{ NAV_SELF = false; }, 0);
+}
+/* 解析当前地址并落到状态上；返回是否命中可渲染的页面 */
+function applyHash(){
+  const raw = decodeURI(location.hash || '').replace(/^#/, '');
+  if(!raw) return false;
+  const [path, qs] = raw.split('?');
+  const seg = path.split('/').filter(Boolean);
+  if(seg[0] === 'demand' && seg[1]){
+    DM.id = seg[1];
+    const t = new URLSearchParams(qs || '').get('tab');
+    DM.tab = dmTabOk(t) ? t : 'detail';
+    S.page = 'demandDetail';
+    return true;
+  }
+  if(PAGES[seg[0]]){ S.page = seg[0]; return true; }
+  return false;                     /* 无效地址：保持原页面，不静默跳转 */
+}
+function onHashNav(){
+  if(NAV_SELF){ NAV_SELF = false; return; }
+  const ok = applyHash();
+  if(!ok){ S.page = DEFAULT_PAGE[S.role] || S.page; }
+  closeAll();
+  render();
+  restoreScrollHere();
+}
+window.addEventListener('popstate', onHashNav);
+window.addEventListener('hashchange', onHashNav);
 
 function render(){
   const r = ROLES[S.role];
+  const navOn = S.page === 'demandDetail' ? 'demands' : S.page;   /* 详情页高亮所属列表 */
   document.getElementById('root').innerHTML = `<div class="shell">
     <aside class="side">
       <div class="side-top">
@@ -252,7 +326,7 @@ function render(){
           ${S.role==='R01'?`<div class="nav-gt">${esc(gr.g)}</div>`:''}
           ${gr.items.map(([k,label])=>{
             const badge = badgeFor(k);
-            return `<div class="nav-item ${S.page===k?'on':''}" onclick="go('${k}')">
+            return `<div class="nav-item ${navOn===k?'on':''}" onclick="go('${k}')">
               <span class="ni">${iconOf(k)}</span><span>${label}</span>${badge?`<span class="nav-badge">${badge}</span>`:''}
             </div>`;
           }).join('')}

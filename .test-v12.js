@@ -460,12 +460,12 @@ const ok = (id, cond, extra) => checks.push({ id, pass: !!cond, extra: extra || 
   ok('RG003-11 人员列表有三态列', pl.includes('硬条件') && (pl.includes('全部已核实') || pl.includes('待核')));
   ok('RG003-12 档位标注演示', pl.includes('演示评分'));
   await ev(() => openDemand('D1', 'detail')); await page.waitForTimeout(350);
-  const dd = await txt('#drawer');
+  const dd = await txt('.main');            /* v1.3：需求详情改为独立页面，不再进抽屉 */
   ok('RG002-49 需求详情显示生效版本', dd.includes('生效 v1.1'));
   ok('RG002-50 需求详情显示匹配依据版本', dd.includes('匹配依据') || dd.includes('匹配结果需更新'));
   await ev(() => closeAll());
   await ev(() => openDemand('D8', 'detail')); await page.waitForTimeout(300);
-  const dd8 = await txt('#drawer');
+  const dd8 = await txt('.main');
   ok('RG002-51 未确认需求明确不生效', dd8.includes('未生效') && dd8.includes('不得作为匹配与推荐依据'));
   await ev(() => closeAll());
 

@@ -80,7 +80,7 @@ function hdRow(m, i){
   const gapTone = m.gap > 0 ? 'var(--bad)' : 'var(--good)';
   return `<tr id="hdrow-${d.id}">
     <td style="min-width:210px">
-      <div class="t-name"><span class="link-post" title="点开看岗位详情" onclick="pmOpen('${d.id}')">${esc(d.post)}</span>
+      <div class="t-name"><span class="link-post" title="点开进入这条需求的独立详情页（三页签）" onclick="openDemand('${d.id}','detail')">${esc(d.post)}</span>
         ${d.pinned?'<span class="b a">置顶</span>':''}</div>
       <div class="t-sub">${esc(d.project)} · <span class="mono">${esc(d.code)}</span></div>
     </td>
